@@ -94,7 +94,7 @@ public class GetImageServlet extends HttpServlet {
                   @Override
                   public Void run() throws Exception {
                     TransferFsImage.getFileClient(ff.getInfoServer(), "getimage=1", 
-                                                  nnImage.getFsImageNameCheckpoint());
+                                                  nnImage.getImageCheckpointFiles(ff.getTargetFileIndex()));
                     return null;
                   }
                 });

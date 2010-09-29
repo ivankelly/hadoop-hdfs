@@ -878,7 +878,7 @@ public class FSImage extends Storage {
     File imageToLoad = getFirstReadableFsImageFile(lastImageIndex);
     assert imageToLoad.exists();
   
-    long startTime = FSNamesystem.now();
+    long startTime = now();
     long imageSize = imageToLoad.length();
     
     //
@@ -896,7 +896,7 @@ public class FSImage extends Storage {
     mostRecentSavedImageIndex = lastImageIndex;
     
     LOG.info("Image file of size " + imageSize + " loaded in " 
-        + (FSNamesystem.now() - startTime)/1000 + " seconds.");    
+        + (now() - startTime)/1000 + " seconds.");    
   
     // Load all of the edits between the loaded image and the latest.
     List<File> editsToLoad = new ArrayList<File>();
@@ -1222,88 +1222,6 @@ public class FSImage extends Storage {
              newFile.length() + " saved in " +
              (now() - startTime)/1000 + " seconds.");
   }
-
-  /**
-   * Save the contents of the FS image and create empty edits.
-   * 
-   * In order to minimize the recovery effort in case of failure during
-   * saveNamespace the algorithm reduces discrepancy between directory states
-   * by performing updates in the following order:
-   * <ol>
-   * <li> rename current to lastcheckpoint.tmp for all of them,</li>
-   * <li> save image and recreate edits for all of them,</li>
-   * <li> rename lastcheckpoint.tmp to previous.checkpoint.</li>
-   * </ol>
-   * On stage (2) we first save all images, then recreate edits.
-   * Otherwise the name-node may purge all edits and fail,
-   * in which case the journal will be lost.
-   */
-  void saveNamespace(boolean renewCheckpointTime) throws IOException {
-    assert editLog != null : "editLog must be initialized";
-    editLog.close();
-    if(renewCheckpointTime)
-      this.checkpointTime = now();
-    ArrayList<StorageDirectory> errorSDs = new ArrayList<StorageDirectory>();
-
-    // mv current -> lastcheckpoint.tmp
-    for (Iterator<StorageDirectory> it = dirIterator(); it.hasNext();) {
-      StorageDirectory sd = it.next();
-      try {
-        moveCurrent(sd);
-      } catch(IOException ie) {
-        LOG.error("Unable to move current for " + sd.getRoot(), ie);
-        errorSDs.add(sd);
-      }
-    }
-
-    // save images into current
-    for (Iterator<StorageDirectory> it = dirIterator(NameNodeDirType.IMAGE);
-                                                              it.hasNext();) {
-      StorageDirectory sd = it.next();
-      try {
-        saveCurrent(sd);
-      } catch(IOException ie) {
-        LOG.error("Unable to save image for " + sd.getRoot(), ie);
-        errorSDs.add(sd);
-      }
-    }
-
-    // -NOTE-
-    // If NN has image-only and edits-only storage directories and fails here 
-    // the image will have the latest namespace state.
-    // During startup the image-only directories will recover by discarding
-    // lastcheckpoint.tmp, while
-    // the edits-only directories will recover by falling back
-    // to the old state contained in their lastcheckpoint.tmp.
-    // The edits directories should be discarded during startup because their
-    // checkpointTime is older than that of image directories.
-
-    // recreate edits in current
-    for (Iterator<StorageDirectory> it = dirIterator(NameNodeDirType.EDITS);
-                                                              it.hasNext();) {
-      StorageDirectory sd = it.next();
-      try {
-        saveCurrent(sd);
-      } catch(IOException ie) {
-        LOG.error("Unable to save edits for " + sd.getRoot(), ie);
-        errorSDs.add(sd);
-      }
-    }
-    // mv lastcheckpoint.tmp -> previous.checkpoint
-    for (Iterator<StorageDirectory> it = dirIterator(); it.hasNext();) {
-      StorageDirectory sd = it.next();
-      try {
-        moveLastCheckpoint(sd);
-      } catch(IOException ie) {
-        LOG.error("Unable to move last checkpoint for " + sd.getRoot(), ie);
-        errorSDs.add(sd);
-      }
-    }
-    processIOError(errorSDs, false);
-    if(!editLog.isOpen()) editLog.open();
-    ckptState = CheckpointStates.UPLOAD_DONE;
->>>>>>> trunk
-  }
   
   /**
    * Save the current namesystem to the image file in each of the
@@ -1313,8 +1231,10 @@ public class FSImage extends Storage {
     // fsimage_N means we have data from all the logs up to but not including
     // N
     int imageIndexToSave = namesystemReflectsLogsThrough + 1;
-    LOG.info("Rolling edits log in saveFSImage to " + imageIndexToSave);
-    editLog.rollEditLog(imageIndexToSave);
+    if (editLog != null) {
+      LOG.info("Rolling edits log in saveFSImage to " + imageIndexToSave);
+      editLog.rollEditLog(imageIndexToSave);
+    }
     saveFSImage(imageIndexToSave);
     namesystemReflectsLogsThrough = imageIndexToSave;
   }
