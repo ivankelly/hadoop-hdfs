@@ -39,10 +39,12 @@ import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
 import org.apache.hadoop.hdfs.protocol.DirectoryListing;
 import org.apache.hadoop.hdfs.protocol.HdfsFileStatus;
 import org.apache.hadoop.hdfs.protocol.LocatedBlock;
-import org.apache.hadoop.hdfs.security.BlockAccessToken;
+import org.apache.hadoop.hdfs.security.token.block.BlockTokenIdentifier;
+import org.apache.hadoop.hdfs.security.token.block.BlockTokenSecretManager;
 import org.apache.hadoop.hdfs.server.common.JspHelper;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.StringUtils;
 
 @InterfaceAudience.Private
@@ -89,7 +91,7 @@ public class DatanodeJspHelper {
     if (namenodeInfoPortStr != null)
       namenodeInfoPort = Integer.parseInt(namenodeInfoPortStr);
 
-    DFSClient dfs = getDFSClient(ugi, datanode.getNameNodeAddr(), conf);
+    DFSClient dfs = getDFSClient(ugi, datanode.getNameNodeAddrForClient(), conf);
     String target = dir;
     final HdfsFileStatus targetStatus = dfs.getFileInfo(target);
     if (targetStatus == null) { // not exists
@@ -122,7 +124,7 @@ public class DatanodeJspHelper {
               + firstBlock.getBlock().getGenerationStamp() + "&filename="
               + URLEncoder.encode(dir, "UTF-8") + "&datanodePort="
               + datanodePort + "&namenodeInfoPort=" + namenodeInfoPort
-              + JspHelper.SET_DELEGATION + tokenString;
+              + JspHelper.getDelegationTokenUrlParam(tokenString);
           resp.sendRedirect(redirectLocation);
         }
         return;
@@ -142,7 +144,7 @@ public class DatanodeJspHelper {
       if ((parent = f.getParent()) != null)
         out.print("<a href=\"" + req.getRequestURL() + "?dir=" + parent
             + "&namenodeInfoPort=" + namenodeInfoPort
-            + JspHelper.SET_DELEGATION + tokenString
+            + JspHelper.getDelegationTokenUrlParam(tokenString)
             + "\">Go to parent directory</a><br>");
 
       DirectoryListing thisListing = 
@@ -173,7 +175,7 @@ public class DatanodeJspHelper {
             String datanodeUrl = req.getRequestURL() + "?dir="
               + URLEncoder.encode(files[i].getFullName(target), "UTF-8")
               + "&namenodeInfoPort=" + namenodeInfoPort
-              + JspHelper.SET_DELEGATION + tokenString;
+              + JspHelper.getDelegationTokenUrlParam(tokenString);
             cols[0] = "<a href=\"" + datanodeUrl + "\">"
               + localFileName + "</a>";
             cols[5] = FsShell.dateForm.format(new Date((files[i]
@@ -191,7 +193,7 @@ public class DatanodeJspHelper {
         JspHelper.addTableFooter(out);
       }
     }
-    String namenodeHost = datanode.getNameNodeAddr().getHostName();
+    String namenodeHost = datanode.getNameNodeAddrForClient().getHostName();
     out.print("<br><a href=\"http://"
         + InetAddress.getByName(namenodeHost).getCanonicalHostName() + ":"
         + namenodeInfoPort + "/dfshealth.jsp\">Go back to DFS home</a>");
@@ -236,7 +238,9 @@ public class DatanodeJspHelper {
     else
       startOffset = Long.parseLong(startOffsetStr);
 
-    final String filename=JspHelper.validatePath(req.getParameter("filename"));
+    final String filename=JspHelper.validatePath(
+                          req.getPathInfo() == null ? 
+                          "/" : req.getPathInfo());
     if (filename == null) {
       out.print("Invalid input");
       return;
@@ -250,7 +254,7 @@ public class DatanodeJspHelper {
     }
     blockSize = Long.parseLong(blockSizeStr);
 
-    final DFSClient dfs = getDFSClient(ugi, datanode.getNameNodeAddr(), conf);
+    final DFSClient dfs = getDFSClient(ugi, datanode.getNameNodeAddrForClient(), conf);
     List<LocatedBlock> blocks = dfs.getNamenode().getBlockLocations(filename, 0,
         Long.MAX_VALUE).getLocatedBlocks();
     // Add the various links for looking at the file contents
@@ -258,7 +262,7 @@ public class DatanodeJspHelper {
     String downloadUrl = "http://" + req.getServerName() + ":"
         + req.getServerPort() + "/streamFile?" + "filename="
         + URLEncoder.encode(filename, "UTF-8")
-        + JspHelper.SET_DELEGATION + tokenString;
+        + JspHelper.getDelegationTokenUrlParam(tokenString);
     out.print("<a name=\"viewOptions\"></a>");
     out.print("<a href=\"" + downloadUrl + "\">Download this file</a><br>");
 
@@ -278,7 +282,7 @@ public class DatanodeJspHelper {
         + "/tail.jsp?filename=" + URLEncoder.encode(filename, "UTF-8")
         + "&namenodeInfoPort=" + namenodeInfoPort
         + "&chunkSizeToView=" + chunkSizeToView
-        + JspHelper.SET_DELEGATION + tokenString
+        + JspHelper.getDelegationTokenUrlParam(tokenString)
         + "&referrer=" + URLEncoder.encode(
             req.getRequestURL() + "?" + req.getQueryString(), "UTF-8");
     out.print("<a href=\"" + tailUrl + "\">Tail this file</a><br>");
@@ -307,7 +311,7 @@ public class DatanodeJspHelper {
     // generate a table and dump the info
     out.println("\n<table>");
     
-    String namenodeHost = datanode.getNameNodeAddr().getHostName();
+    String namenodeHost = datanode.getNameNodeAddrForClient().getHostName();
     String namenodeHostName = InetAddress.getByName(namenodeHost).getCanonicalHostName();
     
     for (LocatedBlock cur : blocks) {
@@ -329,7 +333,7 @@ public class DatanodeJspHelper {
             + "&genstamp=" + cur.getBlock().getGenerationStamp()
             + "&namenodeInfoPort=" + namenodeInfoPort
             + "&chunkSizeToView=" + chunkSizeToView
-            + JspHelper.SET_DELEGATION + tokenString;
+            + JspHelper.getDelegationTokenUrlParam(tokenString);
 
         String blockInfoUrl = "http://" + namenodeHostName + ":"
             + namenodeInfoPort
@@ -368,16 +372,16 @@ public class DatanodeJspHelper {
       out.print("Invalid input (filename absent)");
       return;
     }
-
+    
     final Long blockId = JspHelper.validateLong(req.getParameter("blockId"));
     if (blockId == null) {
       out.print("Invalid input (blockId absent)");
       return;
     }
 
-    final DFSClient dfs = getDFSClient(ugi, datanode.getNameNodeAddr(), conf);
+    final DFSClient dfs = getDFSClient(ugi, datanode.getNameNodeAddrForClient(), conf);
 
-    BlockAccessToken accessToken = BlockAccessToken.DUMMY_TOKEN;
+    Token<BlockTokenIdentifier> blockToken = BlockTokenSecretManager.DUMMY_TOKEN;
     if (conf.getBoolean(
         DFSConfigKeys.DFS_BLOCK_ACCESS_TOKEN_ENABLE_KEY, 
         DFSConfigKeys.DFS_BLOCK_ACCESS_TOKEN_ENABLE_DEFAULT)) {
@@ -390,7 +394,7 @@ public class DatanodeJspHelper {
       }
       for (int i = 0; i < blks.size(); i++) {
         if (blks.get(i).getBlock().getBlockId() == blockId) {
-          accessToken = blks.get(i).getAccessToken();
+          blockToken = blks.get(i).getBlockToken();
           break;
         }
       }
@@ -402,9 +406,8 @@ public class DatanodeJspHelper {
       return;
     }
 
-    String blockSizeStr;
     long blockSize = 0;
-    blockSizeStr = req.getParameter("blockSize");
+    final String blockSizeStr = req.getParameter("blockSize");
     if (blockSizeStr == null) {
       out.print("Invalid input (blockSize absent)");
       return;
@@ -437,7 +440,7 @@ public class DatanodeJspHelper {
         + req.getServerName() + ":" + req.getServerPort()
         + "/browseDirectory.jsp?dir=" + URLEncoder.encode(parent, "UTF-8")
         + "&namenodeInfoPort=" + namenodeInfoPort
-        + JspHelper.SET_DELEGATION + tokenString
+        + JspHelper.getDelegationTokenUrlParam(tokenString)
         + "\"><i>Go back to dir listing</i></a><br>");
     out.print("<a href=\"#viewOptions\">Advanced view/download options</a><br>");
     out.print("<hr>");
@@ -492,7 +495,7 @@ public class DatanodeJspHelper {
           + "&chunkSizeToView=" + chunkSizeToView
           + "&datanodePort=" + nextDatanodePort
           + "&namenodeInfoPort=" + namenodeInfoPort
-          + JspHelper.SET_DELEGATION + tokenString;
+          + JspHelper.getDelegationTokenUrlParam(tokenString);
       out.print("<a href=\"" + nextUrl + "\">View Next chunk</a>&nbsp;&nbsp;");
     }
     // determine data for the prev link
@@ -549,14 +552,14 @@ public class DatanodeJspHelper {
           + "&genstamp=" + prevGenStamp
           + "&datanodePort=" + prevDatanodePort
           + "&namenodeInfoPort=" + namenodeInfoPort
-          + JspHelper.SET_DELEGATION + tokenString;
+          + JspHelper.getDelegationTokenUrlParam(tokenString);
       out.print("<a href=\"" + prevUrl + "\">View Prev chunk</a>&nbsp;&nbsp;");
     }
     out.print("<hr>");
     out.print("<textarea cols=\"100\" rows=\"25\" wrap=\"virtual\" style=\"width:100%\" READONLY>");
     try {
       JspHelper.streamBlockInAscii(new InetSocketAddress(req.getServerName(),
-          datanodePort), blockId, accessToken, genStamp, blockSize,
+          datanodePort), blockId, blockToken, genStamp, blockSize,
           startOffset, chunkSizeToView, out, conf);
     } catch (Exception e) {
       out.print(e);
@@ -614,7 +617,7 @@ public class DatanodeJspHelper {
           + "\">");
 
     // fetch the block from the datanode that has the last block for this file
-    final DFSClient dfs = getDFSClient(ugi, datanode.getNameNodeAddr(), conf);
+    final DFSClient dfs = getDFSClient(ugi, datanode.getNameNodeAddrForClient(), conf);
     List<LocatedBlock> blocks = dfs.getNamenode().getBlockLocations(filename, 0,
         Long.MAX_VALUE).getLocatedBlocks();
     if (blocks == null || blocks.size() == 0) {
@@ -625,7 +628,7 @@ public class DatanodeJspHelper {
     LocatedBlock lastBlk = blocks.get(blocks.size() - 1);
     long blockSize = lastBlk.getBlock().getNumBytes();
     long blockId = lastBlk.getBlock().getBlockId();
-    BlockAccessToken accessToken = lastBlk.getAccessToken();
+    Token<BlockTokenIdentifier> accessToken = lastBlk.getBlockToken();
     long genStamp = lastBlk.getBlock().getGenerationStamp();
     DatanodeInfo chosenNode;
     try {

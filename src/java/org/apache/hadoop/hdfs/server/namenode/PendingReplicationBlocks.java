@@ -18,6 +18,7 @@
 package org.apache.hadoop.hdfs.server.namenode;
 
 import org.apache.hadoop.hdfs.protocol.Block;
+import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.util.*;
 import java.io.*;
 import java.util.*;
@@ -84,7 +85,10 @@ class PendingReplicationBlocks {
     synchronized (pendingReplications) {
       PendingBlockInfo found = pendingReplications.get(block);
       if (found != null) {
-      	FSNamesystem.LOG.debug("Removing pending replication for block" + block);
+        if(FSNamesystem.LOG.isDebugEnabled()) {
+          FSNamesystem.LOG.debug("Removing pending replication for block" +
+              block);
+        }
         found.decrementReplicas();
         if (found.getNumReplicas() <= 0) {
           pendingReplications.remove(block);
@@ -142,7 +146,7 @@ class PendingReplicationBlocks {
     private int numReplicasInProgress;
 
     PendingBlockInfo(int numReplicas) {
-      this.timeStamp = FSNamesystem.now();
+      this.timeStamp = now();
       this.numReplicasInProgress = numReplicas;
     }
 
@@ -151,7 +155,7 @@ class PendingReplicationBlocks {
     }
 
     void setTimeStamp() {
-      timeStamp = FSNamesystem.now();
+      timeStamp = now();
     }
 
     void incrementReplicas(int increment) {
@@ -180,8 +184,10 @@ class PendingReplicationBlocks {
           pendingReplicationCheck();
           Thread.sleep(period);
         } catch (InterruptedException ie) {
-          FSNamesystem.LOG.debug(
+          if(FSNamesystem.LOG.isDebugEnabled()) {
+            FSNamesystem.LOG.debug(
                 "PendingReplicationMonitor thread received exception. " + ie);
+          }
         }
       }
     }
@@ -193,8 +199,10 @@ class PendingReplicationBlocks {
       synchronized (pendingReplications) {
         Iterator<Map.Entry<Block, PendingBlockInfo>> iter =
                                     pendingReplications.entrySet().iterator();
-        long now = FSNamesystem.now();
-        FSNamesystem.LOG.debug("PendingReplicationMonitor checking Q");
+        long now = now();
+        if(FSNamesystem.LOG.isDebugEnabled()) {
+          FSNamesystem.LOG.debug("PendingReplicationMonitor checking Q");
+        }
         while (iter.hasNext()) {
           Map.Entry<Block, PendingBlockInfo> entry = iter.next();
           PendingBlockInfo pendingBlock = entry.getValue();

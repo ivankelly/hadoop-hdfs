@@ -20,9 +20,12 @@ package org.apache.hadoop.hdfs.server.namenode;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintWriter;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -31,13 +34,11 @@ import java.util.TreeSet;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.BlockReader;
 import org.apache.hadoop.hdfs.DFSClient;
 import org.apache.hadoop.hdfs.protocol.Block;
-import org.apache.hadoop.hdfs.protocol.ClientProtocol;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
 import org.apache.hadoop.hdfs.protocol.DirectoryListing;
 import org.apache.hadoop.hdfs.protocol.HdfsFileStatus;
@@ -48,6 +49,7 @@ import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.net.NetworkTopology;
 import org.apache.hadoop.net.NodeBase;
 import org.apache.hadoop.security.AccessControlException;
+import org.apache.hadoop.security.UserGroupInformation;
 
 /**
  * This class provides rudimentary checking of DFS volumes for errors and
@@ -71,6 +73,7 @@ import org.apache.hadoop.security.AccessControlException;
  *  optionally can print detailed statistics on block locations and replication
  *  factors of each file.
  */
+@InterfaceAudience.Private
 public class NamenodeFsck {
   public static final Log LOG = LogFactory.getLog(NameNode.class.getName());
   
@@ -87,10 +90,11 @@ public class NamenodeFsck {
   /** Delete corrupted files. */
   public static final int FIXING_DELETE = 2;
   
-  private final ClientProtocol namenode;
+  private final NameNode namenode;
   private final NetworkTopology networktopology;
   private final int totalDatanodes;
   private final short minReplication;
+  private final InetAddress remoteAddress;
 
   private String lostFound = null;
   private boolean lfInited = false;
@@ -100,9 +104,14 @@ public class NamenodeFsck {
   private boolean showBlocks = false;
   private boolean showLocations = false;
   private boolean showRacks = false;
-  private boolean showCorruptFiles = false;
+  private boolean showCorruptFileBlocks = false;
   private int fixing = FIXING_NONE;
   private String path = "/";
+
+  // We return back N files that are corrupt; the list of files returned is
+  // ordered by block id; to allow continuation support, pass in the last block
+  // # from previous call
+  private String startBlockAfter = null;
   
   private final Configuration conf;
   private final PrintWriter out;
@@ -111,20 +120,24 @@ public class NamenodeFsck {
    * Filesystem checker.
    * @param conf configuration (namenode config)
    * @param nn namenode that this fsck is going to use
-   * @param pmap key=value[] map that is passed to the http servlet as url parameters
-   * @param response the object into which  this servelet writes the url contents
+   * @param pmap key=value[] map passed to the http servlet as url parameters
+   * @param out output stream to write the fsck output
+   * @param totalDatanodes number of live datanodes
+   * @param minReplication minimum replication
+   * @param remoteAddress source address of the fsck request
    * @throws IOException
    */
-  NamenodeFsck(Configuration conf, ClientProtocol namenode,
+  NamenodeFsck(Configuration conf, NameNode namenode,
       NetworkTopology networktopology, 
       Map<String,String[]> pmap, PrintWriter out,
-      int totalDatanodes, short minReplication) {
+      int totalDatanodes, short minReplication, InetAddress remoteAddress) {
     this.conf = conf;
     this.namenode = namenode;
     this.networktopology = networktopology;
     this.out = out;
     this.totalDatanodes = totalDatanodes;
     this.minReplication = minReplication;
+    this.remoteAddress = remoteAddress;
 
     for (Iterator<String> it = pmap.keySet().iterator(); it.hasNext();) {
       String key = it.next();
@@ -136,7 +149,12 @@ public class NamenodeFsck {
       else if (key.equals("locations")) { this.showLocations = true; }
       else if (key.equals("racks")) { this.showRacks = true; }
       else if (key.equals("openforwrite")) {this.showOpenFiles = true; }
-      else if (key.equals("corruptfiles")) {this.showCorruptFiles = true; }
+      else if (key.equals("listcorruptfileblocks")) {
+        this.showCorruptFileBlocks = true;
+      }
+      else if (key.equals("startblockafter")) {
+        this.startBlockAfter = pmap.get("startblockafter")[0]; 
+      }
     }
   }
   
@@ -144,13 +162,19 @@ public class NamenodeFsck {
    * Check files on DFS, starting from the indicated path.
    */
   public void fsck() {
+    final long startTime = System.currentTimeMillis();
     try {
+      String msg = "FSCK started by " + UserGroupInformation.getCurrentUser()
+          + " from " + remoteAddress + " for path " + path + " at " + new Date();
+      LOG.info(msg);
+      out.println(msg);
+      namenode.getNamesystem().logFsckEvent(path, remoteAddress);
 
       final HdfsFileStatus file = namenode.getFileInfo(path);
       if (file != null) {
 
-        if (showCorruptFiles) {
-          listCorruptFiles();
+        if (showCorruptFileBlocks) {
+          listCorruptFileBlocks();
           return;
         }
         
@@ -162,9 +186,13 @@ public class NamenodeFsck {
         out.println(" Number of data-nodes:\t\t" + totalDatanodes);
         out.println(" Number of racks:\t\t" + networktopology.getNumOfRacks());
 
+        out.println("FSCK ended at " + new Date() + " in "
+            + (System.currentTimeMillis() - startTime + " milliseconds"));
+
         // DFSck client scans for the string HEALTHY/CORRUPT to check the status
         // of file system and return appropriate code. Changing the output
-        // string might break testcases.
+        // string might break testcases. Also note this must be the last line 
+        // of the report.
         if (res.isHealthy()) {
           out.print("\n\nThe filesystem under path '" + path + "' " + HEALTHY_STATUS);
         } else {
@@ -174,10 +202,11 @@ public class NamenodeFsck {
       } else {
         out.print("\n\nPath '" + path + "' " + NONEXISTENT_STATUS);
       }
-
     } catch (Exception e) {
       String errMsg = "Fsck on path '" + path + "' " + FAILURE_STATUS;
       LOG.warn(errMsg, e);
+      out.println("FSCK ended at " + new Date() + " in "
+          + (System.currentTimeMillis() - startTime + " milliseconds"));
       out.println(e.getMessage());
       out.print("\n\n" + errMsg);
     } finally {
@@ -185,53 +214,25 @@ public class NamenodeFsck {
     }
   }
  
-  static String buildSummaryResultForListCorruptFiles(int corruptFilesCount,
-      String pathName) {
-
-    String summary = "";
-
-    if (corruptFilesCount == 0) {
-      summary = "Unable to locate any corrupt files under '" + pathName
-          + "'.\n\nPlease run a complete fsck to confirm if '" + pathName
-          + "' " + HEALTHY_STATUS;
-    } else if (corruptFilesCount == 1) {
-      summary = "There is at least 1 corrupt file under '" + pathName
-          + "', which " + CORRUPT_STATUS;
-    } else if (corruptFilesCount > 1) {
-      summary = "There are at least " + corruptFilesCount
-          + " corrupt files under '" + pathName + "', which " + CORRUPT_STATUS;
+  private void listCorruptFileBlocks() throws AccessControlException,
+      IOException {
+    Collection<FSNamesystem.CorruptFileBlockInfo> corruptFiles = namenode
+        .listCorruptFileBlocks(path, startBlockAfter);
+    int numCorruptFiles = corruptFiles.size();
+    String filler;
+    if (numCorruptFiles > 0) {
+      filler = Integer.toString(numCorruptFiles);
+    } else if (startBlockAfter == null) {
+      filler = "no";
     } else {
-      throw new IllegalArgumentException("corruptFilesCount must be positive");
+      filler = "no more";
     }
-
-    return summary;
-  }
-
-  private void listCorruptFiles() throws AccessControlException, IOException {
-    int matchedCorruptFilesCount = 0;
-    // directory representation of path
-    String pathdir = path.endsWith(Path.SEPARATOR) ? path : path + Path.SEPARATOR;
-    FileStatus[] corruptFileStatuses = namenode.getCorruptFiles();
-
-    for (FileStatus fileStatus : corruptFileStatuses) {
-      String currentPath = fileStatus.getPath().toString();
-      if (currentPath.startsWith(pathdir) || currentPath.equals(path)) {
-        matchedCorruptFilesCount++;
-        
-        // print the header before listing first item
-        if (matchedCorruptFilesCount == 1 ) {
-          out.println("Here are a few files that may be corrupted:");
-          out.println("===========================================");
-        }
-        
-        out.println(currentPath);
-      }
+    for (FSNamesystem.CorruptFileBlockInfo c : corruptFiles) {
+      out.println(c.toString());
     }
-
+    out.println("\n\nThe filesystem under path '" + path + "' has " + filler
+        + " CORRUPT files");
     out.println();
-    out.println(buildSummaryResultForListCorruptFiles(matchedCorruptFilesCount,
-        path));
-
   }
   
   private void check(String parent, HdfsFileStatus file, Result res) throws IOException {
@@ -247,7 +248,7 @@ public class NamenodeFsck {
       res.totalDirs++;
       do {
         assert lastReturnedName != null;
-        thisListing = namenode.getListing(path, lastReturnedName);
+        thisListing = namenode.getListing(path, lastReturnedName, false);
         if (thisListing == null) {
           return;
         }
@@ -260,7 +261,10 @@ public class NamenodeFsck {
       return;
     }
     long fileLen = file.getLen();
-    LocatedBlocks blocks = namenode.getBlockLocations(path, 0, fileLen);
+    // Get block locations without updating the file access time 
+    // and without block access tokens
+    LocatedBlocks blocks = namenode.getNamesystem().getBlockLocations(path, 0,
+        fileLen, false, false);
     if (blocks == null) { // the file is deleted
       return;
     }
@@ -498,14 +502,9 @@ public class NamenodeFsck {
         s.connect(targetAddr, HdfsConstants.READ_TIMEOUT);
         s.setSoTimeout(HdfsConstants.READ_TIMEOUT);
         
-        blockReader = 
-          BlockReader.newBlockReader(s, targetAddr.toString() + ":" + 
-                                               block.getBlockId(), 
-                                               block.getBlockId(), 
-                                               lblock.getAccessToken(),
-                                               block.getGenerationStamp(), 
-                                               0, -1,
-                                               conf.getInt("io.file.buffer.size", 4096));
+        String file = BlockReader.getFileName(targetAddr, block.getBlockId());
+        blockReader = BlockReader.newBlockReader(s, file, block, lblock
+            .getBlockToken(), 0, -1, conf.getInt("io.file.buffer.size", 4096));
         
       }  catch (IOException ex) {
         // Put chosen node into dead list, continue

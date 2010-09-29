@@ -41,6 +41,7 @@ class EditLogFileOutputStream extends EditLogOutputStream {
   private FileChannel fc; // channel of the file stream for sync
   private DataOutputBuffer bufCurrent; // current buffer for writing
   private DataOutputBuffer bufReady; // buffer ready for flushing
+  final private int initBufferSize; // inital buffer size
   static ByteBuffer fill = ByteBuffer.allocateDirect(512); // preallocation
 
   /**
@@ -55,6 +56,7 @@ class EditLogFileOutputStream extends EditLogOutputStream {
   EditLogFileOutputStream(File name, int size) throws IOException {
     super();
     file = name;
+    initBufferSize = size;
     bufCurrent = new DataOutputBuffer(size);
     bufReady = new DataOutputBuffer(size);
     RandomAccessFile rp = new RandomAccessFile(name, "rw");
@@ -146,6 +148,14 @@ class EditLogFileOutputStream extends EditLogOutputStream {
   }
 
   /**
+   * @return true if the number of buffered data exceeds the intial buffer size
+   */
+  @Override
+  public boolean shouldForceSync() {
+    return bufReady.size() >= initBufferSize;
+  }
+  
+  /**
    * Return the size of the current edit log including buffered data.
    */
   @Override
@@ -159,13 +169,17 @@ class EditLogFileOutputStream extends EditLogOutputStream {
   private void preallocate() throws IOException {
     long position = fc.position();
     if (position + 4096 >= fc.size()) {
-      FSNamesystem.LOG.debug("Preallocating Edit log, current size "
-          + fc.size());
+      if(FSNamesystem.LOG.isDebugEnabled()) {
+        FSNamesystem.LOG.debug("Preallocating Edit log, current size "
+            + fc.size());
+      }
       long newsize = position + 1024 * 1024; // 1MB
       fill.position(0);
       int written = fc.write(fill, newsize);
-      FSNamesystem.LOG.debug("Edit log size is now " + fc.size() + " written "
-          + written + " bytes " + " at offset " + newsize);
+      if(FSNamesystem.LOG.isDebugEnabled()) {
+        FSNamesystem.LOG.debug("Edit log size is now " + fc.size() +
+            " written " + written + " bytes " + " at offset " + newsize);
+      }
     }
   }
 

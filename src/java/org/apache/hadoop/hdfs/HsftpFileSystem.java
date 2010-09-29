@@ -37,6 +37,8 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
 
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
 
 /**
@@ -47,6 +49,8 @@ import org.apache.hadoop.conf.Configuration;
  * @see org.apache.hadoop.hdfs.server.namenode.ListPathsServlet
  * @see org.apache.hadoop.hdfs.server.namenode.FileDataServlet
  */
+@InterfaceAudience.Private
+@InterfaceStability.Evolving
 public class HsftpFileSystem extends HftpFileSystem {
 
   private static final long MM_SECONDS_PER_DAY = 1000 * 60 * 60 * 24;
@@ -120,6 +124,7 @@ public class HsftpFileSystem extends HftpFileSystem {
   protected HttpURLConnection openConnection(String path, String query)
       throws IOException {
     try {
+      query = updateQuery(query);
       final URL url = new URI("https", null, nnAddr.getHostName(), nnAddr
           .getPort(), path, query, null).toURL();
       HttpsURLConnection conn = (HttpsURLConnection) url.openConnection();

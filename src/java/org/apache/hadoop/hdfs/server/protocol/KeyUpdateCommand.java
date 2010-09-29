@@ -21,24 +21,28 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-import org.apache.hadoop.hdfs.security.ExportedAccessKeys;
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.hdfs.security.token.block.ExportedBlockKeys;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableFactories;
 import org.apache.hadoop.io.WritableFactory;
 
+@InterfaceAudience.Private
+@InterfaceStability.Evolving
 public class KeyUpdateCommand extends DatanodeCommand {
-  private ExportedAccessKeys keys;
+  private ExportedBlockKeys keys;
 
   KeyUpdateCommand() {
-    this(new ExportedAccessKeys());
+    this(new ExportedBlockKeys());
   }
 
-  public KeyUpdateCommand(ExportedAccessKeys keys) {
+  public KeyUpdateCommand(ExportedBlockKeys keys) {
     super(DatanodeProtocol.DNA_ACCESSKEYUPDATE);
     this.keys = keys;
   }
 
-  public ExportedAccessKeys getExportedKeys() {
+  public ExportedBlockKeys getExportedKeys() {
     return this.keys;
   }
 

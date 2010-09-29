@@ -22,6 +22,7 @@ import java.io.IOException;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.server.protocol.BlockRecoveryCommand.RecoveringBlock;
@@ -30,7 +31,10 @@ import org.apache.hadoop.security.KerberosInfo;
 
 /** An inter-datanode protocol for updating generation stamp
  */
-@KerberosInfo(DFSConfigKeys.DFS_NAMENODE_USER_NAME_KEY)
+@KerberosInfo(
+    serverPrincipal = DFSConfigKeys.DFS_DATANODE_USER_NAME_KEY,
+    clientPrincipal = DFSConfigKeys.DFS_DATANODE_USER_NAME_KEY)
+@InterfaceAudience.Private
 public interface InterDatanodeProtocol extends VersionedProtocol {
   public static final Log LOG = LogFactory.getLog(InterDatanodeProtocol.class);
 

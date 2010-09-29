@@ -23,15 +23,21 @@ import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 
-import org.apache.hadoop.hdfs.security.BlockAccessToken;
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.hdfs.security.token.block.BlockTokenIdentifier;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableUtils;
+import org.apache.hadoop.security.token.Token;
 
 /**
  * Transfer data to/from datanode using a streaming protocol.
  */
+@InterfaceAudience.Private
+@InterfaceStability.Evolving
 public interface DataTransferProtocol {
   
   
@@ -213,6 +219,8 @@ public interface DataTransferProtocol {
 
 
   /** Sender */
+  @InterfaceAudience.Private
+  @InterfaceStability.Evolving
   public static class Sender {
     /** Initialize a operation. */
     public static void op(DataOutputStream out, Op op) throws IOException {
@@ -221,30 +229,29 @@ public interface DataTransferProtocol {
     }
 
     /** Send OP_READ_BLOCK */
-    public static void opReadBlock(DataOutputStream out,
-        long blockId, long blockGs, long blockOffset, long blockLen,
-        String clientName, BlockAccessToken accessToken) throws IOException {
+    public static void opReadBlock(DataOutputStream out, Block blk,
+        long blockOffset, long blockLen, String clientName,
+        Token<BlockTokenIdentifier> blockToken)
+        throws IOException {
       op(out, Op.READ_BLOCK);
 
-      out.writeLong(blockId);
-      out.writeLong(blockGs);
+      blk.writeId(out);
       out.writeLong(blockOffset);
       out.writeLong(blockLen);
       Text.writeString(out, clientName);
-      accessToken.write(out);
+      blockToken.write(out);
       out.flush();
     }
     
     /** Send OP_WRITE_BLOCK */
-    public static void opWriteBlock(DataOutputStream out,
-        long blockId, long blockGs, int pipelineSize, 
-        BlockConstructionStage stage, long newGs, long minBytesRcvd,
-        long maxBytesRcvd, String client, DatanodeInfo src, 
-        DatanodeInfo[] targets, BlockAccessToken accesstoken) throws IOException {
+    public static void opWriteBlock(DataOutputStream out, Block blk,
+        int pipelineSize, BlockConstructionStage stage, long newGs,
+        long minBytesRcvd, long maxBytesRcvd, String client, DatanodeInfo src,
+        DatanodeInfo[] targets, Token<BlockTokenIdentifier> blockToken)
+        throws IOException {
       op(out, Op.WRITE_BLOCK);
 
-      out.writeLong(blockId);
-      out.writeLong(blockGs);
+      blk.writeId(out);
       out.writeInt(pipelineSize);
       stage.write(out);
       WritableUtils.writeVLong(out, newGs);
@@ -261,42 +268,41 @@ public interface DataTransferProtocol {
         targets[i].write(out);
       }
 
-      accesstoken.write(out);
+      blockToken.write(out);
     }
     
     /** Send OP_REPLACE_BLOCK */
     public static void opReplaceBlock(DataOutputStream out,
-        long blockId, long blockGs, String storageId, DatanodeInfo src,
-        BlockAccessToken accesstoken) throws IOException {
+        Block blk, String storageId, DatanodeInfo src,
+        Token<BlockTokenIdentifier> blockToken) throws IOException {
       op(out, Op.REPLACE_BLOCK);
 
-      out.writeLong(blockId);
-      out.writeLong(blockGs);
+      blk.writeId(out);
       Text.writeString(out, storageId);
       src.write(out);
-      accesstoken.write(out);
+      blockToken.write(out);
       out.flush();
     }
 
     /** Send OP_COPY_BLOCK */
-    public static void opCopyBlock(DataOutputStream out,
-        long blockId, long blockGs, BlockAccessToken accesstoken) throws IOException {
+    public static void opCopyBlock(DataOutputStream out, Block blk,
+        Token<BlockTokenIdentifier> blockToken)
+        throws IOException {
       op(out, Op.COPY_BLOCK);
 
-      out.writeLong(blockId);
-      out.writeLong(blockGs);
-      accesstoken.write(out);
+      blk.writeId(out);
+      blockToken.write(out);
       out.flush();
     }
 
     /** Send OP_BLOCK_CHECKSUM */
-    public static void opBlockChecksum(DataOutputStream out,
-        long blockId, long blockGs, BlockAccessToken accesstoken) throws IOException {
+    public static void opBlockChecksum(DataOutputStream out, Block blk,
+        Token<BlockTokenIdentifier> blockToken)
+        throws IOException {
       op(out, Op.BLOCK_CHECKSUM);
-
-      out.writeLong(blockId);
-      out.writeLong(blockGs);
-      accesstoken.write(out);
+      
+      blk.writeId(out);
+      blockToken.write(out);
       out.flush();
     }
   }
@@ -340,28 +346,27 @@ public interface DataTransferProtocol {
 
     /** Receive OP_READ_BLOCK */
     private void opReadBlock(DataInputStream in) throws IOException {
-      final long blockId = in.readLong();          
-      final long blockGs = in.readLong();
+      final Block blk = new Block();
+      blk.readId(in);
       final long offset = in.readLong();
       final long length = in.readLong();
       final String client = Text.readString(in);
-      final BlockAccessToken accesstoken = readAccessToken(in);
+      final Token<BlockTokenIdentifier> blockToken = readBlockToken(in);
 
-      opReadBlock(in, blockId, blockGs, offset, length, client, accesstoken);
+      opReadBlock(in, blk, offset, length, client, blockToken);
     }
 
     /**
-     * Abstract OP_READ_BLOCK method.
-     * Read a block.
+     * Abstract OP_READ_BLOCK method. Read a block.
      */
-    protected abstract void opReadBlock(DataInputStream in,
-        long blockId, long blockGs, long offset, long length,
-        String client, BlockAccessToken accesstoken) throws IOException;
+    protected abstract void opReadBlock(DataInputStream in, Block blk,
+        long offset, long length, String client,
+        Token<BlockTokenIdentifier> blockToken) throws IOException;
     
     /** Receive OP_WRITE_BLOCK */
     private void opWriteBlock(DataInputStream in) throws IOException {
-      final long blockId = in.readLong();          
-      final long blockGs = in.readLong();
+      final Block blk = new Block();
+      blk.readId(in);
       final int pipelineSize = in.readInt(); // num of datanodes in entire pipeline
       final BlockConstructionStage stage = 
         BlockConstructionStage.readFields(in);
@@ -379,32 +384,31 @@ public interface DataTransferProtocol {
       for (int i = 0; i < targets.length; i++) {
         targets[i] = DatanodeInfo.read(in);
       }
-      final BlockAccessToken accesstoken = readAccessToken(in);
+      final Token<BlockTokenIdentifier> blockToken = readBlockToken(in);
 
-      opWriteBlock(in, blockId, blockGs, pipelineSize, stage,
-          newGs, minBytesRcvd, maxBytesRcvd, client, src, targets, accesstoken);
+      opWriteBlock(in, blk, pipelineSize, stage,
+          newGs, minBytesRcvd, maxBytesRcvd, client, src, targets, blockToken);
     }
 
     /**
      * Abstract OP_WRITE_BLOCK method. 
      * Write a block.
      */
-    protected abstract void opWriteBlock(DataInputStream in,
-        long blockId, long blockGs,
-        int pipelineSize, BlockConstructionStage stage,
-        long newGs, long minBytesRcvd, long maxBytesRcvd,
-        String client, DatanodeInfo src, DatanodeInfo[] targets,
-        BlockAccessToken accesstoken) throws IOException;
+    protected abstract void opWriteBlock(DataInputStream in, Block blk,
+        int pipelineSize, BlockConstructionStage stage, long newGs,
+        long minBytesRcvd, long maxBytesRcvd, String client, DatanodeInfo src,
+        DatanodeInfo[] targets, Token<BlockTokenIdentifier> blockToken)
+        throws IOException;
 
     /** Receive OP_REPLACE_BLOCK */
     private void opReplaceBlock(DataInputStream in) throws IOException {
-      final long blockId = in.readLong();          
-      final long blockGs = in.readLong();
+      final Block blk = new Block();
+      blk.readId(in);
       final String sourceId = Text.readString(in); // read del hint
       final DatanodeInfo src = DatanodeInfo.read(in); // read proxy source
-      final BlockAccessToken accesstoken = readAccessToken(in);
+      final Token<BlockTokenIdentifier> blockToken = readBlockToken(in);
 
-      opReplaceBlock(in, blockId, blockGs, sourceId, src, accesstoken);
+      opReplaceBlock(in, blk, sourceId, src, blockToken);
     }
 
     /**
@@ -412,32 +416,33 @@ public interface DataTransferProtocol {
      * It is used for balancing purpose; send to a destination
      */
     protected abstract void opReplaceBlock(DataInputStream in,
-        long blockId, long blockGs, String sourceId, DatanodeInfo src,
-        BlockAccessToken accesstoken) throws IOException;
+        Block blk, String sourceId, DatanodeInfo src,
+        Token<BlockTokenIdentifier> blockToken) throws IOException;
 
     /** Receive OP_COPY_BLOCK */
     private void opCopyBlock(DataInputStream in) throws IOException {
-      final long blockId = in.readLong();          
-      final long blockGs = in.readLong();
-      final BlockAccessToken accesstoken = readAccessToken(in);
+      final Block blk = new Block();
+      blk.readId(in);
+      final Token<BlockTokenIdentifier> blockToken = readBlockToken(in);
 
-      opCopyBlock(in, blockId, blockGs, accesstoken);
+      opCopyBlock(in, blk, blockToken);
     }
 
     /**
-     * Abstract OP_COPY_BLOCK method.
-     * It is used for balancing purpose; send to a proxy source.
+     * Abstract OP_COPY_BLOCK method. It is used for balancing purpose; send to
+     * a proxy source.
      */
-    protected abstract void opCopyBlock(DataInputStream in,
-        long blockId, long blockGs, BlockAccessToken accesstoken) throws IOException;
+    protected abstract void opCopyBlock(DataInputStream in, Block blk,
+        Token<BlockTokenIdentifier> blockToken)
+        throws IOException;
 
     /** Receive OP_BLOCK_CHECKSUM */
     private void opBlockChecksum(DataInputStream in) throws IOException {
-      final long blockId = in.readLong();          
-      final long blockGs = in.readLong();
-      final BlockAccessToken accesstoken = readAccessToken(in);
+      final Block blk = new Block();
+      blk.readId(in);
+      final Token<BlockTokenIdentifier> blockToken = readBlockToken(in);
 
-      opBlockChecksum(in, blockId, blockGs, accesstoken);
+      opBlockChecksum(in, blk, blockToken);
     }
 
     /**
@@ -445,18 +450,21 @@ public interface DataTransferProtocol {
      * Get the checksum of a block 
      */
     protected abstract void opBlockChecksum(DataInputStream in,
-        long blockId, long blockGs, BlockAccessToken accesstoken) throws IOException;
+        Block blk, Token<BlockTokenIdentifier> blockToken)
+        throws IOException;
 
     /** Read an AccessToken */
-    static private BlockAccessToken readAccessToken(DataInputStream in
+    static private Token<BlockTokenIdentifier> readBlockToken(DataInputStream in
         ) throws IOException {
-      final BlockAccessToken t = new BlockAccessToken();
+      final Token<BlockTokenIdentifier> t = new Token<BlockTokenIdentifier>();
       t.readFields(in);
       return t; 
     }
   }
   
   /** reply **/
+  @InterfaceAudience.Private
+  @InterfaceStability.Evolving
   public static class PipelineAck implements Writable {
     private long seqno;
     private Status replies[];
@@ -549,4 +557,141 @@ public interface DataTransferProtocol {
       return ack.toString();
     }
   }
+
+  /**
+   * Header data for each packet that goes through the read/write pipelines.
+   */
+  public static class PacketHeader implements Writable {
+    /** Header size for a packet */
+    public static final int PKT_HEADER_LEN = ( 4 + /* Packet payload length */
+                                               8 + /* offset in block */
+                                               8 + /* seqno */
+                                               1 + /* isLastPacketInBlock */
+                                               4   /* data length */ );
+
+    private int packetLen;
+    private long offsetInBlock;
+    private long seqno;
+    private boolean lastPacketInBlock;
+    private int dataLen;
+
+    public PacketHeader() {
+    }
+
+    public PacketHeader(int packetLen, long offsetInBlock, long seqno,
+                        boolean lastPacketInBlock, int dataLen) {
+      this.packetLen = packetLen;
+      this.offsetInBlock = offsetInBlock;
+      this.seqno = seqno;
+      this.lastPacketInBlock = lastPacketInBlock;
+      this.dataLen = dataLen;
+    }
+
+    public int getDataLen() {
+      return dataLen;
+    }
+
+    public boolean isLastPacketInBlock() {
+      return lastPacketInBlock;
+    }
+
+    public long getSeqno() {
+      return seqno;
+    }
+
+    public long getOffsetInBlock() {
+      return offsetInBlock;
+    }
+
+    public int getPacketLen() {
+      return packetLen;
+    }
+
+    @Override
+    public String toString() {
+      StringBuilder sb = new StringBuilder();
+      sb.append("PacketHeader(")
+        .append("packetLen=").append(packetLen)
+        .append(" offsetInBlock=").append(offsetInBlock)
+        .append(" seqno=").append(seqno)
+        .append(" lastPacketInBlock=").append(lastPacketInBlock)
+        .append(" dataLen=").append(dataLen)
+        .append(")");
+      return sb.toString();
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+      // Note that it's important for packetLen to come first and not
+      // change format -
+      // this is used by BlockReceiver to read entire packets with
+      // a single read call.
+      packetLen = in.readInt();
+      offsetInBlock = in.readLong();
+      seqno = in.readLong();
+      lastPacketInBlock = in.readBoolean();
+      dataLen = in.readInt();
+    }
+
+    public void readFields(ByteBuffer buf) throws IOException {
+      packetLen = buf.getInt();
+      offsetInBlock = buf.getLong();
+      seqno = buf.getLong();
+      lastPacketInBlock = (buf.get() != 0);
+      dataLen = buf.getInt();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+      out.writeInt(packetLen);
+      out.writeLong(offsetInBlock);
+      out.writeLong(seqno);
+      out.writeBoolean(lastPacketInBlock);
+      out.writeInt(dataLen);
+    }
+
+    /**
+     * Write the header into the buffer.
+     * This requires that PKT_HEADER_LEN bytes are available.
+     */
+    public void putInBuffer(ByteBuffer buf) {
+      buf.putInt(packetLen)
+        .putLong(offsetInBlock)
+        .putLong(seqno)
+        .put((byte)(lastPacketInBlock ? 1 : 0))
+        .putInt(dataLen);
+    }
+
+    /**
+     * Perform a sanity check on the packet, returning true if it is sane.
+     * @param lastSeqNo the previous sequence number received - we expect the current
+     * sequence number to be larger by 1.
+     */
+    public boolean sanityCheck(long lastSeqNo) {
+      // We should only have a non-positive data length for the last packet
+      if (dataLen <= 0 && lastPacketInBlock) return false;
+      // The last packet should not contain data
+      if (lastPacketInBlock && dataLen != 0) return false;
+      // Seqnos should always increase by 1 with each packet received
+      if (seqno != lastSeqNo + 1) return false;
+      return true;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (!(o instanceof PacketHeader)) return false;
+      PacketHeader other = (PacketHeader)o;
+      return (other.packetLen == packetLen &&
+              other.offsetInBlock == offsetInBlock &&
+              other.seqno == seqno &&
+              other.lastPacketInBlock == lastPacketInBlock &&
+              other.dataLen == dataLen);
+    }
+
+    @Override
+    public int hashCode() {
+      return (int)seqno;
+    }
+  }
+
 }

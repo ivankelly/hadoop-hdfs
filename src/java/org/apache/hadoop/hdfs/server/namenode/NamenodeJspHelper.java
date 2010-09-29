@@ -25,6 +25,7 @@ import java.net.InetAddress;
 import java.net.URLEncoder;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 
@@ -57,6 +58,18 @@ class NamenodeJspHelper {
     if (!fsn.isInSafeMode())
       return "";
     return "Safe mode is ON. <em>" + fsn.getSafeModeTip() + "</em><br>";
+  }
+  
+  /**
+   * returns security mode of the cluster (namenode)
+   * @return "on" if security is on, and "off" otherwise
+   */
+  static String getSecurityModeText() {  
+    if(UserGroupInformation.isSecurityEnabled()) {
+      return "Security is <em>ON</em> <br>";
+    } else {
+      return "Security is <em>OFF</em> <br>";
+    }
   }
 
   static String getInodeLimitText(FSNamesystem fsn) {
@@ -231,6 +244,30 @@ class NamenodeJspHelper {
           / (float) total;
       float percentRemaining = total <= 0 ? 100f : ((float) remaining * 100.0f)
           / (float) total;
+      float median = 0;
+      float max = 0;
+      float min = 0;
+      float dev = 0;
+      
+      if (live.size() > 0) {
+        float totalDfsUsed = 0;
+        float[] usages = new float[live.size()];
+        int i = 0;
+        for (DatanodeDescriptor dn : live) {
+          usages[i++] = dn.getDfsUsedPercent();
+          totalDfsUsed += dn.getDfsUsedPercent();
+        }
+        totalDfsUsed /= live.size();
+        Arrays.sort(usages);
+        median = usages[usages.length/2];
+        max = usages[usages.length - 1];
+        min = usages[0];
+        
+        for (i = 0; i < usages.length; i++) {
+          dev += (usages[i] - totalDfsUsed) * (usages[i] - totalDfsUsed);
+        }
+        dev = (float) Math.sqrt(dev/usages.length);
+      }
 
       out.print("<div id=\"dfstable\"> <table>\n" + rowTxt() + colTxt()
           + "Configured Capacity" + colTxt() + ":" + colTxt()
@@ -243,8 +280,15 @@ class NamenodeJspHelper {
           + colTxt() + ":" + colTxt()
           + StringUtils.limitDecimalTo2(percentUsed) + " %" + rowTxt()
           + colTxt() + "DFS Remaining%" + colTxt() + ":" + colTxt()
-          + StringUtils.limitDecimalTo2(percentRemaining) + " %" + rowTxt()
-          + colTxt()
+          + StringUtils.limitDecimalTo2(percentRemaining) + " %"
+          + rowTxt() + colTxt() + "DataNodes usages" + colTxt() + ":" + colTxt()
+          + "Min %" + colTxt() + "Median %" + colTxt() + "Max %" + colTxt()
+          + "stdev %" + rowTxt() + colTxt() + colTxt() + colTxt()
+          + StringUtils.limitDecimalTo2(min) + " %"
+          + colTxt() + StringUtils.limitDecimalTo2(median) + " %"
+          + colTxt() + StringUtils.limitDecimalTo2(max) + " %"
+          + colTxt() + StringUtils.limitDecimalTo2(dev) + " %"
+          + rowTxt() + colTxt()
           + "<a href=\"dfsnodelist.jsp?whatNodes=LIVE\">Live Nodes</a> "
           + colTxt() + ":" + colTxt() + live.size() + rowTxt() + colTxt()
           + "<a href=\"dfsnodelist.jsp?whatNodes=DEAD\">Dead Nodes</a> "
@@ -263,20 +307,19 @@ class NamenodeJspHelper {
     }
   }
 
-  static String getDelegationToken(final NameNode nn, final String user
-                                   ) throws IOException, InterruptedException {
-    if (user == null) {
-      return null;
-    }
-    UserGroupInformation ugi = UserGroupInformation.createRemoteUser(user);
-    Token<DelegationTokenIdentifier> token =
-      ugi.doAs(
-               new PrivilegedExceptionAction<Token<DelegationTokenIdentifier>>() {
-                 public Token<DelegationTokenIdentifier> run() throws IOException {
-                   return nn.getDelegationToken(new Text(user));
-                 }
-               });
-    return token.encodeToUrlString();
+  static String getDelegationToken(final NameNode nn,
+      HttpServletRequest request, Configuration conf) throws IOException,
+      InterruptedException {
+    final UserGroupInformation ugi = JspHelper.getUGI(request, conf);
+
+    Token<DelegationTokenIdentifier> token = ugi
+        .doAs(new PrivilegedExceptionAction<Token<DelegationTokenIdentifier>>() {
+          public Token<DelegationTokenIdentifier> run() throws IOException {
+            return nn.getDelegationToken(new Text(ugi.getUserName()));
+          }
+        });
+
+    return token == null ? null : token.encodeToUrlString();
   }
 
   static void redirectToRandomDataNode(final NameNode nn, 
@@ -286,8 +329,7 @@ class NamenodeJspHelper {
                                        ) throws IOException,
                                                 InterruptedException {
     final DatanodeID datanode = nn.getNamesystem().getRandomDatanode();
-    final String user = request.getRemoteUser();
-    String tokenString = getDelegationToken(nn, user);
+    String tokenString = getDelegationToken(nn, request, conf);
     // if the user is defined, get a delegation token and stringify it
     final String redirectLocation;
     final String nodeToRedirect;
@@ -304,7 +346,7 @@ class NamenodeJspHelper {
         + "/browseDirectory.jsp?namenodeInfoPort="
         + nn.getHttpAddress().getPort() + "&dir=/"
         + (tokenString == null ? "" :
-           JspHelper.SET_DELEGATION + tokenString);
+           JspHelper.getDelegationTokenUrlParam(tokenString));
     resp.sendRedirect(redirectLocation);
   }
 
@@ -344,8 +386,9 @@ class NamenodeJspHelper {
       return ret;
     }
 
-    void generateDecommissioningNodeData(JspWriter out, DatanodeDescriptor d,
+    private void generateNodeDataHeader(JspWriter out, DatanodeDescriptor d,
         String suffix, boolean alive, int nnHttpPort) throws IOException {
+      // from nn_browsedfscontent.jsp:
       String url = "http://" + d.getHostName() + ":" + d.getInfoPort()
           + "/browseDirectory.jsp?namenodeInfoPort=" + nnHttpPort + "&dir="
           + URLEncoder.encode("/", "UTF-8");
@@ -360,6 +403,11 @@ class NamenodeJspHelper {
           + d.getPort() + "\" href=\"" + url + "\">"
           + ((idx > 0) ? name.substring(0, idx) : name) + "</a>"
           + ((alive) ? "" : "\n"));
+    }
+
+    void generateDecommissioningNodeData(JspWriter out, DatanodeDescriptor d,
+        String suffix, boolean alive, int nnHttpPort) throws IOException {
+      generateNodeDataHeader(out, d, suffix, alive, nnHttpPort);
       if (!alive) {
         return;
       }
@@ -395,21 +443,7 @@ class NamenodeJspHelper {
        * interact with datanodes.
        */
 
-      // from nn_browsedfscontent.jsp:
-      String url = "http://" + d.getHostName() + ":" + d.getInfoPort()
-          + "/browseDirectory.jsp?namenodeInfoPort=" + nnHttpPort + "&dir="
-          + URLEncoder.encode("/", "UTF-8");
-
-      String name = d.getHostName() + ":" + d.getPort();
-      if (!name.matches("\\d+\\.\\d+.\\d+\\.\\d+.*"))
-        name = name.replaceAll("\\.[^.:]*", "");
-      int idx = (suffix != null && name.endsWith(suffix)) ? name
-          .indexOf(suffix) : -1;
-
-      out.print(rowTxt() + "<td class=\"name\"><a title=\"" + d.getHost() + ":"
-          + d.getPort() + "\" href=\"" + url + "\">"
-          + ((idx > 0) ? name.substring(0, idx) : name) + "</a>"
-          + ((alive) ? "" : "\n"));
+      generateNodeDataHeader(out, d, suffix, alive, nnHttpPort);
       if (!alive)
         return;
 

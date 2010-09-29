@@ -17,6 +17,8 @@
  */
 package org.apache.hadoop.hdfs;
 
+import static org.apache.hadoop.hdfs.server.common.Util.fileAsURI;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -24,6 +26,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.channels.FileChannel;
+import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Random;
@@ -31,31 +34,32 @@ import java.util.Random;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.BlockListAsLongs;
+import org.apache.hadoop.hdfs.protocol.ClientProtocol;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
 import org.apache.hadoop.hdfs.protocol.FSConstants.DatanodeReportType;
-import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocols;
-import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
-import org.apache.hadoop.hdfs.protocol.ClientProtocol;
-import org.apache.hadoop.hdfs.server.protocol.DatanodeProtocol;
-import org.apache.hadoop.security.RefreshUserToGroupMappingsProtocol;
-import org.apache.hadoop.security.authorize.RefreshAuthorizationPolicyProtocol;
-import org.apache.hadoop.fs.CommonConfigurationKeys;
-import static org.apache.hadoop.hdfs.server.common.Util.fileAsURI;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.StartupOption;
 import org.apache.hadoop.hdfs.server.datanode.DataNode;
 import org.apache.hadoop.hdfs.server.datanode.FSDatasetInterface;
 import org.apache.hadoop.hdfs.server.datanode.SimulatedFSDataset;
-import org.apache.hadoop.hdfs.server.namenode.NameNodeAdapter;
 import org.apache.hadoop.hdfs.server.namenode.FSNamesystem;
 import org.apache.hadoop.hdfs.server.namenode.NameNode;
+import org.apache.hadoop.hdfs.server.namenode.NameNodeAdapter;
+import org.apache.hadoop.hdfs.server.protocol.DatanodeProtocol;
+import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
+import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocols;
 import org.apache.hadoop.hdfs.tools.DFSAdmin;
 import org.apache.hadoop.net.DNSToSwitchMapping;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.net.StaticMapping;
+import org.apache.hadoop.security.RefreshUserMappingsProtocol;
+import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.authorize.ProxyUsers;
+import org.apache.hadoop.security.authorize.RefreshAuthorizationPolicyProtocol;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.util.ToolRunner;
 
@@ -266,7 +270,7 @@ public class MiniDFSCluster {
         setRpcEngine(conf, ClientProtocol.class, rpcEngine);
         setRpcEngine(conf, DatanodeProtocol.class, rpcEngine);
         setRpcEngine(conf, RefreshAuthorizationPolicyProtocol.class, rpcEngine);
-        setRpcEngine(conf, RefreshUserToGroupMappingsProtocol.class, rpcEngine);
+        setRpcEngine(conf, RefreshUserMappingsProtocol.class, rpcEngine);
       } catch (ClassNotFoundException e) {
         throw new RuntimeException(e);
       }
@@ -320,6 +324,9 @@ public class MiniDFSCluster {
     } catch (URISyntaxException e) {
       NameNode.LOG.warn("unexpected URISyntaxException: " + e );
     }
+    
+    //make sure ProxyUsers uses the latest conf
+    ProxyUsers.refreshSuperUserGroupsConfiguration(conf);
   }
   
   private void setRpcEngine(Configuration conf, Class<?> protocol, Class<?> engine) {
@@ -871,6 +878,22 @@ public class MiniDFSCluster {
     } catch (URISyntaxException e) {
       throw new IOException(e);
     }
+  }
+
+  /**
+   *  @return a {@link HftpFileSystem} object as specified user. 
+   */
+  public HftpFileSystem getHftpFileSystemAs(final String username,
+      final Configuration conf, final String... groups
+      ) throws IOException, InterruptedException {
+    final UserGroupInformation ugi = UserGroupInformation.createUserForTesting(
+        username, groups);
+    return ugi.doAs(new PrivilegedExceptionAction<HftpFileSystem>() {
+      @Override
+      public HftpFileSystem run() throws Exception {
+        return getHftpFileSystem();
+      }
+    });
   }
 
   /**

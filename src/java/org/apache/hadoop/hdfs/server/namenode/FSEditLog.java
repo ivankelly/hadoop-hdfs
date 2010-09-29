@@ -22,6 +22,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
 
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.fs.Options;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hdfs.DeprecatedUTF8;
@@ -30,6 +32,7 @@ import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenIdentifie
 import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
+import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.JournalStream.JournalType;
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
@@ -46,6 +49,8 @@ import org.apache.hadoop.security.token.delegation.DelegationKey;
  * FSEditLog maintains a log of the namespace modifications.
  * 
  */
+@InterfaceAudience.Private
+@InterfaceStability.Evolving
 public class FSEditLog {
   
   abstract class Ops {
@@ -84,7 +89,7 @@ public class FSEditLog {
   }
 
   static final String NO_JOURNAL_STREAMS_WARNING = "!!! WARNING !!!" +
-  		" File system changes are not persistent. No journal streams.";
+      " File system changes are not persistent. No journal streams.";
 
   private static int DEFAULT_OUTPUT_FLUSH_BUFFER = 512*1024;
   private volatile int sizeOutputFlushBuffer = DEFAULT_OUTPUT_FLUSH_BUFFER;
@@ -107,6 +112,8 @@ public class FSEditLog {
   // is a sync currently running?
   private volatile boolean isSyncRunning;
 
+  // is an automatic sync scheduled?
+  private volatile boolean isAutoSyncScheduled = false;
 
   // these are statistics counters.
   private long numTransactions;        // number of transactions
@@ -133,7 +140,7 @@ public class FSEditLog {
     fsimage = image;
     isSyncRunning = false;
     metrics = NameNode.getNameNodeMetrics();
-    lastPrintTime = FSNamesystem.now();
+    lastPrintTime = now();    
     currentLogIndex = logIndex;
   }
 
@@ -373,41 +380,96 @@ public class FSEditLog {
    * @return the matching stream
    */
   synchronized EditLogOutputStream getEditsStream(StorageDirectory sd) {
-	for (EditLogOutputStream es : editStreams) {
-	  File parentStorageDir = ((EditLogFileOutputStream)es).getFile()
-	  .getParentFile().getParentFile();
-	  if (parentStorageDir.getName().equals(sd.getRoot().getName()))
-		return es;
-	}
-	return null;
+    for (EditLogOutputStream es : editStreams) {
+      File parentStorageDir = ((EditLogFileOutputStream)es).getFile()
+        .getParentFile().getParentFile();
+      if (parentStorageDir.getName().equals(sd.getRoot().getName()))
+        return es;
+    }
+    return null;
   }
 
   /**
    * Write an operation to the edit log. Do not sync to persistent
    * store yet.
    */
-  synchronized void logEdit(byte op, Writable ... writables) {
-    if(getNumEditStreams() == 0)
-      throw new java.lang.IllegalStateException(NO_JOURNAL_STREAMS_WARNING);
-    ArrayList<EditLogOutputStream> errorStreams = null;
-    long start = FSNamesystem.now();
-    for(EditLogOutputStream eStream : editStreams) {
-      FSImage.LOG.debug("loggin edits into " + eStream.getName()  + " stream");
-      if(!eStream.isOperationSupported(op))
-        continue;
-      try {
-        eStream.write(op, writables);
-      } catch (IOException ie) {
-        FSImage.LOG.warn("logEdit: removing "+ eStream.getName(), ie);
-        if(errorStreams == null)
-          errorStreams = new ArrayList<EditLogOutputStream>(1);
-        errorStreams.add(eStream);
+  void logEdit(byte op, Writable ... writables) {
+    synchronized (this) {
+      // wait if an automatic sync is scheduled
+      waitIfAutoSyncScheduled();
+      
+      if(getNumEditStreams() == 0)
+        throw new java.lang.IllegalStateException(NO_JOURNAL_STREAMS_WARNING);
+      ArrayList<EditLogOutputStream> errorStreams = null;
+      long start = now();
+      for(EditLogOutputStream eStream : editStreams) {
+        if(FSImage.LOG.isDebugEnabled()) {
+          FSImage.LOG.debug("loggin edits into " + eStream.getName() +
+              " stream");
+        }
+        if(!eStream.isOperationSupported(op))
+          continue;
+        try {
+          eStream.write(op, writables);
+        } catch (IOException ie) {
+          FSImage.LOG.warn("logEdit: removing "+ eStream.getName(), ie);
+          if(errorStreams == null)
+            errorStreams = new ArrayList<EditLogOutputStream>(1);
+          errorStreams.add(eStream);
+        }
       }
+      processIOError(errorStreams, true);
+      recordTransaction(start);
+      
+      // check if it is time to schedule an automatic sync
+      if (!shouldForceSync()) {
+        return;
+      }
+      isAutoSyncScheduled = true;
     }
-    processIOError(errorStreams, true);
-    recordTransaction(start);
+    
+    // sync buffered edit log entries to persistent store
+    logSync();
   }
 
+  /**
+   * Wait if an automatic sync is scheduled
+   * @throws InterruptedException
+   */
+  synchronized void waitIfAutoSyncScheduled() {
+    try {
+      while (isAutoSyncScheduled) {
+        this.wait(1000);
+      }
+    } catch (InterruptedException e) {
+    }
+  }
+  
+  /**
+   * Signal that an automatic sync scheduling is done if it is scheduled
+   */
+  synchronized void doneWithAutoSyncScheduling() {
+    if (isAutoSyncScheduled) {
+      isAutoSyncScheduled = false;
+      notifyAll();
+    }
+  }
+  
+  /**
+   * Check if should automatically sync buffered edits to 
+   * persistent store
+   * 
+   * @return true if any of the edit stream says that it should sync
+   */
+  private boolean shouldForceSync() {
+    for (EditLogOutputStream eStream : editStreams) {
+      if (eStream.shouldForceSync()) {
+        return true;
+      }
+    }
+    return false;
+  }
+  
   private void recordTransaction(long start) {
     // get a new transactionId
     txid++;
@@ -419,7 +481,7 @@ public class FSEditLog {
     id.txid = txid;
 
     // update statistics
-    long end = FSNamesystem.now();
+    long end = now();
     numTransactions++;
     totalTimeTransactions += (end-start);
     if (metrics != null) // Metrics is non-null only when used inside name node
@@ -472,16 +534,17 @@ public class FSEditLog {
    * concurrency with sync() should be synchronized and also call
    * waitForSyncToFinish() before assuming they are running alone.
    */
-  public void logSync() throws IOException {
+  public void logSync() {
     ArrayList<EditLogOutputStream> errorStreams = null;
     long syncStart = 0;
 
     // Fetch the transactionId of this thread. 
     long mytxid = myTransactionId.get().txid;
-    EditLogOutputStream streams[] = null;
+    ArrayList<EditLogOutputStream> streams = new ArrayList<EditLogOutputStream>();
     boolean sync = false;
     try {
       synchronized (this) {
+        try {
         assert editStreams.size() > 0 : "no editlog streams";
         printStatistics(false);
   
@@ -510,16 +573,29 @@ public class FSEditLog {
   
         // swap buffers
         for(EditLogOutputStream eStream : editStreams) {
-          eStream.setReadyToFlush();
+          try {
+            eStream.setReadyToFlush();
+            streams.add(eStream);
+          } catch (IOException ie) {
+            FSNamesystem.LOG.error("Unable to get ready to flush.", ie);
+            //
+            // remember the streams that encountered an error.
+            //
+            if (errorStreams == null) {
+              errorStreams = new ArrayList<EditLogOutputStream>(1);
+            }
+            errorStreams.add(eStream);
+          }
         }
-        streams = 
-          editStreams.toArray(new EditLogOutputStream[editStreams.size()]);
+        } finally {
+          // Prevent RuntimeException from blocking other log edit write 
+          doneWithAutoSyncScheduling();
+        }
       }
   
       // do the sync
-      long start = FSNamesystem.now();
-      for (int idx = 0; idx < streams.length; idx++) {
-        EditLogOutputStream eStream = streams[idx];
+      long start = now();
+      for (EditLogOutputStream eStream : streams) {
         try {
           eStream.flush();
         } catch (IOException ie) {
@@ -533,12 +609,13 @@ public class FSEditLog {
           errorStreams.add(eStream);
         }
       }
-      long elapsed = FSNamesystem.now() - start;
+      long elapsed = now() - start;
       processIOError(errorStreams, true);
   
       if (metrics != null) // Metrics non-null only when used inside name node
         metrics.syncs.inc(elapsed);
     } finally {
+      // Prevent RuntimeException from blocking other log edit sync 
       synchronized (this) {
         synctxid = syncStart;
         if (sync) {
@@ -553,7 +630,7 @@ public class FSEditLog {
   // print statistics every 1 minute.
   //
   private void printStatistics(boolean force) {
-    long now = FSNamesystem.now();
+    long now = now();
     if (lastPrintTime + 60000 > now && !force) {
       return;
     }
@@ -1110,7 +1187,7 @@ public class FSEditLog {
     if(getNumEditStreams() == 0)
       throw new java.lang.IllegalStateException(NO_JOURNAL_STREAMS_WARNING);
     ArrayList<EditLogOutputStream> errorStreams = null;
-    long start = FSNamesystem.now();
+    long start = now();
     for(EditLogOutputStream eStream : editStreams) {
       try {
         eStream.write(data, 0, length);

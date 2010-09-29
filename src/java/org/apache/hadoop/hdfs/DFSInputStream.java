@@ -26,6 +26,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.fs.ChecksumException;
 import org.apache.hadoop.fs.FSInputStream;
 import org.apache.hadoop.fs.UnresolvedLinkException;
@@ -34,17 +35,22 @@ import org.apache.hadoop.hdfs.protocol.ClientDatanodeProtocol;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
 import org.apache.hadoop.hdfs.protocol.LocatedBlock;
 import org.apache.hadoop.hdfs.protocol.LocatedBlocks;
-import org.apache.hadoop.hdfs.security.BlockAccessToken;
-import org.apache.hadoop.hdfs.security.InvalidAccessTokenException;
+import org.apache.hadoop.hdfs.security.token.block.InvalidBlockTokenException;
+import org.apache.hadoop.hdfs.security.token.block.BlockTokenIdentifier;
+import org.apache.hadoop.hdfs.server.datanode.ReplicaNotFoundException;
 import org.apache.hadoop.io.IOUtils;
+import org.apache.hadoop.ipc.RPC;
+import org.apache.hadoop.ipc.RemoteException;
 import org.apache.hadoop.net.NetUtils;
+import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.StringUtils;
 
 /****************************************************************
  * DFSInputStream provides bytes from a named file.  It handles 
  * negotiation of the namenode and various datanodes as necessary.
  ****************************************************************/
-class DFSInputStream extends FSInputStream {
+@InterfaceAudience.Private
+public class DFSInputStream extends FSInputStream {
   private final DFSClient dfsClient;
   private Socket s = null;
   private boolean closed = false;
@@ -138,22 +144,48 @@ class DFSInputStream extends FSInputStream {
     if (locatedblock == null || locatedblock.getLocations().length == 0) {
       return 0;
     }
+    int replicaNotFoundCount = locatedblock.getLocations().length;
+    
     for(DatanodeInfo datanode : locatedblock.getLocations()) {
+      ClientDatanodeProtocol cdp = null;
+      
       try {
-        final ClientDatanodeProtocol cdp = DFSClient.createClientDatanodeProtocolProxy(
-            datanode, dfsClient.conf);
+        cdp = DFSClient.createClientDatanodeProtocolProxy(
+        datanode, dfsClient.conf, dfsClient.socketTimeout, locatedblock);
+        
         final long n = cdp.getReplicaVisibleLength(locatedblock.getBlock());
+        
         if (n >= 0) {
           return n;
         }
       }
       catch(IOException ioe) {
+        if (ioe instanceof RemoteException &&
+          (((RemoteException) ioe).unwrapRemoteException() instanceof
+            ReplicaNotFoundException)) {
+          // special case : replica might not be on the DN, treat as 0 length
+          replicaNotFoundCount--;
+        }
+        
         if (DFSClient.LOG.isDebugEnabled()) {
-          DFSClient.LOG.debug("Faild to getReplicaVisibleLength from datanode "
+          DFSClient.LOG.debug("Failed to getReplicaVisibleLength from datanode "
               + datanode + " for block " + locatedblock.getBlock(), ioe);
+        }
+      } finally {
+        if (cdp != null) {
+          RPC.stopProxy(cdp);
         }
       }
     }
+
+    // Namenode told us about these locations, but none know about the replica
+    // means that we hit the race between pipeline creation start and end.
+    // we require all 3 because some other exception could have happened
+    // on a DN that has it.  we want to report that error
+    if (replicaNotFoundCount == 0) {
+      return 0;
+    }
+
     throw new IOException("Cannot obtain block length for " + locatedblock);
   }
   
@@ -353,16 +385,15 @@ class DFSInputStream extends FSInputStream {
         NetUtils.connect(s, targetAddr, dfsClient.socketTimeout);
         s.setSoTimeout(dfsClient.socketTimeout);
         Block blk = targetBlock.getBlock();
-        BlockAccessToken accessToken = targetBlock.getAccessToken();
+        Token<BlockTokenIdentifier> accessToken = targetBlock.getBlockToken();
         
-        blockReader = BlockReader.newBlockReader(s, src, blk.getBlockId(), 
+        blockReader = BlockReader.newBlockReader(s, src, blk, 
             accessToken, 
-            blk.getGenerationStamp(),
             offsetIntoBlock, blk.getNumBytes() - offsetIntoBlock,
             buffersize, verifyChecksum, dfsClient.clientName);
         return chosenNode;
       } catch (IOException ex) {
-        if (ex instanceof InvalidAccessTokenException && refetchToken > 0) {
+        if (ex instanceof InvalidBlockTokenException && refetchToken > 0) {
           DFSClient.LOG.info("Will fetch a new access token and retry, " 
               + "access token was invalid when connecting to " + targetAddr
               + " : " + ex);
@@ -493,7 +524,7 @@ class DFSInputStream extends FSInputStream {
           if (pos > blockEnd) {
             currentNode = blockSeekTo(pos);
           }
-          int realLen = Math.min(len, (int) (blockEnd - pos + 1));
+          int realLen = (int) Math.min((long) len, (blockEnd - pos + 1L));
           int result = readBuffer(buf, off, realLen);
           
           if (result >= 0) {
@@ -593,14 +624,13 @@ class DFSInputStream extends FSInputStream {
         dn = dfsClient.socketFactory.createSocket();
         NetUtils.connect(dn, targetAddr, dfsClient.socketTimeout);
         dn.setSoTimeout(dfsClient.socketTimeout);
-        BlockAccessToken accessToken = block.getAccessToken();
+        Token<BlockTokenIdentifier> blockToken = block.getBlockToken();
             
         int len = (int) (end - start + 1);
             
         reader = BlockReader.newBlockReader(dn, src, 
-                                            block.getBlock().getBlockId(),
-                                            accessToken,
-                                            block.getBlock().getGenerationStamp(),
+                                            block.getBlock(),
+                                            blockToken,
                                             start, len, buffersize, 
                                             verifyChecksum, dfsClient.clientName);
         int nread = reader.readAll(buf, offset, len);
@@ -615,7 +645,7 @@ class DFSInputStream extends FSInputStream {
                  e.getPos() + " from " + chosenNode.getName());
         dfsClient.reportChecksumFailure(src, block.getBlock(), chosenNode);
       } catch (IOException e) {
-        if (e instanceof InvalidAccessTokenException && refetchToken > 0) {
+        if (e instanceof InvalidBlockTokenException && refetchToken > 0) {
           DFSClient.LOG.info("Will get a new access token and retry, "
               + "access token was invalid when connecting to " + targetAddr
               + " : " + e);
@@ -721,9 +751,11 @@ class DFSInputStream extends FSInputStream {
             done = true;
           }
         } catch (IOException e) {//make following read to retry
-          DFSClient.LOG.debug("Exception while seek to " + targetPos + " from "
-                    + currentBlock +" of " + src + " from " + currentNode + 
-                    ": " + StringUtils.stringifyException(e));
+          if(DFSClient.LOG.isDebugEnabled()) {
+            DFSClient.LOG.debug("Exception while seek to " + targetPos +
+                " from " + currentBlock +" of " + src + " from " +
+                currentNode + ": " + StringUtils.stringifyException(e));
+          }
         }
       }
     }

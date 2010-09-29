@@ -21,6 +21,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.security.PrivilegedExceptionAction;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -28,19 +29,21 @@ import java.util.List;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.ContentSummary;
 import org.apache.hadoop.fs.CreateFlag;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FsServerDefaults;
+import org.apache.hadoop.fs.Options;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.Trash;
-import org.apache.hadoop.fs.Options;
 import org.apache.hadoop.fs.UnresolvedLinkException;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.fs.permission.PermissionStatus;
+import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.HDFSPolicyProvider;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.BlockListAsLongs;
 import org.apache.hadoop.hdfs.protocol.ClientProtocol;
@@ -53,12 +56,13 @@ import org.apache.hadoop.hdfs.protocol.LocatedBlock;
 import org.apache.hadoop.hdfs.protocol.LocatedBlocks;
 import org.apache.hadoop.hdfs.protocol.UnregisteredNodeException;
 import org.apache.hadoop.hdfs.protocol.UnresolvedPathException;
-import org.apache.hadoop.hdfs.security.ExportedAccessKeys;
-import org.apache.hadoop.hdfs.server.common.IncorrectVersionException;
-import org.apache.hadoop.hdfs.server.common.UpgradeStatusReport;
+import org.apache.hadoop.hdfs.security.token.block.ExportedBlockKeys;
+import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenIdentifier;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.StartupOption;
-import org.apache.hadoop.hdfs.server.namenode.FSNamesystem.CompleteFileStatus;
+import org.apache.hadoop.hdfs.server.common.IncorrectVersionException;
+import org.apache.hadoop.hdfs.server.common.JspHelper;
+import org.apache.hadoop.hdfs.server.common.UpgradeStatusReport;
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
 import org.apache.hadoop.hdfs.server.protocol.BlocksWithLocations;
 import org.apache.hadoop.hdfs.server.protocol.DatanodeCommand;
@@ -71,9 +75,9 @@ import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.NamespaceInfo;
 import org.apache.hadoop.hdfs.server.protocol.NodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.UpgradeCommand;
-import org.apache.hadoop.hdfs.DFSConfigKeys;
-import org.apache.hadoop.hdfs.DFSUtil;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
+import org.apache.hadoop.hdfs.server.namenode.GetDelegationTokenServlet;
+import org.apache.hadoop.hdfs.server.namenode.CancelDelegationTokenServlet;
+import org.apache.hadoop.hdfs.server.namenode.RenewDelegationTokenServlet;
 import org.apache.hadoop.http.HttpServer;
 import org.apache.hadoop.io.EnumSetWritable;
 import org.apache.hadoop.io.Text;
@@ -84,14 +88,16 @@ import org.apache.hadoop.net.NetworkTopology;
 import org.apache.hadoop.net.Node;
 import org.apache.hadoop.security.AccessControlException;
 import org.apache.hadoop.security.Groups;
-import org.apache.hadoop.security.RefreshUserToGroupMappingsProtocol;
+import org.apache.hadoop.security.RefreshUserMappingsProtocol;
+import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.authorize.AccessControlList;
 import org.apache.hadoop.security.authorize.AuthorizationException;
+import org.apache.hadoop.security.authorize.ProxyUsers;
 import org.apache.hadoop.security.authorize.RefreshAuthorizationPolicyProtocol;
 import org.apache.hadoop.security.authorize.ServiceAuthorizationManager;
-import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.security.token.SecretManager.InvalidToken;
-import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenIdentifier;
+import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.ServicePlugin;
 import org.apache.hadoop.util.StringUtils;
 
@@ -129,6 +135,7 @@ import org.apache.hadoop.util.StringUtils;
  * secondary namenodes or rebalancing processes to get partial namenode's
  * state, for example partial blocksMap etc.
  **********************************************************/
+@InterfaceAudience.Private
 public class NameNode implements NamenodeProtocols, FSConstants {
   static{
     Configuration.addDefaultResource("hdfs-default.xml");
@@ -136,7 +143,7 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   }
   
   public long getProtocolVersion(String protocol, 
-                                 long clientVersion) throws IOException { 
+                                 long clientVersion) throws IOException {
     if (protocol.equals(ClientProtocol.class.getName())) {
       return ClientProtocol.versionID; 
     } else if (protocol.equals(DatanodeProtocol.class.getName())){
@@ -145,8 +152,8 @@ public class NameNode implements NamenodeProtocols, FSConstants {
       return NamenodeProtocol.versionID;
     } else if (protocol.equals(RefreshAuthorizationPolicyProtocol.class.getName())){
       return RefreshAuthorizationPolicyProtocol.versionID;
-    } else if (protocol.equals(RefreshUserToGroupMappingsProtocol.class.getName())){
-      return RefreshUserToGroupMappingsProtocol.versionID;
+    } else if (protocol.equals(RefreshUserMappingsProtocol.class.getName())){
+      return RefreshUserMappingsProtocol.versionID;
     } else {
       throw new IOException("Unknown protocol to name node: " + protocol);
     }
@@ -159,10 +166,18 @@ public class NameNode implements NamenodeProtocols, FSConstants {
 
   protected FSNamesystem namesystem; 
   protected NamenodeRole role;
-  /** RPC server */
+  /** RPC server. */
   protected Server server;
+  /** RPC server for HDFS Services communication.
+      BackupNode, Datanodes and all other services
+      should be connecting to this server if it is
+      configured. Clients should only go to NameNode#server
+  */
+  protected Server serviceRpcServer;
   /** RPC server address */
   protected InetSocketAddress rpcAddress = null;
+  /** RPC server for DN address */
+  protected InetSocketAddress serviceRPCAddress = null;
   /** httpServer */
   protected HttpServer httpServer;
   /** HTTP server address */
@@ -202,6 +217,32 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   
   public static InetSocketAddress getAddress(String address) {
     return NetUtils.createSocketAddr(address, DEFAULT_PORT);
+  }
+
+  /**
+   * Set the configuration property for the service rpc address
+   * to address
+   */
+  public static void setServiceAddress(Configuration conf,
+                                           String address) {
+    LOG.info("Setting ADDRESS " + address);
+    conf.set(DFSConfigKeys.DFS_NAMENODE_SERVICE_RPC_ADDRESS_KEY, address);
+  }
+  
+  /**
+   * Fetches the address for services to use when connecting to namenode
+   * based on the value of fallback returns null if the special
+   * address is not specified or returns the default namenode address
+   * to be used by both clients and services.
+   * Services here are datanodes, backup node, any non client connection
+   */
+  public static InetSocketAddress getServiceAddress(Configuration conf,
+                                                        boolean fallback) {
+    String addr = conf.get(DFSConfigKeys.DFS_NAMENODE_SERVICE_RPC_ADDRESS_KEY);
+    if (addr == null || addr.isEmpty()) {
+      return fallback ? getAddress(conf) : null;
+    }
+    return getAddress(addr);
   }
 
   public static InetSocketAddress getAddress(Configuration conf) {
@@ -247,8 +288,24 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     return role.equals(that);
   }
 
+  /**
+   * Given a configuration get the address of the service rpc server
+   * If the service rpc is not configured returns null
+   */
+  protected InetSocketAddress getServiceRpcServerAddress(Configuration conf)
+    throws IOException {
+    return NameNode.getServiceAddress(conf, false);
+  }
+
   protected InetSocketAddress getRpcServerAddress(Configuration conf) throws IOException {
     return getAddress(conf);
+  }
+  
+  /**
+   * Modifies the configuration passed to contain the service rpc address setting
+   */
+  protected void setRpcServiceServerAddress(Configuration conf) {
+    setServiceAddress(conf, getHostPortString(serviceRPCAddress));
   }
 
   protected void setRpcServerAddress(Configuration conf) {
@@ -287,6 +344,9 @@ public class NameNode implements NamenodeProtocols, FSConstants {
    */
   protected void initialize(Configuration conf) throws IOException {
     InetSocketAddress socAddr = getRpcServerAddress(conf);
+    UserGroupInformation.setConfiguration(conf);
+    SecurityUtil.login(conf, DFSConfigKeys.DFS_NAMENODE_KEYTAB_FILE_KEY,
+        DFSConfigKeys.DFS_NAMENODE_USER_NAME_KEY, socAddr.getHostName());
     int handlerCount = conf.getInt("dfs.namenode.handler.count", 10);
     
     // set service-level authorization security policy
@@ -298,17 +358,31 @@ public class NameNode implements NamenodeProtocols, FSConstants {
 
     NameNode.initMetrics(conf, this.getRole());
     loadNamesystem(conf);
-    // create rpc server 
+    // create rpc server
+    InetSocketAddress dnSocketAddr = getServiceRpcServerAddress(conf);
+    if (dnSocketAddr != null) {
+      int serviceHandlerCount =
+        conf.getInt(DFSConfigKeys.DFS_NAMENODE_SERVICE_HANDLER_COUNT_KEY,
+                    DFSConfigKeys.DFS_NAMENODE_SERVICE_HANDLER_COUNT_DEFAULT);
+      this.serviceRpcServer = RPC.getServer(NamenodeProtocols.class, this,
+          dnSocketAddr.getHostName(), dnSocketAddr.getPort(), serviceHandlerCount,
+          false, conf, namesystem.getDelegationTokenSecretManager());
+      this.serviceRPCAddress = this.serviceRpcServer.getListenerAddress();
+      setRpcServiceServerAddress(conf);
+    }
     this.server = RPC.getServer(NamenodeProtocols.class, this,
                                 socAddr.getHostName(), socAddr.getPort(),
                                 handlerCount, false, conf, 
-				namesystem.getDelegationTokenSecretManager());
+                                namesystem.getDelegationTokenSecretManager());
     // The rpc-server port can be ephemeral... ensure we have the correct info
     this.rpcAddress = this.server.getListenerAddress(); 
     setRpcServerAddress(conf);
 
     activate(conf);
     LOG.info(getRole() + " up at: " + rpcAddress);
+    if (serviceRPCAddress != null) {
+      LOG.info(getRole() + " service server is up at: " + serviceRPCAddress); 
+    }
   }
 
   /**
@@ -322,6 +396,9 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     namesystem.activate(conf);
     startHttpServer(conf);
     server.start();  //start RPC server
+    if (serviceRpcServer != null) {
+      serviceRpcServer.start();      
+    }
     startTrashEmptier(conf);
     
     plugins = conf.getInstances("dfs.namenode.plugins", ServicePlugin.class);
@@ -343,48 +420,116 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     this.emptier.start();
   }
 
-  private void startHttpServer(Configuration conf) throws IOException {
-    InetSocketAddress infoSocAddr = getHttpServerAddress(conf);
-    String infoHost = infoSocAddr.getHostName();
-    int infoPort = infoSocAddr.getPort();
-    this.httpServer = new HttpServer("hdfs", infoHost, infoPort, 
-        infoPort == 0, conf);
-    if (conf.getBoolean("dfs.https.enable", false)) {
-      boolean needClientAuth = conf.getBoolean(DFSConfigKeys.DFS_CLIENT_HTTPS_NEED_AUTH_KEY,
-                                               DFSConfigKeys.DFS_CLIENT_HTTPS_NEED_AUTH_DEFAULT);
-      InetSocketAddress secInfoSocAddr = NetUtils.createSocketAddr(conf.get(
-          DFSConfigKeys.DFS_NAMENODE_HTTPS_ADDRESS_KEY, infoHost + ":" + 0));
-      Configuration sslConf = new HdfsConfiguration(false);
-      sslConf.addResource(conf.get("dfs.https.server.keystore.resource",
-          "ssl-server.xml"));
-      this.httpServer.addSslListener(secInfoSocAddr, sslConf, needClientAuth);
-      // assume same ssl port for all datanodes
-      InetSocketAddress datanodeSslPort = NetUtils.createSocketAddr(conf.get(
-          "dfs.datanode.https.address", infoHost + ":" + 50475));
-      this.httpServer.setAttribute("datanode.https.port", datanodeSslPort
-          .getPort());
+  public static String getInfoServer(Configuration conf) {
+    return UserGroupInformation.isSecurityEnabled() ? conf.get(
+        DFSConfigKeys.DFS_NAMENODE_HTTPS_ADDRESS_KEY,
+        DFSConfigKeys.DFS_NAMENODE_HTTPS_ADDRESS_DEFAULT) : conf.get(
+        DFSConfigKeys.DFS_NAMENODE_HTTP_ADDRESS_KEY,
+        DFSConfigKeys.DFS_NAMENODE_HTTP_ADDRESS_DEFAULT);
+  }
+  
+  private void startHttpServer(final Configuration conf) throws IOException {
+    final InetSocketAddress infoSocAddr = getHttpServerAddress(conf);
+    final String infoHost = infoSocAddr.getHostName();
+    if(UserGroupInformation.isSecurityEnabled()) {
+      String httpsUser = SecurityUtil.getServerPrincipal(conf
+          .get(DFSConfigKeys.DFS_NAMENODE_KRB_HTTPS_USER_NAME_KEY), infoHost);
+      if (httpsUser == null) {
+        LOG.warn(DFSConfigKeys.DFS_NAMENODE_KRB_HTTPS_USER_NAME_KEY
+            + " not defined in config. Starting http server as "
+            + SecurityUtil.getServerPrincipal(conf
+                .get(DFSConfigKeys.DFS_NAMENODE_USER_NAME_KEY), rpcAddress
+                .getHostName())
+            + ": Kerberized SSL may be not function correctly.");
+      } else {
+        // Kerberized SSL servers must be run from the host principal...
+        LOG.info("Logging in as " + httpsUser + " to start http server.");
+        SecurityUtil.login(conf, DFSConfigKeys.DFS_NAMENODE_KEYTAB_FILE_KEY,
+            DFSConfigKeys.DFS_NAMENODE_KRB_HTTPS_USER_NAME_KEY, infoHost);
+      }
     }
-    this.httpServer.setAttribute("name.node", this);
-    this.httpServer.setAttribute("name.node.address", getNameNodeAddress());
-    this.httpServer.setAttribute("name.system.image", getFSImage());
-    this.httpServer.setAttribute("name.conf", conf);
-    this.httpServer.addInternalServlet("getDelegationToken", 
-        DelegationTokenServlet.PATH_SPEC, DelegationTokenServlet.class);
-    this.httpServer.addInternalServlet("fsck", "/fsck", FsckServlet.class);
-    this.httpServer.addInternalServlet("getimage", "/getimage", GetImageServlet.class);
-    this.httpServer.addInternalServlet("listPaths", "/listPaths/*", ListPathsServlet.class);
-    this.httpServer.addInternalServlet("data", "/data/*", FileDataServlet.class);
-    this.httpServer.addInternalServlet("checksum", "/fileChecksum/*",
-        FileChecksumServlets.RedirectServlet.class);
-    this.httpServer.addInternalServlet("contentSummary", "/contentSummary/*",
-        ContentSummaryServlet.class);
-    this.httpServer.start();
+    UserGroupInformation ugi = UserGroupInformation.getLoginUser();
+    try {
+      this.httpServer = ugi.doAs(new PrivilegedExceptionAction<HttpServer>() {
+        @Override
+        public HttpServer run() throws IOException, InterruptedException {
+          int infoPort = infoSocAddr.getPort();
+          httpServer = new HttpServer("hdfs", infoHost, infoPort,
+              infoPort == 0, conf, 
+              new AccessControlList(conf.get(DFSConfigKeys.DFS_ADMIN, " ")));
 
-    // The web-server port can be ephemeral... ensure we have the correct info
-    infoPort = this.httpServer.getPort();
-    this.httpAddress = new InetSocketAddress(infoHost, infoPort);
-    setHttpServerAddress(conf);
-    LOG.info(getRole() + " Web-server up at: " + httpAddress);
+          boolean certSSL = conf.getBoolean("dfs.https.enable", false);
+          boolean useKrb = UserGroupInformation.isSecurityEnabled();
+          if (certSSL || useKrb) {
+            boolean needClientAuth = conf.getBoolean(
+                DFSConfigKeys.DFS_CLIENT_HTTPS_NEED_AUTH_KEY,
+                DFSConfigKeys.DFS_CLIENT_HTTPS_NEED_AUTH_DEFAULT);
+            InetSocketAddress secInfoSocAddr = NetUtils.createSocketAddr(conf
+                .get(DFSConfigKeys.DFS_NAMENODE_HTTPS_ADDRESS_KEY,
+                    DFSConfigKeys.DFS_NAMENODE_HTTPS_ADDRESS_DEFAULT));
+            Configuration sslConf = new HdfsConfiguration(false);
+            if (certSSL) {
+              sslConf.addResource(conf.get(
+                  "dfs.https.server.keystore.resource", "ssl-server.xml"));
+            }
+            httpServer.addSslListener(secInfoSocAddr, sslConf, needClientAuth,
+                useKrb);
+            // assume same ssl port for all datanodes
+            InetSocketAddress datanodeSslPort = NetUtils.createSocketAddr(conf
+                .get("dfs.datanode.https.address", infoHost + ":" + 50475));
+            httpServer.setAttribute("datanode.https.port", datanodeSslPort
+                .getPort());
+          }
+          httpServer.setAttribute("name.node", NameNode.this);
+          httpServer.setAttribute("name.node.address", getNameNodeAddress());
+          httpServer.setAttribute("name.system.image", getFSImage());
+          httpServer.setAttribute(JspHelper.CURRENT_CONF, conf);
+          httpServer.addInternalServlet("getDelegationToken",
+              GetDelegationTokenServlet.PATH_SPEC, 
+              GetDelegationTokenServlet.class, true);
+          httpServer.addInternalServlet("renewDelegationToken", 
+              RenewDelegationTokenServlet.PATH_SPEC, 
+              RenewDelegationTokenServlet.class, true);
+          httpServer.addInternalServlet("cancelDelegationToken", 
+              CancelDelegationTokenServlet.PATH_SPEC, 
+              CancelDelegationTokenServlet.class, true);
+          httpServer.addInternalServlet("fsck", "/fsck", FsckServlet.class,
+              true);
+          httpServer.addInternalServlet("getimage", "/getimage",
+              GetImageServlet.class, true);
+          httpServer.addInternalServlet("listPaths", "/listPaths/*",
+              ListPathsServlet.class, false);
+          httpServer.addInternalServlet("data", "/data/*",
+              FileDataServlet.class, false);
+          httpServer.addInternalServlet("checksum", "/fileChecksum/*",
+              FileChecksumServlets.RedirectServlet.class, false);
+          httpServer.addInternalServlet("contentSummary", "/contentSummary/*",
+              ContentSummaryServlet.class, false);
+          httpServer.start();
+
+          // The web-server port can be ephemeral... ensure we have the correct
+          // info
+          infoPort = httpServer.getPort();
+          httpAddress = new InetSocketAddress(infoHost, infoPort);
+          setHttpServerAddress(conf);
+          LOG.info(getRole() + " Web-server up at: " + httpAddress);
+          return httpServer;
+        }
+      });
+    } catch (InterruptedException e) {
+      throw new IOException(e);
+    } finally {
+      if(UserGroupInformation.isSecurityEnabled() && 
+          conf.get(DFSConfigKeys.DFS_NAMENODE_KRB_HTTPS_USER_NAME_KEY) != null) {
+        // Go back to being the correct Namenode principal
+        LOG.info("Logging back in as "
+            + SecurityUtil.getServerPrincipal(conf
+                .get(DFSConfigKeys.DFS_NAMENODE_USER_NAME_KEY), rpcAddress
+                .getHostName()) + " following http server start.");
+        SecurityUtil.login(conf, DFSConfigKeys.DFS_NAMENODE_KEYTAB_FILE_KEY,
+            DFSConfigKeys.DFS_NAMENODE_USER_NAME_KEY, rpcAddress.getHostName());
+      }
+    }
   }
 
   /**
@@ -420,11 +565,6 @@ public class NameNode implements NamenodeProtocols, FSConstants {
 
   protected NameNode(Configuration conf, NamenodeRole role) 
       throws IOException { 
-    UserGroupInformation.setConfiguration(conf);
-    DFSUtil.login(conf, 
-        DFSConfigKeys.DFS_NAMENODE_KEYTAB_FILE_KEY,
-        DFSConfigKeys.DFS_NAMENODE_USER_NAME_KEY);
-
     this.role = role;
     try {
       initialize(conf);
@@ -471,6 +611,7 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     if(namesystem != null) namesystem.close();
     if(emptier != null) emptier.interrupt();
     if(server != null) server.stop();
+    if(serviceRpcServer != null) serviceRpcServer.stop();
     if (myMetrics != null) {
       myMetrics.shutdown();
     }
@@ -498,8 +639,8 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   }
 
   /** {@inheritDoc} */
-  public ExportedAccessKeys getAccessKeys() throws IOException {
-    return namesystem.getAccessKeys();
+  public ExportedBlockKeys getBlockKeys() throws IOException {
+    return namesystem.getBlockKeys();
   }
 
   @Override // NamenodeProtocol
@@ -662,8 +803,10 @@ public class NameNode implements NamenodeProtocols, FSConstants {
                                Block previous,
                                DatanodeInfo[] excludedNodes)
       throws IOException {
-    stateChangeLog.debug("*BLOCK* NameNode.addBlock: file "
-                         +src+" for "+clientName);
+    if(stateChangeLog.isDebugEnabled()) {
+      stateChangeLog.debug("*BLOCK* NameNode.addBlock: file "
+          +src+" for "+clientName);
+    }
     HashMap<Node, Node> excludedNodesSet = null;
     if (excludedNodes != null) {
       excludedNodesSet = new HashMap<Node, Node>(excludedNodes.length);
@@ -683,8 +826,10 @@ public class NameNode implements NamenodeProtocols, FSConstants {
    */
   public void abandonBlock(Block b, String src, String holder)
       throws IOException {
-    stateChangeLog.debug("*BLOCK* NameNode.abandonBlock: "
-                         +b+" of file "+src);
+    if(stateChangeLog.isDebugEnabled()) {
+      stateChangeLog.debug("*BLOCK* NameNode.abandonBlock: "
+          +b+" of file "+src);
+    }
     if (!namesystem.abandonBlock(b, src, holder)) {
       throw new IOException("Cannot abandon block during write to " + src);
     }
@@ -693,17 +838,11 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   /** {@inheritDoc} */
   public boolean complete(String src, String clientName, Block last)
       throws IOException {
-    stateChangeLog.debug("*DIR* NameNode.complete: " + src + " for " + clientName);
-    CompleteFileStatus returnCode =
-      namesystem.completeFile(src, clientName, last);
-    if (returnCode == CompleteFileStatus.STILL_WAITING) {
-      return false;
-    } else if (returnCode == CompleteFileStatus.COMPLETE_SUCCESS) {
-      return true;
-    } else {
-      throw new IOException("Could not complete write to file " + 
-                            src + " by " + clientName);
+    if(stateChangeLog.isDebugEnabled()) {
+      stateChangeLog.debug("*DIR* NameNode.complete: "
+          + src + " for " + clientName);
     }
+    return namesystem.completeFile(src, clientName, last);
   }
 
   /**
@@ -757,7 +896,9 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   @Deprecated
   @Override
   public boolean rename(String src, String dst) throws IOException {
-    stateChangeLog.debug("*DIR* NameNode.rename: " + src + " to " + dst);
+    if(stateChangeLog.isDebugEnabled()) {
+      stateChangeLog.debug("*DIR* NameNode.rename: " + src + " to " + dst);
+    }
     if (!checkPathLength(dst)) {
       throw new IOException("rename: Pathname too long.  Limit " 
                             + MAX_PATH_LENGTH + " characters, " + MAX_PATH_DEPTH + " levels.");
@@ -780,7 +921,9 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   @Override
   public void rename(String src, String dst, Options.Rename... options)
       throws IOException {
-    stateChangeLog.debug("*DIR* NameNode.rename: " + src + " to " + dst);
+    if(stateChangeLog.isDebugEnabled()) {
+      stateChangeLog.debug("*DIR* NameNode.rename: " + src + " to " + dst);
+    }
     if (!checkPathLength(dst)) {
       throw new IOException("rename: Pathname too long.  Limit " 
                             + MAX_PATH_LENGTH + " characters, " + MAX_PATH_DEPTH + " levels.");
@@ -823,7 +966,9 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   /** {@inheritDoc} */
   public boolean mkdirs(String src, FsPermission masked, boolean createParent)
       throws IOException {
-    stateChangeLog.debug("*DIR* NameNode.mkdirs: " + src);
+    if(stateChangeLog.isDebugEnabled()) {
+      stateChangeLog.debug("*DIR* NameNode.mkdirs: " + src);
+    }
     if (!checkPathLength(src)) {
       throw new IOException("mkdirs: Pathname too long.  Limit " 
                             + MAX_PATH_LENGTH + " characters, " + MAX_PATH_DEPTH + " levels.");
@@ -842,9 +987,11 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   /**
    */
   @Override
-  public DirectoryListing getListing(String src, byte[] startAfter)
+  public DirectoryListing getListing(String src, byte[] startAfter,
+      boolean needLocation)
   throws IOException {
-    DirectoryListing files = namesystem.getListing(src, startAfter);
+    DirectoryListing files = namesystem.getListing(
+        src, startAfter, needLocation);
     if (files != null) {
       myMetrics.numGetListingOps.inc();
       myMetrics.numFilesInGetListingOps.inc(files.getPartialListing().length);
@@ -970,12 +1117,20 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     namesystem.metaSave(filename);
   }
 
-  /** {@inheritDoc} */
-  public FileStatus[] getCorruptFiles() 
-    throws AccessControlException, IOException {
-    
-    return namesystem.getCorruptFiles();
-    
+  /**
+   * 
+   * @param path
+   *          Sub-tree used in querying corrupt files
+   * @param startBlockAfter
+   *          Paging support---pass in the last block returned from the previous
+   *          call and some # of corrupt blocks after that point are returned
+   * @return a list in which each entry describes a corrupt file/block
+   * @throws AccessControlException
+   * @throws IOException
+   */
+  public Collection<FSNamesystem.CorruptFileBlockInfo> listCorruptFileBlocks(String path,
+      String startBlockAfter) throws AccessControlException, IOException {
+    return namesystem.listCorruptFileBlocks(path, startBlockAfter);
   }
   
   /** {@inheritDoc} */
@@ -1077,8 +1232,11 @@ public class NameNode implements NamenodeProtocols, FSConstants {
                                      long[] blocks) throws IOException {
     verifyRequest(nodeReg);
     BlockListAsLongs blist = new BlockListAsLongs(blocks);
-    stateChangeLog.debug("*BLOCK* NameNode.blockReport: "
-           +"from "+nodeReg.getName()+" "+blist.getNumberOfBlocks() +" blocks");
+    if(stateChangeLog.isDebugEnabled()) {
+      stateChangeLog.debug("*BLOCK* NameNode.blockReport: "
+           + "from " + nodeReg.getName() + " " + blist.getNumberOfBlocks()
+           + " blocks");
+    }
 
     namesystem.processReport(nodeReg, blist);
     if (getFSImage().isUpgradeFinalized())
@@ -1090,8 +1248,10 @@ public class NameNode implements NamenodeProtocols, FSConstants {
                             Block blocks[],
                             String delHints[]) throws IOException {
     verifyRequest(nodeReg);
-    stateChangeLog.debug("*BLOCK* NameNode.blockReceived: "
-                         +"from "+nodeReg.getName()+" "+blocks.length+" blocks.");
+    if(stateChangeLog.isDebugEnabled()) {
+      stateChangeLog.debug("*BLOCK* NameNode.blockReceived: "
+          +"from "+nodeReg.getName()+" "+blocks.length+" blocks.");
+    }
     for (int i = 0; i < blocks.length; i++) {
       namesystem.blockReceived(nodeReg, blocks[i], delHints[i]);
     }
@@ -1247,10 +1407,17 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   }
 
   @Override
-  public void refreshUserToGroupsMappings(Configuration conf) throws IOException {
+  public void refreshUserToGroupsMappings() throws IOException {
     LOG.info("Refreshing all user-to-groups mappings. Requested by user: " + 
              UserGroupInformation.getCurrentUser().getShortUserName());
-    Groups.getUserToGroupsMappingService(conf).refresh();
+    Groups.getUserToGroupsMappingService().refresh();
+  }
+
+  @Override
+  public void refreshSuperUserGroupsConfiguration() {
+    LOG.info("Refreshing SuperUser proxy group mapping list ");
+
+    ProxyUsers.refreshSuperUserGroupsConfiguration();
   }
 
   private static void printUsage() {

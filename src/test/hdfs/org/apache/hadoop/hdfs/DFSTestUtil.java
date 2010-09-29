@@ -39,12 +39,14 @@ import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.FileSystem.Statistics;
 import org.apache.hadoop.hdfs.DFSClient.DFSDataInputStream;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.LocatedBlock;
-import org.apache.hadoop.hdfs.security.BlockAccessToken;
+import org.apache.hadoop.hdfs.security.token.block.BlockTokenIdentifier;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.security.ShellBasedUnixGroupsMapping;
+import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.security.UserGroupInformation;
 
 /** Utilities for HDFS tests */
@@ -262,8 +264,9 @@ public class DFSTestUtil {
     return ((DFSClient.DFSDataInputStream) in).getAllBlocks();
   }
 
-  public static BlockAccessToken getAccessToken(FSDataOutputStream out) {
-    return ((DFSOutputStream) out.getWrappedStream()).getAccessToken();
+  public static Token<BlockTokenIdentifier> getBlockToken(
+      FSDataOutputStream out) {
+    return ((DFSOutputStream) out.getWrappedStream()).getBlockToken();
   }
 
   static void setLogLevel2All(org.apache.commons.logging.Log log) {
@@ -358,5 +361,19 @@ public class DFSTestUtil {
         return FileSystem.get(conf);
       }
     });
+  }
+
+  public static byte[] generateSequentialBytes(int start, int length) {
+    byte[] result = new byte[length];
+
+    for (int i = 0; i < length; i++) {
+      result[i] = (byte) ((start + i) % 127);
+    }
+
+    return result;
+  }
+  
+  public static Statistics getStatistics(FileSystem fs) {
+    return FileSystem.getStatistics(fs.getUri().getScheme(), fs.getClass());
   }
 }

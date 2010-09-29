@@ -24,7 +24,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.TreeSet;
 
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FsShell;
 import org.apache.hadoop.fs.FsStatus;
@@ -32,6 +34,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.shell.Command;
 import org.apache.hadoop.fs.shell.CommandFormat;
 import org.apache.hadoop.hdfs.DFSClient;
+import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
 import org.apache.hadoop.hdfs.protocol.FSConstants;
@@ -42,7 +45,7 @@ import org.apache.hadoop.hdfs.server.namenode.NameNode;
 import org.apache.hadoop.ipc.RPC;
 import org.apache.hadoop.ipc.RemoteException;
 import org.apache.hadoop.net.NetUtils;
-import org.apache.hadoop.security.RefreshUserToGroupMappingsProtocol;
+import org.apache.hadoop.security.RefreshUserMappingsProtocol;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.authorize.RefreshAuthorizationPolicyProtocol;
 import org.apache.hadoop.util.StringUtils;
@@ -51,6 +54,7 @@ import org.apache.hadoop.util.ToolRunner;
 /**
  * This class provides some DFS administrative access.
  */
+@InterfaceAudience.Private
 public class DFSAdmin extends FsShell {
 
   static{
@@ -473,6 +477,7 @@ public class DFSAdmin extends FsShell {
       "\t[" + ClearSpaceQuotaCommand.USAGE +"]\n" +
       "\t[-refreshServiceAcl]\n" +
       "\t[-refreshUserToGroupsMappings]\n" +
+      "\t[refreshSuperUserGroupsConfiguration]\n" +
       "\t[-printTopology]\n" +
       "\t[-help [cmd]]\n";
 
@@ -530,6 +535,9 @@ public class DFSAdmin extends FsShell {
     String refreshUserToGroupsMappings = 
       "-refreshUserToGroupsMappings: Refresh user-to-groups mappings\n";
     
+    String refreshSuperUserGroupsConfiguration = 
+      "-refreshSuperUserGroupsConfiguration: Refresh superuser proxy groups mappings\n";
+
     String printTopology = "-printTopology: Print a tree of the racks and their\n" +
                            "\t\tnodes as reported by the Namenode\n";
     
@@ -564,6 +572,8 @@ public class DFSAdmin extends FsShell {
       System.out.println(refreshServiceAcl);
     } else if ("refreshUserToGroupsMappings".equals(cmd)) {
       System.out.println(refreshUserToGroupsMappings);
+    } else if ("refreshSuperUserGroupsConfiguration".equals(cmd)) {
+      System.out.println(refreshSuperUserGroupsConfiguration);
     } else if ("printTopology".equals(cmd)) {
       System.out.println(printTopology);
     } else if ("help".equals(cmd)) {
@@ -583,6 +593,8 @@ public class DFSAdmin extends FsShell {
       System.out.println(SetSpaceQuotaCommand.DESCRIPTION);
       System.out.println(ClearSpaceQuotaCommand.DESCRIPTION);
       System.out.println(refreshServiceAcl);
+      System.out.println(refreshUserToGroupsMappings);
+      System.out.println(refreshSuperUserGroupsConfiguration);
       System.out.println(printTopology);
       System.out.println(help);
       System.out.println();
@@ -728,6 +740,12 @@ public class DFSAdmin extends FsShell {
     // Get the current configuration
     Configuration conf = getConf();
     
+    // for security authorization
+    // server principal for this call   
+    // should be NN's one.
+    conf.set(CommonConfigurationKeys.HADOOP_SECURITY_SERVICE_USER_NAME_KEY, 
+        conf.get(DFSConfigKeys.DFS_NAMENODE_USER_NAME_KEY, ""));
+
     // Create the client
     RefreshAuthorizationPolicyProtocol refreshProtocol = 
       (RefreshAuthorizationPolicyProtocol) 
@@ -752,21 +770,58 @@ public class DFSAdmin extends FsShell {
     // Get the current configuration
     Configuration conf = getConf();
     
+    // for security authorization
+    // server principal for this call   
+    // should be NN's one.
+    conf.set(CommonConfigurationKeys.HADOOP_SECURITY_SERVICE_USER_NAME_KEY, 
+        conf.get(DFSConfigKeys.DFS_NAMENODE_USER_NAME_KEY, ""));
+ 
     // Create the client
-    RefreshUserToGroupMappingsProtocol refreshProtocol = 
-      (RefreshUserToGroupMappingsProtocol) 
-      RPC.getProxy(RefreshUserToGroupMappingsProtocol.class, 
-                   RefreshUserToGroupMappingsProtocol.versionID, 
-                   NameNode.getAddress(conf), getUGI(), conf,
-                   NetUtils.getSocketFactory(conf, 
-                                             RefreshUserToGroupMappingsProtocol.class));
-    
+    RefreshUserMappingsProtocol refreshProtocol = 
+      (RefreshUserMappingsProtocol) 
+      RPC.getProxy(RefreshUserMappingsProtocol.class, 
+          RefreshUserMappingsProtocol.versionID, 
+          NameNode.getAddress(conf), getUGI(), conf,
+          NetUtils.getSocketFactory(conf, 
+              RefreshUserMappingsProtocol.class));
+
     // Refresh the user-to-groups mappings
-    refreshProtocol.refreshUserToGroupsMappings(conf);
+    refreshProtocol.refreshUserToGroupsMappings();
     
     return 0;
   }
   
+
+  /**
+   * refreshSuperUserGroupsConfiguration {@link NameNode}.
+   * @return exitcode 0 on success, non-zero on failure
+   * @throws IOException
+   */
+  public int refreshSuperUserGroupsConfiguration() throws IOException {
+    // Get the current configuration
+    Configuration conf = getConf();
+
+    // for security authorization
+    // server principal for this call 
+    // should be NAMENODE's one.
+    conf.set(CommonConfigurationKeys.HADOOP_SECURITY_SERVICE_USER_NAME_KEY, 
+        conf.get(DFSConfigKeys.DFS_NAMENODE_USER_NAME_KEY, ""));
+
+    // Create the client
+    RefreshUserMappingsProtocol refreshProtocol = 
+      (RefreshUserMappingsProtocol) 
+      RPC.getProxy(RefreshUserMappingsProtocol.class, 
+          RefreshUserMappingsProtocol.versionID, 
+          NameNode.getAddress(conf), getUGI(), conf,
+          NetUtils.getSocketFactory(conf, 
+              RefreshUserMappingsProtocol.class));
+
+    // Refresh the user-to-groups mappings
+    refreshProtocol.refreshSuperUserGroupsConfiguration();
+
+    return 0;
+  }
+
   /**
    * Displays format of commands.
    * @param cmd The command that is being executed.
@@ -814,6 +869,9 @@ public class DFSAdmin extends FsShell {
     } else if ("-refreshUserToGroupsMappings".equals(cmd)) {
       System.err.println("Usage: java DFSAdmin"
                          + " [-refreshUserToGroupsMappings]");
+    } else if ("-refreshSuperUserGroupsConfiguration".equals(cmd)) {
+      System.err.println("Usage: java DFSAdmin"
+                         + " [-refreshSuperUserGroupsConfiguration]");
     } else if ("-printTopology".equals(cmd)) {
       System.err.println("Usage: java DFSAdmin"
                          + " [-printTopology]");
@@ -829,6 +887,7 @@ public class DFSAdmin extends FsShell {
       System.err.println("           [-metasave filename]");
       System.err.println("           [-refreshServiceAcl]");
       System.err.println("           [-refreshUserToGroupsMappings]");
+      System.err.println("           [-refreshSuperUserGroupsConfiguration]");
       System.err.println("           [-printTopology]");
       System.err.println("           ["+SetQuotaCommand.USAGE+"]");
       System.err.println("           ["+ClearQuotaCommand.USAGE+"]");
@@ -959,6 +1018,8 @@ public class DFSAdmin extends FsShell {
         exitCode = refreshServiceAcl();
       } else if ("-refreshUserToGroupsMappings".equals(cmd)) {
         exitCode = refreshUserToGroupsMappings();
+      } else if ("-refreshSuperUserGroupsConfiguration".equals(cmd)) {
+        exitCode = refreshSuperUserGroupsConfiguration();
       } else if ("-printTopology".equals(cmd)) {
         exitCode = printTopology();
       } else if ("-help".equals(cmd)) {

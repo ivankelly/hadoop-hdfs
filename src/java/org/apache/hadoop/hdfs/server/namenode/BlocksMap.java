@@ -17,12 +17,11 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
-import java.util.Collection;
-import java.util.HashMap;
 import java.util.Iterator;
-import java.util.Map;
 
 import org.apache.hadoop.hdfs.protocol.Block;
+import org.apache.hadoop.hdfs.util.GSet;
+import org.apache.hadoop.hdfs.util.LightWeightGSet;
 
 /**
  * This class maintains the map from a block to its metadata.
@@ -52,23 +51,49 @@ class BlocksMap {
     }
   }
 
-  // Used for tracking HashMap capacity growth
-  private int capacity;
-  private final float loadFactor;
+  /** Constant {@link LightWeightGSet} capacity. */
+  private final int capacity;
   
-  private Map<BlockInfo, BlockInfo> map;
+  private GSet<Block, BlockInfo> blocks;
 
   BlocksMap(int initialCapacity, float loadFactor) {
-    this.capacity = 1;
-    // Capacity is initialized to the next multiple of 2 of initialCapacity
-    while (this.capacity < initialCapacity)
-      this.capacity <<= 1;
-    this.loadFactor = loadFactor;
-    this.map = new HashMap<BlockInfo, BlockInfo>(initialCapacity, loadFactor);
+    this.capacity = computeCapacity();
+    this.blocks = new LightWeightGSet<Block, BlockInfo>(capacity);
+  }
+
+  /**
+   * Let t = 2% of max memory.
+   * Let e = round(log_2 t).
+   * Then, we choose capacity = 2^e/(size of reference),
+   * unless it is outside the close interval [1, 2^30].
+   */
+  private static int computeCapacity() {
+    //VM detection
+    //See http://java.sun.com/docs/hotspot/HotSpotFAQ.html#64bit_detection
+    final String vmBit = System.getProperty("sun.arch.data.model");
+
+    //2% of max memory
+    final double twoPC = Runtime.getRuntime().maxMemory()/50.0;
+
+    //compute capacity
+    final int e1 = (int)(Math.log(twoPC)/Math.log(2.0) + 0.5);
+    final int e2 = e1 - ("32".equals(vmBit)? 2: 3);
+    final int exponent = e2 < 0? 0: e2 > 30? 30: e2;
+    final int c = 1 << exponent;
+
+    LightWeightGSet.LOG.info("VM type       = " + vmBit + "-bit");
+    LightWeightGSet.LOG.info("2% max memory = " + twoPC/(1 << 20) + " MB");
+    LightWeightGSet.LOG.info("capacity      = 2^" + exponent
+        + " = " + c + " entries");
+    return c;
+  }
+
+  void close() {
+    blocks = null;
   }
 
   INodeFile getINode(Block b) {
-    BlockInfo info = map.get(b);
+    BlockInfo info = blocks.get(b);
     return (info != null) ? info.getINode() : null;
   }
 
@@ -76,10 +101,10 @@ class BlocksMap {
    * Add block b belonging to the specified file inode to the map.
    */
   BlockInfo addINode(BlockInfo b, INodeFile iNode) {
-    BlockInfo info = map.get(b);
+    BlockInfo info = blocks.get(b);
     if (info != b) {
       info = b;
-      map.put(info, info);
+      blocks.put(info);
     }
     info.setINode(iNode);
     return info;
@@ -91,7 +116,7 @@ class BlocksMap {
    * and remove all data-node locations associated with the block.
    */
   void removeBlock(Block block) {
-    BlockInfo blockInfo = map.remove(block);
+    BlockInfo blockInfo = blocks.remove(block);
     if (blockInfo == null)
       return;
 
@@ -104,7 +129,7 @@ class BlocksMap {
   
   /** Returns the block object it it exists in the map. */
   BlockInfo getStoredBlock(Block b) {
-    return map.get(b);
+    return blocks.get(b);
   }
 
   /**
@@ -112,7 +137,7 @@ class BlocksMap {
    * returns Iterator that iterates through the nodes the block belongs to.
    */
   Iterator<DatanodeDescriptor> nodeIterator(Block b) {
-    return nodeIterator(map.get(b));
+    return nodeIterator(blocks.get(b));
   }
 
   /**
@@ -125,7 +150,7 @@ class BlocksMap {
 
   /** counts number of containing nodes. Better than using iterator. */
   int numNodes(Block b) {
-    BlockInfo info = map.get(b);
+    BlockInfo info = blocks.get(b);
     return info == null ? 0 : info.numNodes();
   }
 
@@ -135,7 +160,7 @@ class BlocksMap {
    * only if it does not belong to any file and data-nodes.
    */
   boolean removeNode(Block b, DatanodeDescriptor node) {
-    BlockInfo info = map.get(b);
+    BlockInfo info = blocks.get(b);
     if (info == null)
       return false;
 
@@ -144,30 +169,31 @@ class BlocksMap {
 
     if (info.getDatanode(0) == null     // no datanodes left
               && info.getINode() == null) {  // does not belong to a file
-      map.remove(b);  // remove block from the map
+      blocks.remove(b);  // remove block from the map
     }
     return removed;
   }
 
   int size() {
-    return map.size();
+    return blocks.size();
   }
 
-  Collection<BlockInfo> getBlocks() {
-    return map.values();
+  Iterable<BlockInfo> getBlocks() {
+    return blocks;
   }
+
   /**
    * Check if the block exists in map
    */
   boolean contains(Block block) {
-    return map.containsKey(block);
+    return blocks.contains(block);
   }
   
   /**
    * Check if the replica at the given datanode exists in map
    */
   boolean contains(Block block, DatanodeDescriptor datanode) {
-    BlockInfo info = map.get(block);
+    BlockInfo info = blocks.get(block);
     if (info == null)
       return false;
     
@@ -179,16 +205,7 @@ class BlocksMap {
   
   /** Get the capacity of the HashMap that stores blocks */
   int getCapacity() {
-    // Capacity doubles every time the map size reaches the threshold
-    while (map.size() > (int)(capacity * loadFactor)) {
-      capacity <<= 1;
-    }
     return capacity;
-  }
-  
-  /** Get the load factor of the map */
-  float getLoadFactor() {
-    return loadFactor;
   }
 
   /**
@@ -198,7 +215,7 @@ class BlocksMap {
    * @return new block
    */
   BlockInfo replaceBlock(BlockInfo newBlock) {
-    BlockInfo currentBlock = map.get(newBlock);
+    BlockInfo currentBlock = blocks.get(newBlock);
     assert currentBlock != null : "the block if not in blocksMap";
     // replace block in data-node lists
     for(int idx = currentBlock.numNodes()-1; idx >= 0; idx--) {
@@ -206,7 +223,7 @@ class BlocksMap {
       dn.replaceBlock(currentBlock, newBlock);
     }
     // replace block in the map itself
-    map.put(newBlock, newBlock);
+    blocks.put(newBlock);
     return newBlock;
   }
 }

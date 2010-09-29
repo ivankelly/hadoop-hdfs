@@ -18,6 +18,7 @@
 package org.apache.hadoop.hdfs.server.namenode;
 
 import org.apache.commons.logging.*;
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
@@ -37,6 +38,7 @@ import java.util.*;
  * that is on a different rack. The 3rd replica is placed on a datanode
  * which is on a different node of the rack as the second replica.
  */
+@InterfaceAudience.Private
 public class BlockPlacementPolicyDefault extends BlockPlacementPolicy {
   private boolean considerLoad; 
   private NetworkTopology clusterMap;
@@ -379,11 +381,12 @@ public class BlockPlacementPolicyDefault extends BlockPlacementPolicy {
                                long blockSize, int maxTargetPerLoc,
                                boolean considerLoad,
                                List<DatanodeDescriptor> results) {
-    Log logr = FSNamesystem.LOG;
     // check if the node is (being) decommissed
     if (node.isDecommissionInProgress() || node.isDecommissioned()) {
-      logr.debug("Node "+NodeBase.getPath(node)+
-                " is not chosen because the node is (being) decommissioned");
+      if(FSNamesystem.LOG.isDebugEnabled()) {
+        FSNamesystem.LOG.debug("Node "+NodeBase.getPath(node)+
+            " is not chosen because the node is (being) decommissioned");
+      }
       return false;
     }
 
@@ -391,8 +394,10 @@ public class BlockPlacementPolicyDefault extends BlockPlacementPolicy {
                      (node.getBlocksScheduled() * blockSize); 
     // check the remaining capacity of the target machine
     if (blockSize* FSConstants.MIN_BLOCKS_FOR_WRITE>remaining) {
-      logr.debug("Node "+NodeBase.getPath(node)+
-                " is not chosen because the node does not have enough space");
+      if(FSNamesystem.LOG.isDebugEnabled()) {
+        FSNamesystem.LOG.debug("Node "+NodeBase.getPath(node)+
+            " is not chosen because the node does not have enough space");
+      }
       return false;
     }
       
@@ -404,8 +409,10 @@ public class BlockPlacementPolicyDefault extends BlockPlacementPolicy {
         avgLoad = (double)stats.getTotalLoad()/size;
       }
       if (node.getXceiverCount() > (2.0 * avgLoad)) {
-        logr.debug("Node "+NodeBase.getPath(node)+
-                  " is not chosen because the node is too busy");
+        if(FSNamesystem.LOG.isDebugEnabled()) {
+          FSNamesystem.LOG.debug("Node "+NodeBase.getPath(node)+
+              " is not chosen because the node is too busy");
+        }
         return false;
       }
     }
@@ -421,8 +428,10 @@ public class BlockPlacementPolicyDefault extends BlockPlacementPolicy {
       }
     }
     if (counter>maxTargetPerLoc) {
-      logr.debug("Node "+NodeBase.getPath(node)+
-                " is not chosen because the rack has too many chosen nodes");
+      if(FSNamesystem.LOG.isDebugEnabled()) {
+        FSNamesystem.LOG.debug("Node "+NodeBase.getPath(node)+
+            " is not chosen because the rack has too many chosen nodes");
+      }
       return false;
     }
     return true;

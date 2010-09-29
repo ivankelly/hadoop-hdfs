@@ -20,6 +20,7 @@ package org.apache.hadoop.hdfs.server.namenode;
 import java.io.IOException;
 import java.io.OutputStream;
 
+import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.io.Writable;
 
 /**
@@ -79,9 +80,9 @@ implements JournalStream {
    */
   public void flush() throws IOException {
     numSync++;
-    long start = FSNamesystem.now();
+    long start = now();
     flushAndSync();
-    long end = FSNamesystem.now();
+    long end = now();
     totalTimeSync += (end - start);
   }
 
@@ -91,6 +92,17 @@ implements JournalStream {
    */
   abstract long length() throws IOException;
 
+  /**
+   * Implement the policy when to automatically sync the buffered edits log
+   * The buffered edits can be flushed when the buffer becomes full or
+   * a certain period of time is elapsed.
+   * 
+   * @return true if the buffered data should be automatically synced to disk
+   */
+  public boolean shouldForceSync() {
+    return false;
+  }
+  
   boolean isOperationSupported(byte op) {
     return true;
   }

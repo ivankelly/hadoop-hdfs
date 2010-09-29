@@ -30,6 +30,7 @@ import java.io.RandomAccessFile;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
@@ -38,10 +39,12 @@ import javax.management.NotCompliantMBeanException;
 import javax.management.ObjectName;
 import javax.management.StandardMBean;
 
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.DF;
 import org.apache.hadoop.fs.DU;
 import org.apache.hadoop.fs.FileUtil;
+import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.BlockListAsLongs;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
@@ -67,6 +70,7 @@ import org.apache.hadoop.io.IOUtils;
  * has a unique name and an extent on disk.
  *
  ***************************************************/
+@InterfaceAudience.Private
 public class FSDataset implements FSConstants, FSDatasetInterface {
 
 
@@ -374,6 +378,10 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
       return (remaining > 0) ? remaining : 0;
     }
       
+    long getReserved(){
+      return reserved;
+    }
+    
     String getMount() throws IOException {
       return usage.getMount();
     }
@@ -758,7 +766,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
     return getFile(blockId);
   }
 
-  /** {@inheritDoc} */
+  @Override // FSDatasetInterface
   public synchronized Block getStoredBlock(long blkid) throws IOException {
     File blockfile = findBlockFile(blkid);
     if (blockfile == null) {
@@ -794,15 +802,18 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
     return null;
   }
 
+  @Override // FSDatasetInterface
   public boolean metaFileExists(Block b) throws IOException {
     return getMetaFile(b).exists();
   }
   
+  @Override // FSDatasetInterface
   public long getMetaDataLength(Block b) throws IOException {
     File checksumFile = getMetaFile( b );
     return checksumFile.length();
   }
 
+  @Override // FSDatasetInterface
   public MetaDataInputStream getMetaDataInputStream(Block b)
       throws IOException {
     File checksumFile = getMetaFile( b );
@@ -835,18 +846,31 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
   ReplicasMap volumeMap = new ReplicasMap();
   static  Random random = new Random();
   FSDatasetAsyncDiskService asyncDiskService;
+  private int validVolsRequired;
 
   // Used for synchronizing access to usage stats
   private Object statsLock = new Object();
 
-  boolean supportAppends = false;
+  boolean supportAppends = true;
 
   /**
    * An FSDataset has a directory where it loads its data files.
    */
   public FSDataset(DataStorage storage, Configuration conf) throws IOException {
     this.maxBlocksPerDir = conf.getInt("dfs.datanode.numblocks", 64);
-    this.supportAppends = conf.getBoolean("dfs.support.append", false);
+    this.supportAppends = conf.getBoolean(DFSConfigKeys.DFS_SUPPORT_APPEND_KEY,
+                                      DFSConfigKeys.DFS_SUPPORT_APPEND_DEFAULT);
+    // The number of volumes required for operation is the total number 
+    // of volumes minus the number of failed volumes we can tolerate.
+    final int volFailuresTolerated =
+      conf.getInt(DFSConfigKeys.DFS_DATANODE_FAILED_VOLUMES_TOLERATED_KEY,
+                  DFSConfigKeys.DFS_DATANODE_FAILED_VOLUMES_TOLERATED_DEFAULT);
+    this.validVolsRequired = storage.getNumStorageDirs() - volFailuresTolerated; 
+    if (validVolsRequired < 1 ||
+        validVolsRequired > storage.getNumStorageDirs()) {
+      DataNode.LOG.error("Invalid value " + volFailuresTolerated + " for " +
+          DFSConfigKeys.DFS_DATANODE_FAILED_VOLUMES_TOLERATED_KEY);
+    }
     FSVolume[] volArray = new FSVolume[storage.getNumStorageDirs()];
     for (int idx = 0; idx < storage.getNumStorageDirs(); idx++) {
       volArray[idx] = new FSVolume(storage.getStorageDir(idx).getCurrentDir(), conf);
@@ -869,12 +893,13 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
       return volumes.getDfsUsed();
     }
   }
+
   /**
-   * Return true - if there are still valid volumes 
-   * on the DataNode
+   * Return true - if there are still valid volumes on the DataNode. 
    */
-  public boolean hasEnoughResource(){
-    return volumes.numberOfVolumes() >= MIN_NUM_OF_VALID_VOLUMES;
+  @Override // FSDatasetInterface
+  public boolean hasEnoughResource() {
+    return volumes.numberOfVolumes() >= validVolsRequired; 
   }
 
   /**
@@ -898,6 +923,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
   /**
    * Find the block's on-disk length
    */
+  @Override // FSDatasetInterface
   public long getLength(Block b) throws IOException {
     return getBlockFile(b).length();
   }
@@ -916,10 +942,12 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
     return f;
   }
   
+  @Override // FSDatasetInterface
   public synchronized InputStream getBlockInputStream(Block b) throws IOException {
     return new FileInputStream(getBlockFile(b));
   }
 
+  @Override // FSDatasetInterface
   public synchronized InputStream getBlockInputStream(Block b, long seekOffset) throws IOException {
 
     File blockFile = getBlockFile(b);
@@ -948,6 +976,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
   /**
    * Returns handles to the block file and its metadata file
    */
+  @Override // FSDatasetInterface
   public synchronized BlockInputStreams getTmpInputStreams(Block b, 
                           long blkOffset, long ckoff) throws IOException {
 
@@ -1211,7 +1240,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
     }
   }
 
-  @Override
+  @Override // FSDatasetInterface
   public void recoverClose(Block b, long newGS,
       long expectedBlockLen) throws IOException {
     DataNode.LOG.info("Recover failed close " + b);
@@ -1252,7 +1281,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
     }
   }
 
-  @Override
+  @Override // FSDatasetInterface
   public synchronized ReplicaInPipelineInterface createRbw(Block b)
       throws IOException {
     ReplicaInfo replicaInfo = volumeMap.get(b.getBlockId());
@@ -1271,7 +1300,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
     return newReplicaInfo;
   }
   
-  @Override
+  @Override // FSDatasetInterface
   public synchronized ReplicaInPipelineInterface recoverRbw(Block b,
       long newGS, long minBytesRcvd, long maxBytesRcvd)
       throws IOException {
@@ -1320,7 +1349,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
     return rbw;
   }
   
-  @Override
+  @Override // FSDatasetInterface
   public synchronized ReplicaInPipelineInterface createTemporary(Block b)
       throws IOException {
     ReplicaInfo replicaInfo = volumeMap.get(b.getBlockId());
@@ -1344,6 +1373,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
    * Sets the offset in the meta file so that the
    * last checksum will be overwritten.
    */
+  @Override // FSDatasetInterface
   public void adjustCrcChannelPosition(Block b, BlockWriteStreams streams, 
       int checksumSize) throws IOException {
     FileOutputStream file = (FileOutputStream) streams.checksumOut;
@@ -1376,6 +1406,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
   /**
    * Complete the block write!
    */
+  @Override // FSDatasetInterface
   public synchronized void finalizeBlock(Block b) throws IOException {
     ReplicaInfo replicaInfo = getReplicaInfo(b);
     if (replicaInfo.getState() == ReplicaState.FINALIZED) {
@@ -1412,6 +1443,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
   /**
    * Remove the temporary block file (if any)
    */
+  @Override // FSDatasetInterface
   public synchronized void unfinalizeBlock(Block b) throws IOException {
     ReplicaInfo replicaInfo = volumeMap.get(b);
     if (replicaInfo != null && replicaInfo.getState() == ReplicaState.TEMPORARY) {
@@ -1455,6 +1487,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
   /**
    * Generates a block report from the in-memory block map.
    */
+  @Override // FSDatasetInterface
   public BlockListAsLongs getBlockReport() {
     ArrayList<ReplicaInfo> finalized =
       new ArrayList<ReplicaInfo>(volumeMap.size());
@@ -1516,6 +1549,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
    * Check whether the given block is a valid one.
    * valid means finalized
    */
+  @Override // FSDatasetInterface
   public boolean isValidBlock(Block b) {
     ReplicaInfo replicaInfo = volumeMap.get(b);
     if (replicaInfo == null || 
@@ -1574,6 +1608,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
    * could lazily garbage-collect the block, but why bother?
    * just get rid of it.
    */
+  @Override // FSDatasetInterface
   public void invalidate(Block invalidBlks[]) throws IOException {
     boolean error = false;
     for (int i = 0; i < invalidBlks.length; i++) {
@@ -1660,6 +1695,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
    * to these volumes
    * @throws DiskErrorException
    */
+  @Override // FSDatasetInterface
   public void checkDataDir() throws DiskErrorException {
     long total_blocks=0, removed_blocks=0;
     List<FSVolume> failed_vols =  volumes.checkDirs();
@@ -1704,6 +1740,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
   }
     
 
+  @Override // FSDatasetInterface
   public String toString() {
     return "FSDataset{dirpath='"+volumes+"'}";
   }
@@ -1736,6 +1773,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
     DataNode.LOG.info("Registered FSDatasetStatusMBean");
   }
 
+  @Override // FSDatasetInterface
   public void shutdown() {
     if (mbeanName != null)
       MBeanUtil.unregisterMBean(mbeanName);
@@ -1921,7 +1959,7 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
   /**
    * @deprecated use {@link #fetchReplicaInfo(long)} instead.
    */
-  @Override
+  @Override // FSDatasetInterface
   @Deprecated
   public ReplicaInfo getReplica(long blockId) {
     assert(Thread.holdsLock(this));
@@ -2086,5 +2124,46 @@ public class FSDataset implements FSConstants, FSDatasetInterface {
           + block + ", replica=" + replica);
     }
     return replica.getVisibleLength();
+  }
+  /**
+   * Class for representing the Datanode volume information
+   */
+  static class VolumeInfo {
+    final String directory;
+    final long usedSpace;
+    final long freeSpace;
+    final long reservedSpace;
+
+    VolumeInfo(String dir, long usedSpace, long freeSpace, long reservedSpace) {
+      this.directory = dir;
+      this.usedSpace = usedSpace;
+      this.freeSpace = freeSpace;
+      this.reservedSpace = reservedSpace;
+    }
+  }  
+  
+  synchronized Collection<VolumeInfo> getVolumeInfo() {
+    Collection<VolumeInfo> info = new ArrayList<VolumeInfo>();
+    synchronized(volumes.volumes) {
+      for (FSVolume volume : volumes.volumes) {
+        long used = 0;
+        try {
+          used = volume.getDfsUsed();
+        } catch (IOException e) {
+          DataNode.LOG.warn(e.getMessage());
+        }
+        
+        long free= 0;
+        try {
+          free = volume.getAvailable();
+        } catch (IOException e) {
+          DataNode.LOG.warn(e.getMessage());
+        }
+        
+        info.add(new VolumeInfo(volume.toString(), used, free, 
+            volume.getReserved()));
+      }
+      return info;
+    }
   }
 }

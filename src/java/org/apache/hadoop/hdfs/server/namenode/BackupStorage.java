@@ -28,9 +28,11 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants;
 import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
+import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.namenode.FSImage;
 import org.apache.hadoop.hdfs.server.namenode.EditLogFileInputStream;
 import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
@@ -39,6 +41,7 @@ import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.io.LongWritable;
 
+@InterfaceAudience.Private
 public class BackupStorage extends FSImage {
   /** Backup input stream for loading edits into memory */
   private EditLogBackupInputStream backupInputStream;
@@ -170,8 +173,12 @@ public class BackupStorage extends FSImage {
         throw new IOException("Could not locate checkpoint directories");
       StorageDirectory sdName = itImage.next();
       StorageDirectory sdEdits = itEdits.next();
-      synchronized(getFSDirectoryRootLock()) { // load image under rootDir lock
-        loadFSImage(FSImage.getImageFile(sdName, NameNodeFile.IMAGE, sig.newestImageIndex));
+
+      getFSDirectoryRootLock().writeLock();
+      try { // load image under rootDir lock
+	loadFSImage(FSImage.getImageFile(sdName, NameNodeFile.IMAGE, sig.newestImageIndex));
+      } finally {
+        getFSDirectoryRootLock().writeUnlock();
       }
       
       List<File> editsFiles = new ArrayList<File>();
@@ -223,8 +230,8 @@ public class BackupStorage extends FSImage {
     }
   }
 
-  private Object getFSDirectoryRootLock() {
-    return getFSNamesystem().dir.rootDir;
+  private FSDirectory getFSDirectoryRootLock() {
+    return getFSNamesystem().dir;
   }
 
   synchronized void masterRolledLogs(int targetLogIndex) throws IOException {

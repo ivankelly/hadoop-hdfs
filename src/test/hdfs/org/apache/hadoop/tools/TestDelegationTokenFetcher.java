@@ -28,11 +28,13 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.net.URI;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenIdentifier;
 import org.apache.hadoop.hdfs.tools.DelegationTokenFetcher;
 import org.apache.hadoop.io.Text;
-import org.apache.hadoop.security.TokenStorage;
+import org.apache.hadoop.security.Credentials;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.security.token.TokenIdentifier;
@@ -43,12 +45,14 @@ public class TestDelegationTokenFetcher {
   private DistributedFileSystem dfs;
   private DataOutputStream out;
   private UserGroupInformation ugi;
+  private Configuration conf;
 
   @Before 
   public void init() {
     dfs = mock(DistributedFileSystem.class);
     out = mock(DataOutputStream.class);
     ugi = mock(UserGroupInformation.class);
+    conf = new Configuration();
   }
   
   /**
@@ -60,6 +64,8 @@ public class TestDelegationTokenFetcher {
     final String LONG_NAME = "TheDoctor@TARDIS";
     final String SHORT_NAME = "TheDoctor";
     final String SERVICE_VALUE = "localhost:2005";
+    URI uri = new URI("hdfs://" + SERVICE_VALUE);
+    FileSystem.setDefaultUri(conf, uri);
     
     // Mock out the user's long and short names.
     when(ugi.getUserName()).thenReturn(LONG_NAME);
@@ -68,22 +74,19 @@ public class TestDelegationTokenFetcher {
     // Create a token for the fetcher to fetch, wire NN to return it when asked
     // for this particular user.
     Token<DelegationTokenIdentifier> t = new Token<DelegationTokenIdentifier>();
-    when(dfs.getDelegationToken(eq(new Text(LONG_NAME)))).thenReturn(t);
-
-    // Mock the NN's URI, which is stored as the service value
-    URI uri = new URI("hdfs://" + SERVICE_VALUE);
-    when(dfs.getUri()).thenReturn(uri);
+    when(dfs.getDelegationToken(eq(LONG_NAME))).thenReturn(t);
     
     // Now, actually let the TokenFetcher go fetch the token.
     final ByteArrayOutputStream baos = new ByteArrayOutputStream();
     out = new DataOutputStream(baos);
-    new DelegationTokenFetcher(dfs, out, ugi).go();
+    new DelegationTokenFetcher(dfs, out, ugi, conf).go();
     
     // now read the data back in and verify correct values
-    TokenStorage ts = new TokenStorage();
+    Credentials ts = new Credentials();
     DataInputStream dis = 
       new DataInputStream(new ByteArrayInputStream(baos.toByteArray()));
-    ts.readFields(dis);
+    
+    ts.readTokenStorageStream(dis);
     Token<? extends TokenIdentifier> newToken = ts.getToken(new Text(SHORT_NAME));
     
     assertEquals("Should only be one token in storage", ts.numberOfTokens(), 1);
@@ -93,7 +96,7 @@ public class TestDelegationTokenFetcher {
 
   private void checkWithNullParam(String s) {
     try {
-      new DelegationTokenFetcher(dfs, out, ugi);
+      new DelegationTokenFetcher(dfs, out, ugi, conf);
     } catch (IllegalArgumentException iae) {
       assertEquals("Expected exception message not received", 
           s + " cannot be null.", iae.getMessage());

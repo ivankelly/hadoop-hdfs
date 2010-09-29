@@ -36,7 +36,7 @@ import org.apache.hadoop.hdfs.protocol.LocatedBlock;
 import org.apache.hadoop.hdfs.protocol.LocatedBlocks;
 import org.apache.hadoop.hdfs.protocol.DataTransferProtocol.BlockConstructionStage;
 import org.apache.hadoop.hdfs.protocol.DataTransferProtocol.Sender;
-import org.apache.hadoop.hdfs.security.BlockAccessToken;
+import org.apache.hadoop.hdfs.security.token.block.BlockTokenSecretManager;
 import org.apache.hadoop.hdfs.server.namenode.NameNodeAdapter;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
@@ -117,11 +117,10 @@ public class TestDiskError extends TestCase {
       DataOutputStream out = new DataOutputStream(
           s.getOutputStream());
 
-      Sender.opWriteBlock(out, block.getBlock().getBlockId(), 
-          block.getBlock().getGenerationStamp(), 1, 
+      Sender.opWriteBlock(out, block.getBlock(), 1, 
           BlockConstructionStage.PIPELINE_SETUP_CREATE, 
           0L, 0L, 0L, "", null, new DatanodeInfo[0], 
-          BlockAccessToken.DUMMY_TOKEN);
+          BlockTokenSecretManager.DUMMY_TOKEN);
 
       // write check header
       out.writeByte( 1 );

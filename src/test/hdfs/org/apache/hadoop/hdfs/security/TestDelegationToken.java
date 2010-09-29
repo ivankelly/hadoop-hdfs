@@ -22,35 +22,42 @@ package org.apache.hadoop.hdfs.security;
 
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
+import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 
 import junit.framework.Assert;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
-import org.apache.hadoop.io.Text;
-import org.apache.hadoop.security.AccessControlException;
-import org.apache.hadoop.security.token.Token;
-import org.apache.hadoop.security.token.SecretManager.InvalidToken;
 import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenIdentifier;
 import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenSecretManager;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.security.AccessControlException;
+import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.token.SecretManager.InvalidToken;
+import org.apache.hadoop.security.token.Token;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.mortbay.log.Log;
 
 public class TestDelegationToken {
   private MiniDFSCluster cluster;
   Configuration config;
+  private static final Log LOG = LogFactory.getLog(TestDelegationToken.class);
   
   @Before
   public void setUp() throws Exception {
     config = new HdfsConfiguration();
     config.setLong(DFSConfigKeys.DFS_NAMENODE_DELEGATION_TOKEN_MAX_LIFETIME_KEY, 10000);
     config.setLong(DFSConfigKeys.DFS_NAMENODE_DELEGATION_TOKEN_RENEW_INTERVAL_KEY, 5000);
+    config.set("hadoop.security.auth_to_local",
+        "RULE:[2:$1@$0](JobTracker@.*FOO.COM)s/@.*//" + "DEFAULT");
     FileSystem.setDefaultUri(config, "hdfs://localhost:" + "0");
     cluster = new MiniDFSCluster(0, config, 1, true, true, true,  null, null, null, null);
     cluster.waitActive();
@@ -92,7 +99,7 @@ public class TestDelegationToken {
     identifier.readFields(new DataInputStream(
              new ByteArrayInputStream(tokenId)));
     Assert.assertTrue(null != dtSecretManager.retrievePassword(identifier));
-    Log.info("Sleep to expire the token");
+    LOG.info("Sleep to expire the token");
 	  Thread.sleep(6000);
 	  //Token should be expired
 	  try {
@@ -103,7 +110,7 @@ public class TestDelegationToken {
 	    //Success
 	  }
 	  dtSecretManager.renewToken(token, "JobTracker");
-	  Log.info("Sleep beyond the max lifetime");
+	  LOG.info("Sleep beyond the max lifetime");
 	  Thread.sleep(5000);
 	  try {
   	  dtSecretManager.renewToken(token, "JobTracker");
@@ -139,14 +146,59 @@ public class TestDelegationToken {
   public void testDelegationTokenDFSApi() throws Exception {
     DelegationTokenSecretManager dtSecretManager = cluster.getNamesystem().getDelegationTokenSecretManager();
     DistributedFileSystem dfs = (DistributedFileSystem) cluster.getFileSystem();
-    Token<DelegationTokenIdentifier> token = dfs.getDelegationToken(new Text("JobTracker"));
+    Token<DelegationTokenIdentifier> token = dfs.getDelegationToken("JobTracker");
     DelegationTokenIdentifier identifier = new DelegationTokenIdentifier();
     byte[] tokenId = token.getIdentifier();
     identifier.readFields(new DataInputStream(
              new ByteArrayInputStream(tokenId)));
-    Log.info("A valid token should have non-null password, and should be renewed successfully");
+    LOG.info("A valid token should have non-null password, and should be renewed successfully");
     Assert.assertTrue(null != dtSecretManager.retrievePassword(identifier));
     dtSecretManager.renewToken(token, "JobTracker");
+  }
+  
+  @Test
+  public void testDelegationTokenWithDoAs() throws Exception {
+    final DistributedFileSystem dfs = (DistributedFileSystem) cluster.getFileSystem();
+    final Token<DelegationTokenIdentifier> token = 
+      dfs.getDelegationToken("JobTracker");
+    final UserGroupInformation longUgi = UserGroupInformation
+        .createRemoteUser("JobTracker/foo.com@FOO.COM");
+    final UserGroupInformation shortUgi = UserGroupInformation
+        .createRemoteUser("JobTracker");
+    longUgi.doAs(new PrivilegedExceptionAction<Object>() {
+      public Object run() throws IOException {
+        final DistributedFileSystem dfs = (DistributedFileSystem) cluster
+            .getFileSystem();
+        try {
+          //try renew with long name
+          dfs.renewDelegationToken(token);
+        } catch (IOException e) {
+          Assert.fail("Could not renew delegation token for user "+longUgi);
+        }
+        return null;
+      }
+    });
+    shortUgi.doAs(new PrivilegedExceptionAction<Object>() {
+      public Object run() throws IOException {
+        final DistributedFileSystem dfs = (DistributedFileSystem) cluster
+            .getFileSystem();
+        dfs.renewDelegationToken(token);
+        return null;
+      }
+    });
+    longUgi.doAs(new PrivilegedExceptionAction<Object>() {
+      public Object run() throws IOException {
+        final DistributedFileSystem dfs = (DistributedFileSystem) cluster
+            .getFileSystem();
+        try {
+          //try cancel with long name
+          dfs.cancelDelegationToken(token);
+        } catch (IOException e) {
+          Assert.fail("Could not cancel delegation token for user "+longUgi);
+        }
+        return null;
+      }
+    });
   }
  
 }

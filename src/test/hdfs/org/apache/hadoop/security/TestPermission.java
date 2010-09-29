@@ -52,7 +52,7 @@ public class TestPermission extends TestCase {
   static FsPermission checkPermission(FileSystem fs,
       String path, FsPermission expected) throws IOException {
     FileStatus s = fs.getFileStatus(new Path(path));
-    LOG.info(s.getPath() + ": " + s.isDir() + " " + s.getPermission()
+    LOG.info(s.getPath() + ": " + s.isDirectory() + " " + s.getPermission()
         + ":" + s.getOwner() + ":" + s.getGroup());
     if (expected != null) {
       assertEquals(expected, s.getPermission());
@@ -117,7 +117,7 @@ public class TestPermission extends TestCase {
 
       FsPermission filePerm = new FsPermission((short)0444);
       FSDataOutputStream out = fs.create(new Path("/b1/b2/b3.txt"), filePerm,
-          EnumSet.of(CreateFlag.OVERWRITE), conf.getInt("io.file.buffer.size", 4096),
+          true, conf.getInt("io.file.buffer.size", 4096),
           fs.getDefaultReplication(), fs.getDefaultBlockSize(), null);
       out.write(123);
       out.close();

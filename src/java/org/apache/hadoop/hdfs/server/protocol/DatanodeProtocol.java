@@ -20,6 +20,7 @@ package org.apache.hadoop.hdfs.server.protocol;
 
 import java.io.*;
 
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.DatanodeID;
@@ -37,12 +38,15 @@ import org.apache.avro.reflect.Nullable;
  * returning values from these functions.
  *
  **********************************************************************/
-@KerberosInfo(DFSConfigKeys.DFS_NAMENODE_USER_NAME_KEY)
+@KerberosInfo(
+    serverPrincipal = DFSConfigKeys.DFS_NAMENODE_USER_NAME_KEY, 
+    clientPrincipal = DFSConfigKeys.DFS_DATANODE_USER_NAME_KEY)
+@InterfaceAudience.Private
 public interface DatanodeProtocol extends VersionedProtocol {
   /**
-   * 24: register() renamed registerDatanode()
+   * 26: remove getBlockLocations optimization
    */
-  public static final long versionID = 24L;
+  public static final long versionID = 26;
   
   // error code
   final static int NOTIFY = 0;

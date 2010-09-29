@@ -18,15 +18,19 @@
 
 package org.apache.hadoop.hdfs.server.common;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Random;
 import java.util.TreeSet;
 
@@ -39,14 +43,16 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.BlockReader;
+import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
 import org.apache.hadoop.hdfs.protocol.LocatedBlock;
-import org.apache.hadoop.hdfs.security.BlockAccessToken;
+import org.apache.hadoop.hdfs.protocol.LocatedBlocks;
+import org.apache.hadoop.hdfs.security.token.block.BlockTokenIdentifier;
 import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenIdentifier;
-import org.apache.hadoop.hdfs.server.datanode.DatanodeJspHelper;
 import org.apache.hadoop.hdfs.server.namenode.DatanodeDescriptor;
+import org.apache.hadoop.hdfs.server.namenode.NameNode;
 import org.apache.hadoop.http.HtmlQuoting;
-import org.apache.hadoop.io.WritableUtils;
+import org.apache.hadoop.io.Text;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.security.AccessControlException;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -56,9 +62,10 @@ import org.apache.hadoop.util.VersionInfo;
 
 @InterfaceAudience.Private
 public class JspHelper {
+  public static final String CURRENT_CONF = "current.conf";
   final static public String WEB_UGI_PROPERTY_NAME = "dfs.web.ugi";
   public static final String DELEGATION_PARAMETER_NAME = "delegation";
-  public static final String SET_DELEGATION = "&" + DELEGATION_PARAMETER_NAME +
+  static final String SET_DELEGATION = "&" + DELEGATION_PARAMETER_NAME +
                                               "=";
   private static final Log LOG = LogFactory.getLog(JspHelper.class);
 
@@ -66,23 +73,89 @@ public class JspHelper {
 
   /** Private constructor for preventing creating JspHelper object. */
   private JspHelper() {} 
+  
+  // data structure to count number of blocks on datanodes.
+  private static class NodeRecord extends DatanodeInfo {
+    int frequency;
+
+    public NodeRecord() {
+      frequency = -1;
+    }
+    public NodeRecord(DatanodeInfo info, int count) {
+      super(info);
+      this.frequency = count;
+    }
+    
+    @Override
+    public boolean equals(Object obj) {
+      // Sufficient to use super equality as datanodes are uniquely identified
+      // by DatanodeID
+      return (this == obj) || super.equals(obj);
+    }
+    @Override
+    public int hashCode() {
+      // Super implementation is sufficient
+      return super.hashCode();
+    }
+  }
+ 
+  // compare two records based on their frequency
+  private static class NodeRecordComparator implements Comparator<NodeRecord> {
+
+    public int compare(NodeRecord o1, NodeRecord o2) {
+      if (o1.frequency < o2.frequency) {
+        return -1;
+      } else if (o1.frequency > o2.frequency) {
+        return 1;
+      } 
+      return 0;
+    }
+  }
+  public static DatanodeInfo bestNode(LocatedBlocks blks) throws IOException {
+    HashMap<DatanodeInfo, NodeRecord> map =
+      new HashMap<DatanodeInfo, NodeRecord>();
+    for (LocatedBlock block : blks.getLocatedBlocks()) {
+      DatanodeInfo[] nodes = block.getLocations();
+      for (DatanodeInfo node : nodes) {
+        NodeRecord record = map.get(node);
+        if (record == null) {
+          map.put(node, new NodeRecord(node, 1));
+        } else {
+          record.frequency++;
+        }
+      }
+    }
+    NodeRecord[] nodes = map.values().toArray(new NodeRecord[map.size()]);
+    Arrays.sort(nodes, new NodeRecordComparator());
+    return bestNode(nodes, false);
+  }
 
   public static DatanodeInfo bestNode(LocatedBlock blk) throws IOException {
+    DatanodeInfo[] nodes = blk.getLocations();
+    return bestNode(nodes, true);
+  }
+
+  public static DatanodeInfo bestNode(DatanodeInfo[] nodes, boolean doRandom)
+    throws IOException {
     TreeSet<DatanodeInfo> deadNodes = new TreeSet<DatanodeInfo>();
     DatanodeInfo chosenNode = null;
     int failures = 0;
     Socket s = null;
-    DatanodeInfo [] nodes = blk.getLocations();
+    int index = -1;
     if (nodes == null || nodes.length == 0) {
       throw new IOException("No nodes contain this block");
     }
     while (s == null) {
       if (chosenNode == null) {
         do {
-          chosenNode = nodes[rand.nextInt(nodes.length)];
+          if (doRandom) {
+            index = rand.nextInt(nodes.length);
+          } else {
+            index++;
+          }
+          chosenNode = nodes[index];
         } while (deadNodes.contains(chosenNode));
       }
-      int index = rand.nextInt(nodes.length);
       chosenNode = nodes[index];
 
       //just ping to check whether the node is alive
@@ -107,13 +180,10 @@ public class JspHelper {
     return chosenNode;
   }
 
-  public static void streamBlockInAscii(InetSocketAddress addr, long blockId, 
-                                 BlockAccessToken accessToken, long genStamp, 
-                                 long blockSize, 
-                                 long offsetIntoBlock, long chunkSizeToView, 
-                                 JspWriter out,
-                                 Configuration conf) 
-    throws IOException {
+  public static void streamBlockInAscii(InetSocketAddress addr, 
+      long blockId, Token<BlockTokenIdentifier> blockToken, long genStamp,
+      long blockSize, long offsetIntoBlock, long chunkSizeToView,
+      JspWriter out, Configuration conf) throws IOException {
     if (chunkSizeToView == 0) return;
     Socket s = new Socket();
     s.connect(addr, HdfsConstants.READ_TIMEOUT);
@@ -122,12 +192,10 @@ public class JspHelper {
       long amtToRead = Math.min(chunkSizeToView, blockSize - offsetIntoBlock);     
       
       // Use the block name for file name. 
-      BlockReader blockReader = 
-        BlockReader.newBlockReader(s, addr.toString() + ":" + blockId,
-                                             blockId, accessToken, genStamp ,offsetIntoBlock, 
-                                             amtToRead, 
-                                             conf.getInt("io.file.buffer.size",
-                                                         4096));
+      String file = BlockReader.getFileName(addr, blockId);
+      BlockReader blockReader = BlockReader.newBlockReader(s, file,
+        new Block(blockId, 0, genStamp), blockToken,
+        offsetIntoBlock, amtToRead, conf.getInt("io.file.buffer.size", 4096));
         
     byte[] buf = new byte[(int)amtToRead];
     int readOffset = 0;
@@ -284,14 +352,15 @@ public class JspHelper {
       StringBuilder tempPath = new StringBuilder(dir.length());
       out.print("<a href=\"browseDirectory.jsp" + "?dir="+ Path.SEPARATOR
           + "&namenodeInfoPort=" + namenodeInfoPort
-          + "\">" + Path.SEPARATOR + "</a>");
+          + getDelegationTokenUrlParam(tokenString) + "\">" + Path.SEPARATOR
+          + "</a>");
       tempPath.append(Path.SEPARATOR);
       for (int i = 0; i < parts.length-1; i++) {
         if (!parts[i].equals("")) {
           tempPath.append(parts[i]);
           out.print("<a href=\"browseDirectory.jsp" + "?dir="
               + tempPath.toString() + "&namenodeInfoPort=" + namenodeInfoPort
-              + SET_DELEGATION + tokenString);
+              + getDelegationTokenUrlParam(tokenString));
           out.print("\">" + parts[i] + "</a>" + Path.SEPARATOR);
           tempPath.append(Path.SEPARATOR);
         }
@@ -315,8 +384,10 @@ public class JspHelper {
     out.print("<input name=\"go\" type=\"submit\" value=\"go\">");
     out.print("<input name=\"namenodeInfoPort\" type=\"hidden\" "
         + "value=\"" + namenodeInfoPort  + "\">");
-    out.print("<input name=\"" + DELEGATION_PARAMETER_NAME +
-              "\" type=\"hidden\" value=\"" + tokenString + "\">");
+    if (UserGroupInformation.isSecurityEnabled()) {
+      out.print("<input name=\"" + DELEGATION_PARAMETER_NAME
+          + "\" type=\"hidden\" value=\"" + tokenString + "\">");
+    }
     out.print("</form>");
   }
   
@@ -408,7 +479,18 @@ public class JspHelper {
         Token<DelegationTokenIdentifier> token = 
           new Token<DelegationTokenIdentifier>();
         token.decodeFromUrlString(tokenString);
-        ugi = UserGroupInformation.createRemoteUser(user);
+        InetSocketAddress serviceAddr = NameNode.getAddress(conf);
+        LOG.info("Setting service in token: "
+            + new Text(serviceAddr.getAddress().getHostAddress() + ":"
+                + serviceAddr.getPort()));
+        token.setService(new Text(serviceAddr.getAddress().getHostAddress()
+            + ":" + serviceAddr.getPort()));
+        ByteArrayInputStream buf = new ByteArrayInputStream(token
+            .getIdentifier());
+        DataInputStream in = new DataInputStream(buf);
+        DelegationTokenIdentifier id = new DelegationTokenIdentifier();
+        id.readFields(in);
+        ugi = id.getUser();
         ugi.addToken(token);
         ugi.setAuthenticationMethod(AuthenticationMethod.TOKEN);
       } else {
@@ -417,6 +499,8 @@ public class JspHelper {
                                 "authenticated by filter");
         }
         ugi = UserGroupInformation.createRemoteUser(user);
+        // This is not necessarily true, could have been auth'ed by user-facing
+        // filter
         ugi.setAuthenticationMethod(AuthenticationMethod.KERBEROS_SSL);
       }
     } else { // Security's not on, pull from url
@@ -425,7 +509,7 @@ public class JspHelper {
       if(user == null) { // not specified in request
         ugi = getDefaultWebUser(conf);
       } else {
-        ugi = UserGroupInformation.createRemoteUser(user);
+        ugi = UserGroupInformation.createRemoteUser(user.split(",")[0]);
       }
       ugi.setAuthenticationMethod(AuthenticationMethod.SIMPLE);
     }
@@ -433,6 +517,22 @@ public class JspHelper {
     if(LOG.isDebugEnabled())
       LOG.debug("getUGI is returning: " + ugi.getShortUserName());
     return ugi;
+  }
+  
+  /**
+   * Returns the url parameter for the given token string.
+   * @param tokenString
+   * @return url parameter
+   */
+  public static String getDelegationTokenUrlParam(String tokenString) {
+    if (tokenString == null ) {
+      return "";
+    }
+    if (UserGroupInformation.isSecurityEnabled()) {
+      return SET_DELEGATION + tokenString;
+    } else {
+      return "";
+    }
   }
 
 

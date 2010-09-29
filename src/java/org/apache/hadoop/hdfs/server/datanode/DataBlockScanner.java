@@ -45,6 +45,7 @@ import javax.servlet.http.HttpServletResponse;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
@@ -157,7 +158,7 @@ class DataBlockScanner implements Runnable {
     dirScanner = new DirectoryScanner(dataset, conf);
   }
   
-  private synchronized boolean isInitiliazed() {
+  private synchronized boolean isInitialized() {
     return throttler != null;
   }
   
@@ -266,7 +267,7 @@ class DataBlockScanner implements Runnable {
 
   /** Adds block to list of blocks */
   synchronized void addBlock(Block block) {
-    if (!isInitiliazed()) {
+    if (!isInitialized()) {
       return;
     }
     
@@ -285,7 +286,7 @@ class DataBlockScanner implements Runnable {
   
   /** Deletes the block from internal structures */
   synchronized void deleteBlock(Block block) {
-    if (!isInitiliazed()) {
+    if (!isInitialized()) {
       return;
     }
     BlockScanInfo info = blockMap.get(block);
@@ -296,7 +297,7 @@ class DataBlockScanner implements Runnable {
 
   /** @return the last scan time */
   synchronized long getLastScanTime(Block block) {
-    if (!isInitiliazed()) {
+    if (!isInitialized()) {
       return 0;
     }
     BlockScanInfo info = blockMap.get(block);
@@ -317,6 +318,9 @@ class DataBlockScanner implements Runnable {
   private synchronized void updateScanStatus(Block block, 
                                              ScanType type,
                                              boolean scanOk) {
+    if (!isInitialized()) {
+      return;
+    }
     BlockScanInfo info = blockMap.get(block);
     
     if ( info != null ) {
@@ -667,7 +671,7 @@ class DataBlockScanner implements Runnable {
             ((info.lastScanType == ScanType.VERIFICATION_SCAN) ? "local" :
               "none");
         buffer.append(String.format("%-26s : status : %-6s type : %-6s" +
-        		                        " scan time : " +
+                                    " scan time : " +
                                     "%-15d %s\n", info.block, 
                                     (info.lastScanOk ? "ok" : "failed"),
                                     scanType, scanTime,
@@ -954,6 +958,7 @@ class DataBlockScanner implements Runnable {
     }    
   }
   
+  @InterfaceAudience.Private
   public static class Servlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
 
@@ -971,7 +976,7 @@ class DataBlockScanner implements Runnable {
       if (blockScanner == null) {
         buffer.append("Periodic block scanner is not running. " +
                       "Please check the datanode log if this is unexpected.");
-      } else if (blockScanner.isInitiliazed()) {
+      } else if (blockScanner.isInitialized()) {
         blockScanner.printBlockReport(buffer, summary);
       } else {
         buffer.append("Periodic block scanner is not yet initialized. " +

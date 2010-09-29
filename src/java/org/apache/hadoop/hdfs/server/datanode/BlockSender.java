@@ -33,6 +33,7 @@ import org.apache.commons.logging.Log;
 import org.apache.hadoop.fs.ChecksumException;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.FSConstants;
+import org.apache.hadoop.hdfs.protocol.DataTransferProtocol.PacketHeader;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.net.SocketOutputStream;
 import org.apache.hadoop.util.DataChecksum;
@@ -76,6 +77,7 @@ class BlockSender implements java.io.Closeable, FSConstants {
    * not sure if there will be much more improvement.
    */
   private static final int MIN_BUFFER_WITH_TRANSFERTO = 64*1024;
+  private volatile ChunkChecksum lastChunkChecksum = null;
 
   
   BlockSender(Block block, long startOffset, long length,
@@ -98,6 +100,32 @@ class BlockSender implements java.io.Closeable, FSConstants {
         }
         this.replicaVisibleLength = replica.getVisibleLength();
       }
+      long minEndOffset = startOffset + length;
+      // if this is a write in progress
+      ChunkChecksum chunkChecksum = null;
+      if (replica instanceof ReplicaBeingWritten) {
+        for (int i = 0; i < 30 && replica.getBytesOnDisk() < minEndOffset; i++) {
+          try {
+            Thread.sleep(100);
+          } catch (InterruptedException ie) {
+            throw new IOException(ie);
+          }
+        }
+
+        long currentBytesOnDisk = replica.getBytesOnDisk();
+        
+        if (currentBytesOnDisk < minEndOffset) {
+          throw new IOException(String.format(
+            "need %d bytes, but only %d bytes available",
+            minEndOffset,
+            currentBytesOnDisk
+          ));
+        }
+
+        ReplicaInPipeline rip = (ReplicaInPipeline) replica;
+        chunkChecksum = rip.getLastChecksumAndDataLen();
+      }
+
       if (replica.getGenerationStamp() < block.getGenerationStamp()) {
         throw new IOException(
             "replica.getGenerationStamp() < block.getGenerationStamp(), block="
@@ -154,7 +182,14 @@ class BlockSender implements java.io.Closeable, FSConstants {
         length = replicaVisibleLength;
       }
 
-      endOffset = replicaVisibleLength;
+      // end is either last byte on disk or the length for which we have a 
+      // checksum
+      if (chunkChecksum != null) {
+        endOffset = chunkChecksum.getDataLength();
+      } else {
+        endOffset = replica.getBytesOnDisk();
+      }
+      
       if (startOffset < 0 || startOffset > endOffset
           || (length + startOffset) > endOffset) {
         String msg = " Offset " + startOffset + " and length " + length
@@ -162,7 +197,6 @@ class BlockSender implements java.io.Closeable, FSConstants {
         LOG.warn(datanode.dnRegistration + ":sendBlock() : " + msg);
         throw new IOException(msg);
       }
-
       
       offset = (startOffset - (startOffset % bytesPerChecksum));
       if (length >= 0) {
@@ -172,14 +206,19 @@ class BlockSender implements java.io.Closeable, FSConstants {
           tmpLen += (bytesPerChecksum - tmpLen % bytesPerChecksum);
         }
         if (tmpLen < endOffset) {
+          // will use on-disk checksum here since the end is a stable chunk
           endOffset = tmpLen;
+        } else if (chunkChecksum != null) {
+          //in last chunk which is changing. flag that we need to use in-memory 
+          // checksum 
+          this.lastChunkChecksum = chunkChecksum;
         }
       }
 
       // seek to the right offsets
       if (offset > 0) {
         long checksumSkip = (offset / bytesPerChecksum) * checksumSize;
-        // note blockInStream is  seeked when created below
+        // note blockInStream is seeked when created below
         if (checksumSkip > 0) {
           // Should we use seek() for checksum file as well?
           IOUtils.skipFully(checksumIn, checksumSkip);
@@ -187,14 +226,6 @@ class BlockSender implements java.io.Closeable, FSConstants {
       }
       seqno = 0;
 
-      //sleep a few times if getBytesOnDisk() < visible length
-      for(int i = 0; i < 30 && replica.getBytesOnDisk() < replicaVisibleLength; i++) {
-        try {
-          Thread.sleep(100);
-        } catch (InterruptedException ie) {
-          throw new IOException(ie);
-        }
-      }
       if (DataNode.LOG.isDebugEnabled()) {
         DataNode.LOG.debug("replica=" + replica);
       }
@@ -268,20 +299,18 @@ class BlockSender implements java.io.Closeable, FSConstants {
                          throws IOException {
     // Sends multiple chunks in one packet with a single write().
 
-    int len = Math.min((int) (endOffset - offset),
-                       bytesPerChecksum*maxChunks);
+    int len = (int) Math.min(endOffset - offset,
+                             (((long) bytesPerChecksum) * ((long) maxChunks)));
     int numChunks = (len + bytesPerChecksum - 1)/bytesPerChecksum;
     int packetLen = len + numChunks*checksumSize + 4;
+    boolean lastDataPacket = offset + len == endOffset && len > 0;
     pkt.clear();
-    
-    // write packet header
-    pkt.putInt(packetLen);
-    pkt.putLong(offset);
-    pkt.putLong(seqno);
-    pkt.put((byte)((len == 0) ? 1 : 0));
-               //why no ByteBuf.putBoolean()?
-    pkt.putInt(len);
-    
+
+
+    PacketHeader header = new PacketHeader(
+      packetLen, offset, seqno, (len == 0), len);
+    header.putInBuffer(pkt);
+
     int checksumOff = pkt.position();
     int checksumLen = numChunks * checksumSize;
     byte[] buf = pkt.array();
@@ -302,6 +331,16 @@ class BlockSender implements java.io.Closeable, FSConstants {
           }
         } else {
           throw e;
+        }
+      }
+
+      // write in progress that we need to use to get last checksum
+      if (lastDataPacket && lastChunkChecksum != null) {
+        int start = checksumOff + checksumLen - checksumSize;
+        byte[] updatedChecksum = lastChunkChecksum.getChecksum();
+        
+        if (updatedChecksum != null) {
+          System.arraycopy(updatedChecksum, 0, buf, start, checksumSize);
         }
       }
     }
@@ -403,7 +442,7 @@ class BlockSender implements java.io.Closeable, FSConstants {
       }
       
       int maxChunksPerPacket;
-      int pktSize = DataNode.PKT_HEADER_LEN + SIZE_OF_INTEGER;
+      int pktSize = PacketHeader.PKT_HEADER_LEN;
       
       if (transferToAllowed && !verifyChecksum && 
           baseStream instanceof SocketOutputStream && 

@@ -19,6 +19,8 @@ package org.apache.hadoop.hdfs.server.datanode.metrics;
 
 import java.io.IOException;
 
+import org.apache.hadoop.classification.InterfaceAudience;
+
 /**
  * 
  * This Interface defines the methods to get the status of a the FSDataset of
@@ -31,9 +33,10 @@ import java.io.IOException;
  * 
  * <p>
  * Data Node runtime statistic  info is report in another MBean
- * @see org.apache.hadoop.hdfs.server.datanode.metrics.DataNodeStatisticsMBean
+ * @see org.apache.hadoop.hdfs.server.datanode.metrics.DataNodeActivityMBean
  *
  */
+@InterfaceAudience.Private
 public interface FSDatasetMBean {
   
   /**

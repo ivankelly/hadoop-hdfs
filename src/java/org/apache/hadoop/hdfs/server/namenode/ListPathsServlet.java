@@ -17,13 +17,14 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.HftpFileSystem;
 import org.apache.hadoop.hdfs.protocol.ClientProtocol;
 import org.apache.hadoop.hdfs.protocol.HdfsFileStatus;
 import org.apache.hadoop.hdfs.protocol.DirectoryListing;
-import org.apache.hadoop.ipc.RemoteException;
+import org.apache.hadoop.hdfs.server.common.JspHelper;
 import org.apache.hadoop.util.VersionInfo;
 
 import org.znerd.xmlenc.*;
@@ -45,6 +46,7 @@ import javax.servlet.http.HttpServletResponse;
  * Obtain meta-information about a filesystem.
  * @see org.apache.hadoop.hdfs.HftpFileSystem
  */
+@InterfaceAudience.Private
 public class ListPathsServlet extends DfsServlet {
   /** For java.io.Serializable */
   private static final long serialVersionUID = 1L;
@@ -129,73 +131,80 @@ public class ListPathsServlet extends DfsServlet {
     throws ServletException, IOException {
     final PrintWriter out = response.getWriter();
     final XMLOutputter doc = new XMLOutputter(out, "UTF-8");
+
+    final Map<String, String> root = buildRoot(request, doc);
+    final String path = root.get("path");
+
     try {
-      final Map<String, String> root = buildRoot(request, doc);
-      final String path = root.get("path");
       final boolean recur = "yes".equals(root.get("recursive"));
       final Pattern filter = Pattern.compile(root.get("filter"));
       final Pattern exclude = Pattern.compile(root.get("exclude"));
       final Configuration conf = 
-        (Configuration) getServletContext().getAttribute("name.conf");
+        (Configuration) getServletContext().getAttribute(JspHelper.CURRENT_CONF);
       
-      ClientProtocol nnproxy = getUGI(request, conf).doAs
-        (new PrivilegedExceptionAction<ClientProtocol>() {
+      getUGI(request, conf).doAs(new PrivilegedExceptionAction<Void>() {
         @Override
-        public ClientProtocol run() throws IOException {
-          return createNameNodeProxy();
+        public Void run() throws IOException {
+          ClientProtocol nn = createNameNodeProxy();
+          doc.declaration();
+          doc.startTag("listing");
+          for (Map.Entry<String, String> m : root.entrySet()) {
+            doc.attribute(m.getKey(), m.getValue());
+          }
+
+          HdfsFileStatus base = nn.getFileInfo(path);
+          if ((base != null) && base.isDir()) {
+            writeInfo(path, base, doc);
+          }
+
+          Stack<String> pathstack = new Stack<String>();
+          pathstack.push(path);
+          while (!pathstack.empty()) {
+            String p = pathstack.pop();
+            try {
+              byte[] lastReturnedName = HdfsFileStatus.EMPTY_NAME;
+              DirectoryListing thisListing;
+              do {
+                assert lastReturnedName != null;
+                thisListing = nn.getListing(p, lastReturnedName, false);
+                if (thisListing == null) {
+                  if (lastReturnedName.length == 0) {
+                    LOG
+                        .warn("ListPathsServlet - Path " + p
+                            + " does not exist");
+                  }
+                  break;
+                }
+                HdfsFileStatus[] listing = thisListing.getPartialListing();
+                for (HdfsFileStatus i : listing) {
+                  String localName = i.getLocalName();
+                  if (exclude.matcher(localName).matches()
+                      || !filter.matcher(localName).matches()) {
+                    continue;
+                  }
+                  if (recur && i.isDir()) {
+                    pathstack.push(new Path(p, localName).toUri().getPath());
+                  }
+                  writeInfo(p, i, doc);
+                }
+                lastReturnedName = thisListing.getLastName();
+              } while (thisListing.hasMore());
+            } catch (IOException re) {
+              writeXml(re, p, doc);
+            }
+          }
+          return null;
         }
       });
-
-      doc.declaration();
-      doc.startTag("listing");
-      for (Map.Entry<String,String> m : root.entrySet()) {
-        doc.attribute(m.getKey(), m.getValue());
-      }
-
-      HdfsFileStatus base = nnproxy.getFileInfo(path);
-      if ((base != null) && base.isDir()) {
-        writeInfo(path, base, doc);
-      }
-
-      Stack<String> pathstack = new Stack<String>();
-      pathstack.push(path);
-      while (!pathstack.empty()) {
-        String p = pathstack.pop();
-        try {
-          byte[] lastReturnedName = HdfsFileStatus.EMPTY_NAME;
-          DirectoryListing thisListing;
-          do {
-            assert lastReturnedName != null;
-            thisListing = nnproxy.getListing(p, lastReturnedName);
-            if (thisListing == null) {
-              if (lastReturnedName.length == 0) {
-                LOG.warn("ListPathsServlet - Path " + p + " does not exist");
-              }
-              break;
-            }
-            HdfsFileStatus[] listing = thisListing.getPartialListing();
-            for (HdfsFileStatus i : listing) {
-              String localName = i.getLocalName();
-              if (exclude.matcher(localName).matches()
-                  || !filter.matcher(localName).matches()) {
-                continue;
-              }
-              if (recur && i.isDir()) {
-                pathstack.push(new Path(p, localName).toUri().getPath());
-              }
-              writeInfo(p, i, doc);
-            }
-            lastReturnedName = thisListing.getLastName();
-          } while (thisListing.hasMore());
-        } catch(RemoteException re) {re.writeXml(p, doc);}
-      }
-      if (doc != null) {
-        doc.endDocument();
-      }
+    } catch(IOException ioe) {
+      writeXml(ioe, path, doc);
     } catch (InterruptedException e) {
       LOG.warn("ListPathServlet encountered InterruptedException", e);
       response.sendError(400, e.getMessage());
     } finally {
+      if (doc != null) {
+        doc.endDocument();
+      }
       if (out != null) {
         out.close();
       }

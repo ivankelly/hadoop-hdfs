@@ -191,12 +191,14 @@ class INodeDirectory extends INode {
         existing[index] = curNode;
       }
       if (curNode.isLink() && (!lastComp || (lastComp && resolveLink))) {
-        NameNode.stateChangeLog.debug("UnresolvedPathException " +
-           " count: " + count +
-           " componenent: " + DFSUtil.bytes2String(components[count]) +
-           " full path: " + constructPath(components, 0) +
-           " remaining path: " + constructPath(components, count+1) +
-           " symlink: " + ((INodeSymlink)curNode).getLinkValue());
+        if(NameNode.stateChangeLog.isDebugEnabled()) {
+          NameNode.stateChangeLog.debug("UnresolvedPathException " +
+              " count: " + count +
+              " componenent: " + DFSUtil.bytes2String(components[count]) +
+              " full path: " + constructPath(components, 0) +
+              " remaining path: " + constructPath(components, count+1) +
+              " symlink: " + ((INodeSymlink)curNode).getLinkValue());
+        }
         final String linkTarget = ((INodeSymlink)curNode).getLinkValue();
         throw new UnresolvedPathException(constructPath(components, 0),
                                           constructPath(components, count+1),
@@ -260,10 +262,14 @@ class INodeDirectory extends INode {
    * 
    * @param node INode to insert
    * @param inheritPermission inherit permission from parent?
+   * @param setModTime set modification time for the parent node
+   *                   not needed when replaying the addition and 
+   *                   the parent already has the proper mod time
    * @return  null if the child with this name already exists; 
    *          node, otherwise
    */
-  <T extends INode> T addChild(final T node, boolean inheritPermission) {
+  <T extends INode> T addChild(final T node, boolean inheritPermission,
+                                              boolean setModTime) {
     if (inheritPermission) {
       FsPermission p = getFsPermission();
       //make sure the  permission has wx for the user
@@ -283,7 +289,8 @@ class INodeDirectory extends INode {
     node.parent = this;
     children.add(-low - 1, node);
     // update modification time of the parent directory
-    setModificationTime(node.getModificationTime());
+    if (setModTime)
+      setModificationTime(node.getModificationTime());
     if (node.getGroupName() == null) {
       node.setGroup(getGroupName());
     }
@@ -312,7 +319,9 @@ class INodeDirectory extends INode {
    */
   <T extends INode> T addNode(String path, T newNode, boolean inheritPermission
       ) throws FileNotFoundException, UnresolvedLinkException  {
-    if(addToParent(path, newNode, null, inheritPermission) == null)
+    byte[][] pathComponents = getPathComponents(path);        
+    if(addToParent(pathComponents, newNode, null,
+                    inheritPermission, true) == null)
       return null;
     return newNode;
   }
@@ -327,14 +336,14 @@ class INodeDirectory extends INode {
    *          is not a directory.
    */
   <T extends INode> INodeDirectory addToParent(
-                                      String path,
+                                      byte[][] pathComponents,
                                       T newNode,
                                       INodeDirectory parent,
-                                      boolean inheritPermission
+                                      boolean inheritPermission,
+                                      boolean propagateModTime
                                     ) throws FileNotFoundException, 
                                              UnresolvedLinkException {
-    byte[][] pathComponents = getPathComponents(path);
-    assert pathComponents != null : "Incorrect path " + path;
+              
     int pathLen = pathComponents.length;
     if (pathLen < 2)  // add root
       return null;
@@ -344,16 +353,18 @@ class INodeDirectory extends INode {
       getExistingPathINodes(pathComponents, inodes, false);
       INode inode = inodes[0];
       if (inode == null) {
-        throw new FileNotFoundException("Parent path does not exist: "+path);
+        throw new FileNotFoundException("Parent path does not exist: "+
+            DFSUtil.byteArray2String(pathComponents));
       }
       if (!inode.isDirectory()) {
-        throw new FileNotFoundException("Parent path is not a directory: "+path);
+        throw new FileNotFoundException("Parent path is not a directory: "+
+            DFSUtil.byteArray2String(pathComponents));
       }
       parent = (INodeDirectory)inode;
     }
     // insert into the parent children list
     newNode.name = pathComponents[pathLen-1];
-    if(parent.addChild(newNode, inheritPermission) == null)
+    if(parent.addChild(newNode, inheritPermission, propagateModTime) == null)
       return null;
     return parent;
   }

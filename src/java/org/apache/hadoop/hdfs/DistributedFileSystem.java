@@ -18,32 +18,50 @@
 
 package org.apache.hadoop.hdfs;
 
-import java.io.*;
-import java.net.*;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.EnumSet;
 
-import org.apache.hadoop.fs.permission.FsPermission;
-import org.apache.hadoop.fs.*;
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
-import org.apache.hadoop.hdfs.protocol.FSConstants;
+import org.apache.hadoop.fs.BlockLocation;
+import org.apache.hadoop.fs.ContentSummary;
+import org.apache.hadoop.fs.CreateFlag;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.FsServerDefaults;
+import org.apache.hadoop.fs.FsStatus;
+import org.apache.hadoop.fs.LocatedFileStatus;
+import org.apache.hadoop.fs.MD5MD5CRC32FileChecksum;
+import org.apache.hadoop.fs.Options;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.PathFilter;
+import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.hdfs.DFSClient.DFSDataInputStream;
 import org.apache.hadoop.hdfs.protocol.Block;
-import org.apache.hadoop.hdfs.protocol.HdfsFileStatus;
-import org.apache.hadoop.hdfs.protocol.LocatedBlock;
+import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
 import org.apache.hadoop.hdfs.protocol.DirectoryListing;
+import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.protocol.FSConstants.DatanodeReportType;
 import org.apache.hadoop.hdfs.protocol.FSConstants.UpgradeAction;
+import org.apache.hadoop.hdfs.protocol.HdfsFileStatus;
+import org.apache.hadoop.hdfs.protocol.HdfsLocatedFileStatus;
+import org.apache.hadoop.hdfs.protocol.LocatedBlock;
+import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenIdentifier;
 import org.apache.hadoop.hdfs.server.common.UpgradeStatusReport;
 import org.apache.hadoop.hdfs.server.namenode.NameNode;
-import org.apache.hadoop.hdfs.DFSClient.DFSDataInputStream;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.security.AccessControlException;
-import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.security.token.SecretManager.InvalidToken;
-import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenIdentifier;
+import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.Progressable;
-import org.apache.hadoop.fs.Options;
 
 
 /****************************************************************
@@ -52,6 +70,8 @@ import org.apache.hadoop.fs.Options;
  * DistributedFileSystem.
  *
  *****************************************************************/
+@InterfaceAudience.Private
+@InterfaceStability.Evolving
 public class DistributedFileSystem extends FileSystem {
   private Path workingDir;
   private URI uri;
@@ -182,12 +202,13 @@ public class DistributedFileSystem extends FileSystem {
     if (file == null) {
       return null;
     }
-    return dfs.getBlockLocations(getPathName(file.getPath()), start, len);
+    return getFileBlockLocations(file.getPath(), start, len);
   }
   
   @Override
   public BlockLocation[] getFileBlockLocations(Path p, 
       long start, long len) throws IOException {
+    statistics.incrementReadOps(1);
     return dfs.getBlockLocations(getPathName(p), start, len);
 
   }
@@ -200,6 +221,7 @@ public class DistributedFileSystem extends FileSystem {
   @SuppressWarnings("deprecation")
   @Override
   public FSDataInputStream open(Path f, int bufferSize) throws IOException {
+    statistics.incrementReadOps(1);
     return new DFSClient.DFSDataInputStream(
           dfs.open(getPathName(f), bufferSize, verifyChecksum, statistics));
   }
@@ -209,17 +231,19 @@ public class DistributedFileSystem extends FileSystem {
   public FSDataOutputStream append(Path f, int bufferSize,
       Progressable progress) throws IOException {
 
+    statistics.incrementWriteOps(1);
     DFSOutputStream op = (DFSOutputStream)dfs.append(getPathName(f), bufferSize, progress);
     return new FSDataOutputStream(op, statistics, op.getInitialLen());
   }
 
   @Override
   public FSDataOutputStream create(Path f, FsPermission permission,
-    EnumSet<CreateFlag> flag, int bufferSize, short replication, long blockSize,
+    boolean overwrite, int bufferSize, short replication, long blockSize,
     Progressable progress) throws IOException {
-
+    statistics.incrementWriteOps(1);
     return new FSDataOutputStream(dfs.create(getPathName(f), permission,
-                   flag, replication, blockSize, progress, bufferSize),
+        overwrite ? EnumSet.of(CreateFlag.OVERWRITE) : EnumSet.of(CreateFlag.CREATE),
+        replication, blockSize, progress, bufferSize),
         statistics);
   }
   
@@ -229,6 +253,7 @@ public class DistributedFileSystem extends FileSystem {
     FsPermission absolutePermission, EnumSet<CreateFlag> flag, int bufferSize,
     short replication, long blockSize, Progressable progress,
     int bytesPerChecksum) throws IOException {
+    statistics.incrementReadOps(1);
     return new FSDataOutputStream(dfs.primitiveCreate(getPathName(f),
         absolutePermission, flag, true, replication, blockSize,
         progress, bufferSize, bytesPerChecksum),statistics);
@@ -236,12 +261,11 @@ public class DistributedFileSystem extends FileSystem {
 
   /**
    * Same as create(), except fails if parent directory doesn't already exist.
-   * @see #create(Path, FsPermission, EnumSet, int, short, long, Progressable)
    */
   public FSDataOutputStream createNonRecursive(Path f, FsPermission permission,
       EnumSet<CreateFlag> flag, int bufferSize, short replication,
       long blockSize, Progressable progress) throws IOException {
-
+    statistics.incrementWriteOps(1);
     return new FSDataOutputStream(dfs.create(getPathName(f), permission, flag,
         false, replication, blockSize, progress, bufferSize), statistics);
   }
@@ -250,6 +274,7 @@ public class DistributedFileSystem extends FileSystem {
   public boolean setReplication(Path src, 
                                 short replication
                                ) throws IOException {
+    statistics.incrementWriteOps(1);
     return dfs.setReplication(getPathName(src), replication);
   }
   
@@ -267,6 +292,7 @@ public class DistributedFileSystem extends FileSystem {
     for(int i=0; i<psrcs.length; i++) {
       srcs[i] = getPathName(psrcs[i]);
     }
+    statistics.incrementWriteOps(1);
     dfs.concat(getPathName(trg), srcs);
   }
 
@@ -274,6 +300,7 @@ public class DistributedFileSystem extends FileSystem {
   @SuppressWarnings("deprecation")
   @Override
   public boolean rename(Path src, Path dst) throws IOException {
+    statistics.incrementWriteOps(1);
     return dfs.rename(getPathName(src), getPathName(dst));
   }
 
@@ -284,17 +311,20 @@ public class DistributedFileSystem extends FileSystem {
   @SuppressWarnings("deprecation")
   @Override
   public void rename(Path src, Path dst, Options.Rename... options) throws IOException {
+    statistics.incrementWriteOps(1);
     dfs.rename(getPathName(src), getPathName(dst), options);
   }
   
   @Override
   public boolean delete(Path f, boolean recursive) throws IOException {
-   return dfs.delete(getPathName(f), recursive);
+    statistics.incrementWriteOps(1);
+    return dfs.delete(getPathName(f), recursive);
   }
   
   /** {@inheritDoc} */
   @Override
   public ContentSummary getContentSummary(Path f) throws IOException {
+    statistics.incrementReadOps(1);
     return dfs.getContentSummary(getPathName(f));
   }
 
@@ -313,6 +343,18 @@ public class DistributedFileSystem extends FileSystem {
         f.getPermission(), f.getOwner(), f.getGroup(),
         (f.getFullPath(parent)).makeQualified(
             getUri(), getWorkingDirectory())); // fully-qualify path
+  }
+
+  private LocatedFileStatus makeQualifiedLocated(
+      HdfsLocatedFileStatus f, Path parent) {
+    return new LocatedFileStatus(f.getLen(), f.isDir(), f.getReplication(),
+        f.getBlockSize(), f.getModificationTime(),
+        f.getAccessTime(),
+        f.getPermission(), f.getOwner(), f.getGroup(),
+        null,
+        (f.getFullPath(parent)).makeQualified(
+            getUri(), getWorkingDirectory()), // fully-qualify path
+        DFSUtil.locatedBlocks2Locations(f.getBlockLocations()));
   }
 
   /**
@@ -341,6 +383,7 @@ public class DistributedFileSystem extends FileSystem {
       for (int i = 0; i < partialListing.length; i++) {
         stats[i] = makeQualified(partialListing[i], p);
       }
+      statistics.incrementReadOps(1);
       return stats;
     }
 
@@ -354,6 +397,7 @@ public class DistributedFileSystem extends FileSystem {
     for (HdfsFileStatus fileStatus : partialListing) {
       listing.add(makeQualified(fileStatus, p));
     }
+    statistics.incrementLargeReadOps(1);
  
     // now fetch more entries
     do {
@@ -367,21 +411,86 @@ public class DistributedFileSystem extends FileSystem {
       for (HdfsFileStatus fileStatus : partialListing) {
         listing.add(makeQualified(fileStatus, p));
       }
+      statistics.incrementLargeReadOps(1);
     } while (thisListing.hasMore());
  
     return listing.toArray(new FileStatus[listing.size()]);
   }
 
+  @Override
+  protected RemoteIterator<LocatedFileStatus> listLocatedStatus(final Path p,
+      final PathFilter filter)
+  throws IOException {
+    return new RemoteIterator<LocatedFileStatus>() {
+      private DirectoryListing thisListing;
+      private int i;
+      private String src;
+      private LocatedFileStatus curStat = null;
+
+      { // initializer
+        src = getPathName(p);
+        // fetch the first batch of entries in the directory
+        thisListing = dfs.listPaths(src, HdfsFileStatus.EMPTY_NAME, true);
+        statistics.incrementReadOps(1);
+        if (thisListing == null) { // the directory does not exist
+          throw new FileNotFoundException("File " + p + " does not exist.");
+        }
+      }
+
+      @Override
+      public boolean hasNext() throws IOException {
+        while (curStat == null && hasNextNoFilter()) {
+          LocatedFileStatus next = makeQualifiedLocated(
+              (HdfsLocatedFileStatus)thisListing.getPartialListing()[i++], p);
+          if (filter.accept(next.getPath())) {
+            curStat = next;
+          }
+        }
+        return curStat != null;
+      }
+      
+      /** Check if there is a next item before applying the given filter */
+      private boolean hasNextNoFilter() throws IOException {
+        if (thisListing == null) {
+          return false;
+        }
+        if (i>=thisListing.getPartialListing().length
+            && thisListing.hasMore()) { 
+          // current listing is exhausted & fetch a new listing
+          thisListing = dfs.listPaths(src, thisListing.getLastName(), true);
+          statistics.incrementReadOps(1);
+          if (thisListing == null) {
+            return false;
+          }
+          i = 0;
+        }
+        return (i<thisListing.getPartialListing().length);
+      }
+
+      @Override
+      public LocatedFileStatus next() throws IOException {
+        if (hasNext()) {
+          LocatedFileStatus tmp = curStat;
+          curStat = null;
+          return tmp;
+        } 
+        throw new java.util.NoSuchElementException("No more entry in " + p);
+      }
+    };
+  }
+  
   /**
    * Create a directory with given name and permission, only when
    * parent directory exists.
    */
   public boolean mkdir(Path f, FsPermission permission) throws IOException {
+    statistics.incrementWriteOps(1);
     return dfs.mkdirs(getPathName(f), permission, false);
   }
 
   @Override
   public boolean mkdirs(Path f, FsPermission permission) throws IOException {
+    statistics.incrementWriteOps(1);
     return dfs.mkdirs(getPathName(f), permission, true);
   }
 
@@ -389,6 +498,7 @@ public class DistributedFileSystem extends FileSystem {
   @Override
   protected boolean primitiveMkdir(Path f, FsPermission absolutePermission)
     throws IOException {
+    statistics.incrementWriteOps(1);
     return dfs.primitiveMkdir(getPathName(f), absolutePermission);
   }
 
@@ -413,6 +523,7 @@ public class DistributedFileSystem extends FileSystem {
   }        
   
   /** @deprecated Use {@link org.apache.hadoop.fs.FsStatus} instead */
+  @InterfaceAudience.Private
   @Deprecated
   public static class DiskStatus extends FsStatus {
     public DiskStatus(FsStatus stats) {
@@ -431,6 +542,7 @@ public class DistributedFileSystem extends FileSystem {
   /** {@inheritDoc} */
   @Override
   public FsStatus getStatus(Path p) throws IOException {
+    statistics.incrementReadOps(1);
     return dfs.getDiskStatus();
   }
 
@@ -612,6 +724,7 @@ public class DistributedFileSystem extends FileSystem {
    */
   @Override
   public FileStatus getFileStatus(Path f) throws IOException {
+    statistics.incrementReadOps(1);
     HdfsFileStatus fi = dfs.getFileInfo(getPathName(f));
     if (fi != null) {
       return makeQualified(fi, f);
@@ -623,6 +736,7 @@ public class DistributedFileSystem extends FileSystem {
   /** {@inheritDoc} */
   @Override
   public MD5MD5CRC32FileChecksum getFileChecksum(Path f) throws IOException {
+    statistics.incrementReadOps(1);
     return dfs.getFileChecksum(getPathName(f));
   }
 
@@ -630,6 +744,7 @@ public class DistributedFileSystem extends FileSystem {
   @Override
   public void setPermission(Path p, FsPermission permission
       ) throws IOException {
+    statistics.incrementWriteOps(1);
     dfs.setPermission(getPathName(p), permission);
   }
 
@@ -640,6 +755,7 @@ public class DistributedFileSystem extends FileSystem {
     if (username == null && groupname == null) {
       throw new IOException("username == null && groupname == null");
     }
+    statistics.incrementWriteOps(1);
     dfs.setOwner(getPathName(p), username, groupname);
   }
 
@@ -647,10 +763,27 @@ public class DistributedFileSystem extends FileSystem {
   @Override
   public void setTimes(Path p, long mtime, long atime
       ) throws IOException {
+    statistics.incrementWriteOps(1);
     dfs.setTimes(getPathName(p), mtime, atime);
   }
   
-  /** 
+
+  @Override
+  protected int getDefaultPort() {
+    return NameNode.DEFAULT_PORT;
+  }
+
+  @Override
+  public 
+  Token<DelegationTokenIdentifier> getDelegationToken(String renewer
+  ) throws IOException {
+    Token<DelegationTokenIdentifier> result =
+      dfs.getDelegationToken(renewer == null ? null : new Text(renewer));
+    result.setService(new Text(getCanonicalServiceName()));
+    return result;
+  }
+
+  /*
    * Delegation Token Operations
    * These are DFS only operations.
    */
@@ -661,7 +794,9 @@ public class DistributedFileSystem extends FileSystem {
    * @param renewer Name of the designated renewer for the token
    * @return Token<DelegationTokenIdentifier>
    * @throws IOException
+   * @deprecated use {@link #getDelegationToken(String)}
    */
+  @Deprecated
   public Token<DelegationTokenIdentifier> getDelegationToken(Text renewer)
       throws IOException {
     return dfs.getDelegationToken(renewer);

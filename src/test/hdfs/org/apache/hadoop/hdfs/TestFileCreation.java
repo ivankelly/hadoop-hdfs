@@ -35,6 +35,7 @@ import org.apache.hadoop.fs.FileAlreadyExistsException;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FsServerDefaults;
+import org.apache.hadoop.fs.ParentNotDirectoryException;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hdfs.protocol.Block;
@@ -95,36 +96,6 @@ public class TestFileCreation extends junit.framework.TestCase {
     stm.write(buffer, 0, size);
   }
 
-  static private void checkData(byte[] actual, int from, byte[] expected, String message) {
-    for (int idx = 0; idx < actual.length; idx++) {
-      assertEquals(message+" byte "+(from+idx)+" differs. expected "+
-                   expected[from+idx]+" actual "+actual[idx],
-                   expected[from+idx], actual[idx]);
-      actual[idx] = 0;
-    }
-  }
-
-  static void checkFullFile(FileSystem fs, Path name) throws IOException {
-    FileStatus stat = fs.getFileStatus(name);
-    BlockLocation[] locations = fs.getFileBlockLocations(stat, 0, 
-                                                         fileSize);
-    for (int idx = 0; idx < locations.length; idx++) {
-      String[] hosts = locations[idx].getNames();
-      for (int i = 0; i < hosts.length; i++) {
-        System.out.print( hosts[i] + " ");
-      }
-      System.out.println(" off " + locations[idx].getOffset() +
-                         " len " + locations[idx].getLength());
-    }
-
-    byte[] expected = AppendTestUtil.randomBytes(seed, fileSize);
-    FSDataInputStream stm = fs.open(name);
-    byte[] actual = new byte[fileSize];
-    stm.readFully(0, actual);
-    checkData(actual, 0, expected, "Read 2");
-    stm.close();
-  }
-
   /**
    * Test that server default values can be retrieved on the client side
    */
@@ -169,9 +140,9 @@ public class TestFileCreation extends junit.framework.TestCase {
       //
       Path path = new Path("/");
       System.out.println("Path : \"" + path.toString() + "\"");
-      System.out.println(fs.getFileStatus(path).isDir()); 
+      System.out.println(fs.getFileStatus(path).isDirectory()); 
       assertTrue("/ should be a directory", 
-                 fs.getFileStatus(path).isDir() == true);
+                 fs.getFileStatus(path).isDirectory());
 
       //
       // Create a directory inside /, then try to overwrite it
@@ -200,7 +171,7 @@ public class TestFileCreation extends junit.framework.TestCase {
 
       // verify that file exists in FS namespace
       assertTrue(file1 + " should be a file", 
-                  fs.getFileStatus(file1).isDir() == false);
+                 fs.getFileStatus(file1).isFile());
       System.out.println("Path : \"" + file1 + "\"");
 
       // write to file
@@ -320,7 +291,7 @@ public class TestFileCreation extends junit.framework.TestCase {
 
       // verify that file exists in FS namespace
       assertTrue(file1 + " should be a file", 
-                  fs.getFileStatus(file1).isDir() == false);
+                 fs.getFileStatus(file1).isFile());
       System.out.println("Path : \"" + file1 + "\"");
 
       // kill the datanode
@@ -611,91 +582,6 @@ public class TestFileCreation extends junit.framework.TestCase {
   }
   
   /**
-   * Test file creation with all supported flags.
-   */
-  public void testFileCreationWithFlags() throws IOException {
-    Configuration conf = new HdfsConfiguration();
-    if (simulatedStorage) {
-      conf.setBoolean(SimulatedFSDataset.CONFIG_PROPERTY_SIMULATED, true);
-    }
-    MiniDFSCluster cluster = new MiniDFSCluster(conf, 1, true, null);
-    FileSystem fs = cluster.getFileSystem();
-    Path path = new Path("/" + System.currentTimeMillis()
-        + "-testFileCreationWithFlags");
-    FSDataOutputStream out = null;
-
-    // append to a non-exist file, it should throw an IOException
-    try {
-      IOException expectedException = null;
-      EnumSet<CreateFlag> appendNoFile = EnumSet.of(CreateFlag.APPEND);
-      // this should throw a IOException, because the file does not exist
-      try {
-        out = createFileWithFlag(fs, path, 1, appendNoFile);
-      } catch (IOException e) {
-        expectedException = e;
-      } finally {
-        if (out != null)
-          out.close();
-      }
-      assertTrue(
-          "Append a non-exists file with no create flag should throw an IOException ",
-          expectedException != null);
-
-      // the file already exists, and recreate it with CreateFlag.APPEND,
-      // CreateFlag.CREATE. It will not throw any exception.
-      EnumSet<CreateFlag> appendAndCreate = EnumSet.of(CreateFlag.APPEND,
-          CreateFlag.CREATE);
-      out = createFileWithFlag(fs, path, 1, appendAndCreate);
-      out.close();
-
-      // the file already exists, and recreate it only with CreateFlag.CREATE
-      // flag. it should throw an IOException
-      expectedException = null;
-      EnumSet<CreateFlag> createExistsFile = EnumSet.of(CreateFlag.CREATE);
-      // this should throw a IOException, because the file already exists
-      try {
-        createFileWithFlag(fs, path, 1, createExistsFile);
-      } catch (IOException e) {
-        expectedException = e;
-      }
-      assertTrue(
-          "create a file which already exists should throw an IOException ",
-          expectedException != null);
-
-      // the file exists, recreate it with the flag of CreateFlag.OVERWRITE.
-      EnumSet<CreateFlag> overwriteFile = EnumSet.of(CreateFlag.OVERWRITE);
-      out = createFileWithFlag(fs, path, 1, overwriteFile);
-      out.close();
-
-      // the file exists, recreate it with the flag of CreateFlag.OVERWRITE
-      // together with CreateFlag.CREATE. It has the same effect as only specify
-      // CreateFlag.OVERWRITE.
-      EnumSet<CreateFlag> overwriteWithCreateFile = EnumSet.of(
-          CreateFlag.OVERWRITE, CreateFlag.CREATE);
-      out = createFileWithFlag(fs, path, 1, overwriteWithCreateFile);
-      out.close();
-
-      // the file exists, recreate it with the flag of CreateFlag.OVERWRITE
-      // together with CreateFlag.APPEND. It has the same effect as only specify
-      // CreateFlag.OVERWRITE.
-      EnumSet<CreateFlag> overwriteWithAppendFile = EnumSet.of(
-          CreateFlag.OVERWRITE, CreateFlag.APPEND);
-      out = createFileWithFlag(fs, path, 1, overwriteWithAppendFile);
-      out.close();
-
-      fs.delete(path, true);
-
-      EnumSet<CreateFlag> createNonExistsFile = EnumSet.of(CreateFlag.CREATE,
-          CreateFlag.OVERWRITE);
-      out = createFileWithFlag(fs, path, 1, createNonExistsFile);
-      out.close();
-      fs.delete(path, true);
-    } finally {
-      cluster.shutdown();
-    }
-  }
-  
-  /**
    * Test file creation using createNonRecursive().
    */
   public void testFileCreationNonRecursive() throws IOException {
@@ -726,9 +612,9 @@ public class TestFileCreation extends junit.framework.TestCase {
         expectedException = e;
       }
       assertTrue("Create a file when parent directory exists as a file"
-          + " should throw FileAlreadyExistsException ",
+          + " should throw ParentNotDirectoryException ",
           expectedException != null
-              && expectedException instanceof FileAlreadyExistsException);
+              && expectedException instanceof ParentNotDirectoryException);
       fs.delete(path, true);
       // Create a file in a non-exist directory, should fail
       final Path path2 = new Path(nonExistDir + "/testCreateNonRecursive");
@@ -755,9 +641,9 @@ public class TestFileCreation extends junit.framework.TestCase {
         expectedException = e;
       }
       assertTrue("Overwrite a file when parent directory exists as a file"
-          + " should throw FileAlreadyExistsException ",
+          + " should throw ParentNotDirectoryException ",
           expectedException != null
-              && expectedException instanceof FileAlreadyExistsException);
+              && expectedException instanceof ParentNotDirectoryException);
       fs.delete(path, true);
       // Overwrite a file in a non-exist directory, should fail
       final Path path3 = new Path(nonExistDir + "/testOverwriteNonRecursive");
@@ -788,14 +674,6 @@ public class TestFileCreation extends junit.framework.TestCase {
     return stm;
   }
   
-  // creates a file with the flag api
-  static FSDataOutputStream createFileWithFlag(FileSystem fileSys, Path name, int repl, EnumSet<CreateFlag> flag)
-    throws IOException {
-    System.out.println("createFile: Created " + name + " with " + repl + " replica.");
-    FSDataOutputStream stm = fileSys.create(name, FsPermission.getDefault(), flag, 
-                                            fileSys.getConf().getInt("io.file.buffer.size", 4096),(short)repl, (long)blockSize, null);
-    return stm;
-  }
 
 /**
  * Test that file data becomes available before file is closed.

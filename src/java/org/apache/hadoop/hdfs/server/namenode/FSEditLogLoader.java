@@ -40,6 +40,7 @@ import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableFactories;
 import org.apache.hadoop.io.WritableFactory;
 import org.apache.hadoop.security.token.delegation.DelegationKey;
+import static org.apache.hadoop.hdfs.server.common.Util.now;
 
 public class FSEditLogLoader {
   private final FSNamesystem fsNamesys;
@@ -60,11 +61,11 @@ public class FSEditLogLoader {
    */
   int loadFSEdits(EditLogInputStream edits) throws IOException {
     DataInputStream in = edits.getDataInputStream();
-    long startTime = FSNamesystem.now();
+    long startTime = now();
     int numEdits = loadFSEdits(in, true);
     FSImage.LOG.info("Edits file " + edits.getName() 
         + " of size " + edits.length() + " edits # " + numEdits 
-        + " loaded in " + (FSNamesystem.now()-startTime)/1000 + " seconds.");
+        + " loaded in " + (now()-startTime)/1000 + " seconds.");
     return numEdits;
   }
 

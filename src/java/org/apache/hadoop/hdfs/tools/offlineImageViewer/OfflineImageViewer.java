@@ -31,11 +31,14 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.PosixParser;
 
+import org.apache.hadoop.classification.InterfaceAudience;
+
 /**
  * OfflineImageViewer to dump the contents of an Hadoop image file to XML
  * or the console.  Main entry point into utility, either via the
  * command line or programatically.
  */
+@InterfaceAudience.Private
 public class OfflineImageViewer {
   private final static String usage = 
     "Usage: bin/hdfs oiv [OPTIONS] -i INPUTFILE -o OUTPUTFILE\n" +
@@ -72,6 +75,9 @@ public class OfflineImageViewer {
     "    -maxSize specifies the range [0, maxSize] of file sizes to be\n" +
     "     analyzed (128GB by default).\n" +
     "    -step defines the granularity of the distribution. (2MB by default)\n" +
+    "  * NameDistribution: This processor analyzes the file names\n" +
+    "    in the image and prints total number of file names and how frequently" +
+    "    file names are reused.\n" +
     "\n" + 
     "Required command line arguments:\n" +
     "-i,--inputFile <arg>   FSImage file to process.\n" +
@@ -233,6 +239,8 @@ public class OfflineImageViewer {
       long maxSize = Long.parseLong(cmd.getOptionValue("maxSize", "0"));
       int step = Integer.parseInt(cmd.getOptionValue("step", "0"));
       v = new FileDistributionVisitor(outputFile, maxSize, step);
+    } else if (processor.equals("NameDistribution")) {
+      v = new NameDistributionVisitor(outputFile, printToScreen);
     } else {
       v = new LsImageVisitor(outputFile, printToScreen);
       skipBlocks = false;

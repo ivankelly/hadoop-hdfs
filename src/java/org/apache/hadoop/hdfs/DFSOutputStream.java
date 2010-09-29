@@ -38,7 +38,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CreateFlag;
 import org.apache.hadoop.fs.FSOutputSummer;
 import org.apache.hadoop.fs.FileAlreadyExistsException;
-import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.ParentNotDirectoryException;
 import org.apache.hadoop.fs.Syncable;
 import org.apache.hadoop.fs.UnresolvedLinkException;
 import org.apache.hadoop.fs.permission.FsPermission;
@@ -52,22 +52,26 @@ import org.apache.hadoop.hdfs.protocol.LocatedBlock;
 import org.apache.hadoop.hdfs.protocol.NSQuotaExceededException;
 import org.apache.hadoop.hdfs.protocol.UnresolvedPathException;
 import org.apache.hadoop.hdfs.protocol.DataTransferProtocol.BlockConstructionStage;
+import org.apache.hadoop.hdfs.protocol.DataTransferProtocol.PacketHeader;
 import org.apache.hadoop.hdfs.protocol.DataTransferProtocol.PipelineAck;
-import org.apache.hadoop.hdfs.security.BlockAccessToken;
-import org.apache.hadoop.hdfs.security.InvalidAccessTokenException;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants;
 import org.apache.hadoop.hdfs.server.datanode.DataNode;
 import org.apache.hadoop.hdfs.server.namenode.NotReplicatedYetException;
+import org.apache.hadoop.hdfs.server.namenode.SafeModeException;
 import org.apache.hadoop.io.EnumSetWritable;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.ipc.RemoteException;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.security.AccessControlException;
+import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.Daemon;
 import org.apache.hadoop.util.DataChecksum;
 import org.apache.hadoop.util.Progressable;
 import org.apache.hadoop.util.PureJavaCrc32;
 import org.apache.hadoop.util.StringUtils;
+import org.apache.hadoop.hdfs.security.token.block.InvalidBlockTokenException;
+import org.apache.hadoop.hdfs.security.token.block.BlockTokenIdentifier;
 
 /****************************************************************
  * DFSOutputStream creates files from a stream of bytes.
@@ -125,17 +129,30 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
   private short blockReplication; // replication factor of file
   
   private class Packet {
-    ByteBuffer buffer;           // only one of buf and buffer is non-null
-    byte[]  buf;  
     long    seqno;               // sequencenumber of buffer in block
     long    offsetInBlock;       // offset in block
     boolean lastPacketInBlock;   // is this the last packet in block?
     int     numChunks;           // number of chunks currently in packet
     int     maxChunks;           // max chunks in packet
-    int     dataStart;
-    int     dataPos;
-    int     checksumStart;
-    int     checksumPos;      
+
+    /** buffer for accumulating packet checksum and data */
+    ByteBuffer buffer; // wraps buf, only one of these two may be non-null
+    byte[]  buf;
+
+    /**
+     * buf is pointed into like follows:
+     *  (C is checksum data, D is payload data)
+     *
+     * [HHHHHCCCCC________________DDDDDDDDDDDDDDDD___]
+     *       ^    ^               ^               ^
+     *       |    checksumPos     dataStart       dataPos
+     *   checksumStart
+     */
+    int checksumStart;
+    int dataStart;
+    int dataPos;
+    int checksumPos;
+
     private static final long HEART_BEAT_SEQNO = -1L;
 
     /**
@@ -148,7 +165,7 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
       this.seqno = HEART_BEAT_SEQNO;
       
       buffer = null;
-      int packetSize = DataNode.PKT_HEADER_LEN + DFSClient.SIZE_OF_INTEGER;
+      int packetSize = PacketHeader.PKT_HEADER_LEN + DFSClient.SIZE_OF_INTEGER; // TODO(todd) strange
       buf = new byte[packetSize];
       
       checksumStart = dataStart = packetSize;
@@ -168,7 +185,7 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
       buffer = null;
       buf = new byte[pktSize];
       
-      checksumStart = DataNode.PKT_HEADER_LEN + DFSClient.SIZE_OF_INTEGER;
+      checksumStart = PacketHeader.PKT_HEADER_LEN;
       checksumPos = checksumStart;
       dataStart = checksumStart + chunksPerPkt * checksum.getChecksumSize();
       dataPos = dataStart;
@@ -219,20 +236,15 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
       int pktLen = DFSClient.SIZE_OF_INTEGER + dataLen + checksumLen;
       
       //normally dataStart == checksumPos, i.e., offset is zero.
-      buffer = ByteBuffer.wrap(buf, dataStart - checksumPos,
-                               DataNode.PKT_HEADER_LEN + pktLen);
+      buffer = ByteBuffer.wrap(
+        buf, dataStart - checksumPos,
+        PacketHeader.PKT_HEADER_LEN + pktLen - DFSClient.SIZE_OF_INTEGER);
       buf = null;
       buffer.mark();
-      
-      /* write the header and data length.
-       * The format is described in comment before DataNode.BlockSender
-       */
-      buffer.putInt(pktLen);  // pktSize
-      buffer.putLong(offsetInBlock); 
-      buffer.putLong(seqno);
-      buffer.put((byte) ((lastPacketInBlock) ? 1 : 0));
-      //end of pkt header
-      buffer.putInt(dataLen); // actual data length, excluding checksum.
+
+      PacketHeader header = new PacketHeader(
+        pktLen, offsetInBlock, seqno, lastPacketInBlock, dataLen);
+      header.putInBuffer(buffer);
       
       buffer.reset();
       return buffer;
@@ -270,7 +282,7 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
   class DataStreamer extends Daemon {
     private volatile boolean streamerClosed = false;
     private Block block; // its length is number of bytes acked
-    private BlockAccessToken accessToken;
+    private Token<BlockTokenIdentifier> accessToken;
     private DataOutputStream blockStream;
     private DataInputStream blockReplyStream;
     private ResponseProcessor response = null;
@@ -300,7 +312,7 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
       stage = BlockConstructionStage.PIPELINE_SETUP_APPEND;
       block = lastBlock.getBlock();
       bytesSent = block.getNumBytes();
-      accessToken = lastBlock.getAccessToken();
+      accessToken = lastBlock.getBlockToken();
       long usedInLastBlock = stat.getLen() % blockSize;
       int freeInLastBlock = (int)(blockSize - usedInLastBlock);
 
@@ -356,7 +368,9 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
     }
     
     private void endBlock() {
-      DFSClient.LOG.debug("Closing old block " + block);
+      if(DFSClient.LOG.isDebugEnabled()) {
+        DFSClient.LOG.debug("Closing old block " + block);
+      }
       this.setName("DataStreamer for file " + src);
       closeResponder();
       closeStream();
@@ -423,11 +437,15 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
 
           // get new block from namenode.
           if (stage == BlockConstructionStage.PIPELINE_SETUP_CREATE) {
-            DFSClient.LOG.debug("Allocating new block");
+            if(DFSClient.LOG.isDebugEnabled()) {
+              DFSClient.LOG.debug("Allocating new block");
+            }
             nodes = nextBlockOutputStream(src);
             initDataStreaming();
           } else if (stage == BlockConstructionStage.PIPELINE_SETUP_APPEND) {
-            DFSClient.LOG.debug("Append to block " + block);
+            if(DFSClient.LOG.isDebugEnabled()) {
+              DFSClient.LOG.debug("Append to block " + block);
+            }
             setupPipelineForAppendOrRecovery();
             initDataStreaming();
           }
@@ -771,7 +789,7 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
         // get a new generation stamp and an access token
         LocatedBlock lb = dfsClient.namenode.updateBlockForPipeline(block, dfsClient.clientName);
         newGS = lb.getBlock().getGenerationStamp();
-        accessToken = lb.getAccessToken();
+        accessToken = lb.getBlockToken();
         
         // set up the pipeline again with the remaining nodes
         success = createBlockOutputStream(nodes, newGS, isRecovery);
@@ -811,7 +829,7 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
         lb = locateFollowingBlock(startTime, w.length > 0 ? w : null);
         block = lb.getBlock();
         block.setNumBytes(0);
-        accessToken = lb.getAccessToken();
+        accessToken = lb.getBlockToken();
         nodes = lb.getLocations();
 
         //
@@ -850,15 +868,20 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
       // persist blocks on namenode on next flush
       persistBlocks.set(true);
 
+      boolean result = false;
       try {
-        DFSClient.LOG.debug("Connecting to " + nodes[0].getName());
+        if(DFSClient.LOG.isDebugEnabled()) {
+          DFSClient.LOG.debug("Connecting to " + nodes[0].getName());
+        }
         InetSocketAddress target = NetUtils.createSocketAddr(nodes[0].getName());
         s = dfsClient.socketFactory.createSocket();
         int timeoutValue = dfsClient.getDatanodeReadTimeout(nodes.length);
         NetUtils.connect(s, target, timeoutValue);
         s.setSoTimeout(timeoutValue);
         s.setSendBufferSize(DFSClient.DEFAULT_DATA_SOCKET_SIZE);
-        DFSClient.LOG.debug("Send buf size " + s.getSendBufferSize());
+        if(DFSClient.LOG.isDebugEnabled()) {
+          DFSClient.LOG.debug("Send buf size " + s.getSendBufferSize());
+        }
         long writeTimeout = dfsClient.getDatanodeWriteTimeout(nodes.length);
 
         //
@@ -870,10 +893,10 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
         blockReplyStream = new DataInputStream(NetUtils.getInputStream(s));
 
         // send the request
-        DataTransferProtocol.Sender.opWriteBlock(out,
-            block.getBlockId(), block.getGenerationStamp(),
-            nodes.length, recoveryFlag?stage.getRecoveryStage():stage, newGS,
-            block.getNumBytes(), bytesSent, dfsClient.clientName, null, nodes, accessToken);
+        DataTransferProtocol.Sender.opWriteBlock(out, block, nodes.length,
+            recoveryFlag ? stage.getRecoveryStage() : stage, newGS, 
+            block.getNumBytes(), bytesSent, dfsClient.clientName, null, nodes,
+            accessToken);
         checksum.writeHeader(out);
         out.flush();
 
@@ -882,7 +905,7 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
         firstBadLink = Text.readString(blockReplyStream);
         if (pipelineStatus != SUCCESS) {
           if (pipelineStatus == ERROR_ACCESS_TOKEN) {
-            throw new InvalidAccessTokenException(
+            throw new InvalidBlockTokenException(
                 "Got access token error for connect ack with firstBadLink as "
                     + firstBadLink);
           } else {
@@ -892,7 +915,7 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
         }
 
         blockStream = out;
-        return true; // success
+        result =  true; // success
 
       } catch (IOException ie) {
 
@@ -912,8 +935,14 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
         hasError = true;
         setLastException(ie);
         blockReplyStream = null;
-        return false;  // error
+        result =  false;  // error
+      } finally {
+        if (!result) {
+          IOUtils.closeSocket(s);
+          s = null;
+        }
       }
+      return result;
     }
 
     private LocatedBlock locateFollowingBlock(long start,
@@ -975,7 +1004,7 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
       return nodes;
     }
 
-    BlockAccessToken getAccessToken() {
+    Token<BlockTokenIdentifier> getBlockToken() {
       return accessToken;
     }
 
@@ -1020,8 +1049,9 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
     this.blockSize = blockSize;
     this.blockReplication = replication;
     this.progress = progress;
-    if (progress != null) {
-      DFSClient.LOG.debug("Set non-null progress callback on DFSOutputStream "+src);
+    if ((progress != null) && DFSClient.LOG.isDebugEnabled()) {
+      DFSClient.LOG.debug(
+          "Set non-null progress callback on DFSOutputStream " + src);
     }
     
     if ( bytesPerChecksum < 1 || blockSize % bytesPerChecksum != 0) {
@@ -1042,7 +1072,7 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
   DFSOutputStream(DFSClient dfsClient, String src, FsPermission masked, EnumSet<CreateFlag> flag,
       boolean createParent, short replication, long blockSize, Progressable progress,
       int buffersize, int bytesPerChecksum) 
-      throws IOException, UnresolvedLinkException {
+      throws IOException {
     this(dfsClient, src, blockSize, progress, bytesPerChecksum, replication);
 
     computePacketChunkSize(dfsClient.writePacketSize, bytesPerChecksum);
@@ -1052,10 +1082,12 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
           src, masked, dfsClient.clientName, new EnumSetWritable<CreateFlag>(flag), createParent, replication, blockSize);
     } catch(RemoteException re) {
       throw re.unwrapRemoteException(AccessControlException.class,
+                                     DSQuotaExceededException.class,
                                      FileAlreadyExistsException.class,
                                      FileNotFoundException.class,
+                                     ParentNotDirectoryException.class,
                                      NSQuotaExceededException.class,
-                                     DSQuotaExceededException.class,
+                                     SafeModeException.class,
                                      UnresolvedPathException.class);
     }
     streamer = new DataStreamer();
@@ -1088,7 +1120,7 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
 
   private void computePacketChunkSize(int psize, int csize) {
     int chunkSize = csize + checksum.getChecksumSize();
-    int n = DataNode.PKT_HEADER_LEN + DFSClient.SIZE_OF_INTEGER;
+    int n = PacketHeader.PKT_HEADER_LEN;
     chunksPerPacket = Math.max((psize - n + chunkSize-1)/chunkSize, 1);
     packetSize = n + chunkSize*chunksPerPacket;
     if (DFSClient.LOG.isDebugEnabled()) {
@@ -1190,7 +1222,7 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
       // indicate the end of block and reset bytesCurBlock.
       //
       if (bytesCurBlock == blockSize) {
-        currentPacket = new Packet(DataNode.PKT_HEADER_LEN+4, 0, 
+        currentPacket = new Packet(PacketHeader.PKT_HEADER_LEN, 0, 
             bytesCurBlock);
         currentPacket.lastPacketInBlock = true;
         waitAndQueuePacket(currentPacket);
@@ -1233,9 +1265,11 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
       // flush checksum buffer, but keep checksum buffer intact
       flushBuffer(true);
 
-      DFSClient.LOG.debug("DFSClient flush() : saveOffset " + saveOffset +  
-                " bytesCurBlock " + bytesCurBlock +
-                " lastFlushOffset " + lastFlushOffset);
+      if(DFSClient.LOG.isDebugEnabled()) {
+        DFSClient.LOG.debug("DFSClient flush() : saveOffset " + saveOffset +  
+            " bytesCurBlock " + bytesCurBlock +
+            " lastFlushOffset " + lastFlushOffset);
+      }
       
       // Flush only if we haven't already flushed till this offset.
       if (lastFlushOffset != bytesCurBlock) {
@@ -1381,7 +1415,7 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
 
       if (bytesCurBlock != 0) {
         // send an empty packet to mark the end of the block
-        currentPacket = new Packet(DataNode.PKT_HEADER_LEN+4, 0, 
+        currentPacket = new Packet(PacketHeader.PKT_HEADER_LEN, 0, 
             bytesCurBlock);
         currentPacket.lastPacketInBlock = true;
       }
@@ -1432,7 +1466,7 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
 
   synchronized void setChunksPerPacket(int value) {
     chunksPerPacket = Math.min(chunksPerPacket, value);
-    packetSize = DataNode.PKT_HEADER_LEN + DFSClient.SIZE_OF_INTEGER +
+    packetSize = PacketHeader.PKT_HEADER_LEN +
                  (checksum.getBytesPerChecksum() + 
                   checksum.getChecksumSize()) * chunksPerPacket;
   }
@@ -1451,8 +1485,8 @@ class DFSOutputStream extends FSOutputSummer implements Syncable {
   /**
    * Returns the access token currently used by streamer, for testing only
    */
-  BlockAccessToken getAccessToken() {
-    return streamer.getAccessToken();
+  Token<BlockTokenIdentifier> getBlockToken() {
+    return streamer.getBlockToken();
   }
 
 }

@@ -21,21 +21,26 @@ package org.apache.hadoop.hdfs;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.security.PrivilegedExceptionAction;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.Random;
 import java.util.TimeZone;
+import java.util.concurrent.DelayQueue;
+import java.util.concurrent.Delayed;
+import java.util.concurrent.TimeUnit;
 
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.ContentSummary;
-import org.apache.hadoop.fs.CreateFlag;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileChecksum;
@@ -44,9 +49,18 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.MD5MD5CRC32FileChecksum;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenIdentifier;
+import org.apache.hadoop.hdfs.server.common.JspHelper;
+import org.apache.hadoop.hdfs.server.namenode.NameNode;
+import org.apache.hadoop.hdfs.tools.DelegationTokenFetcher;
+import org.apache.hadoop.io.Text;
 import org.apache.hadoop.ipc.RemoteException;
 import org.apache.hadoop.net.NetUtils;
+import org.apache.hadoop.security.Credentials;
+import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.token.Token;
+import org.apache.hadoop.security.token.TokenIdentifier;
 import org.apache.hadoop.util.Progressable;
 import org.xml.sax.Attributes;
 import org.xml.sax.InputSource;
@@ -63,18 +77,25 @@ import org.xml.sax.helpers.XMLReaderFactory;
  * @see org.apache.hadoop.hdfs.server.namenode.ListPathsServlet
  * @see org.apache.hadoop.hdfs.server.namenode.FileDataServlet
  */
+@InterfaceAudience.Private
+@InterfaceStability.Evolving
 public class HftpFileSystem extends FileSystem {
   static {
     HttpURLConnection.setFollowRedirects(true);
   }
 
+  private static final int DEFAULT_PORT = 50470;
+  private String nnHttpUrl;
+  private URI hdfsURI;
   protected InetSocketAddress nnAddr;
   protected UserGroupInformation ugi; 
   protected final Random ran = new Random();
 
   public static final String HFTP_TIMEZONE = "UTC";
   public static final String HFTP_DATE_FORMAT = "yyyy-MM-dd'T'HH:mm:ssZ";
-
+  private Token<DelegationTokenIdentifier> delegationToken;
+  public static final String HFTP_SERVICE_NAME_KEY = "hdfs.service.host_";
+  
   public static final SimpleDateFormat getDateFormat() {
     final SimpleDateFormat df = new SimpleDateFormat(HFTP_DATE_FORMAT);
     df.setTimeZone(TimeZone.getTimeZone(HFTP_TIMEZONE));
@@ -83,19 +104,122 @@ public class HftpFileSystem extends FileSystem {
 
   protected static final ThreadLocal<SimpleDateFormat> df =
     new ThreadLocal<SimpleDateFormat>() {
-      protected SimpleDateFormat initialValue() {
-        return getDateFormat();
-      }
-    };
+    protected SimpleDateFormat initialValue() {
+      return getDateFormat();
+    }
+  };
+
+  private static RenewerThread renewer = new RenewerThread();
+  static {
+    renewer.start();
+  }
 
   @Override
-  public void initialize(URI name, Configuration conf) throws IOException {
+  protected int getDefaultPort() {
+    return DEFAULT_PORT;
+  }
+
+  @Override
+  public String getCanonicalServiceName() {
+    return SecurityUtil.buildDTServiceName(hdfsURI, getDefaultPort());
+  }
+  
+  private String buildUri(String schema, String host, int port) {
+    StringBuilder sb = new StringBuilder(schema);
+    return sb.append(host).append(":").append(port).toString();
+  }
+
+
+  @SuppressWarnings("unchecked")
+  @Override
+  public void initialize(final URI name, final Configuration conf)
+  throws IOException {
     super.initialize(name, conf);
     setConf(conf);
     this.ugi = UserGroupInformation.getCurrentUser(); 
     nnAddr = NetUtils.createSocketAddr(name.toString());
+   
+    nnHttpUrl = buildUri("https://", NetUtils.normalizeHostName(name.getHost()), 
+        conf.getInt("dfs.https.port", DEFAULT_PORT));
+
+    // if one uses RPC port different from the Default one,  
+    // one should specify what is the setvice name for this delegation token
+    // otherwise it is hostname:RPC_PORT
+    String key = HftpFileSystem.HFTP_SERVICE_NAME_KEY+
+    SecurityUtil.buildDTServiceName(name, DEFAULT_PORT);
+    if(LOG.isDebugEnabled()) {
+      LOG.debug("Trying to find DT for " + name + " using key=" + key + 
+          "; conf=" + conf.get(key, ""));
+    }
+    String nnServiceName = conf.get(key);
+    int nnPort = NameNode.DEFAULT_PORT;
+    if (nnServiceName != null) { // get the real port
+      nnPort = NetUtils.createSocketAddr(nnServiceName, 
+          NameNode.DEFAULT_PORT).getPort();
+    }
+
+    try {
+      hdfsURI = new URI(buildUri("hdfs://", nnAddr.getHostName(), nnPort));
+    } catch (URISyntaxException ue) {
+      throw new IOException("bad uri for hdfs", ue);
+    }
+
+    if (UserGroupInformation.isSecurityEnabled()) {
+      //try finding a token for this namenode (esp applicable for tasks
+      //using hftp). If there exists one, just set the delegationField
+      String canonicalName = getCanonicalServiceName();
+      for (Token<? extends TokenIdentifier> t : ugi.getTokens()) {
+        if (DelegationTokenIdentifier.HDFS_DELEGATION_KIND.equals(t.getKind()) &&
+            t.getService().toString().equals(canonicalName)) {
+          if(LOG.isDebugEnabled()) {
+            LOG.debug("Found existing DT for " + name);
+          }
+          delegationToken = (Token<DelegationTokenIdentifier>) t;
+          break;
+        }
+      }
+      //since we don't already have a token, go get one over https
+      if (delegationToken == null) {
+        delegationToken = 
+          (Token<DelegationTokenIdentifier>) getDelegationToken(null);
+        renewer.addTokenToRenew(this);
+      }
+    }
   }
   
+
+  @Override
+  public Token<?> getDelegationToken(final String renewer) throws IOException {
+    try {
+      return ugi.doAs(new PrivilegedExceptionAction<Token<?>>() {
+        public Token<?> run() throws IOException {
+          Credentials c;
+          try {
+            c = DelegationTokenFetcher.getDTfromRemote(nnHttpUrl, renewer);
+          } catch (Exception e) {
+            LOG.info("Couldn't get a delegation token from " + nnHttpUrl + 
+            " using https.");
+            if(LOG.isDebugEnabled()) {
+              LOG.debug("error was ", e);
+            }
+            //Maybe the server is in unsecure mode (that's bad but okay)
+            return null;
+          }
+          for (Token<? extends TokenIdentifier> t : c.getAllTokens()) {
+            if(LOG.isDebugEnabled()) {
+              LOG.debug("Got dt for " + getUri() + ";t.service="
+                  +t.getService());
+            }
+            t.setService(new Text(getCanonicalServiceName()));
+            return t;
+          }
+          return null;
+        }
+      });
+    } catch (InterruptedException e) {
+      throw new RuntimeException(e);
+    }
+  }
 
   @Override
   public URI getUri() {
@@ -112,7 +236,7 @@ public class HftpFileSystem extends FileSystem {
     Construct URL pointing to file on namenode
   */
   URL getNamenodeFileURL(Path f) throws IOException {
-    return getNamenodeURL("/data" + f.toUri().getPath(), "ugi=" + ugi.getShortUserName());
+    return getNamenodeURL("/data" + f.toUri().getPath(), "ugi=" + getUgiParameter());
   }
 
   /* 
@@ -132,22 +256,65 @@ public class HftpFileSystem extends FileSystem {
   }
 
   /**
+   * ugi parameter for http connection
+   * 
+   * @return user_shortname,group1,group2...
+   */
+  private String getUgiParameter() {
+    StringBuilder ugiParamenter = new StringBuilder(ugi.getShortUserName());
+    for(String g: ugi.getGroupNames()) {
+      ugiParamenter.append(",");
+      ugiParamenter.append(g);
+    }
+    return ugiParamenter.toString();
+  }
+  
+  static Void throwIOExceptionFromConnection(
+      final HttpURLConnection connection, final IOException ioe
+      ) throws IOException {
+    final int code = connection.getResponseCode();
+    final String s = connection.getResponseMessage();
+    throw s == null? ioe:
+        new IOException(s + " (error code=" + code + ")", ioe);
+  }
+
+  /**
    * Open an HTTP connection to the namenode to read file data and metadata.
    * @param path The path component of the URL
    * @param query The query component of the URL
    */
   protected HttpURLConnection openConnection(String path, String query)
       throws IOException {
+    query = updateQuery(query);
     final URL url = getNamenodeURL(path, query);
-    HttpURLConnection connection = (HttpURLConnection)url.openConnection();
-    connection.setRequestMethod("GET");
-    connection.connect();
+    final HttpURLConnection connection = (HttpURLConnection)url.openConnection();
+    try {
+      connection.setRequestMethod("GET");
+      connection.connect();
+    } catch(IOException ioe) {
+      throwIOExceptionFromConnection(connection, ioe);
+    }
     return connection;
+  }
+
+  protected String updateQuery(String query) throws IOException {
+    String tokenString = null;
+    if (UserGroupInformation.isSecurityEnabled()) {
+      synchronized (this) {
+        if (delegationToken != null) {
+          tokenString = delegationToken.encodeToUrlString();
+          return (query + JspHelper.getDelegationTokenUrlParam(tokenString));
+        } // else we are talking to an insecure cluster
+      }
+    }
+    return query;
   }
 
   @Override
   public FSDataInputStream open(Path f, int buffersize) throws IOException {
-    URL u = getNamenodeURL("/data" + f.toUri().getPath(), "ugi=" + ugi.getShortUserName());
+    String query = "ugi=" + getUgiParameter();
+    query = updateQuery(query);
+    URL u = getNamenodeURL("/data" + f.toUri().getPath(), query);
     return new FSDataInputStream(new ByteRangeInputStream(u));
   }
 
@@ -197,7 +364,7 @@ public class HftpFileSystem extends FileSystem {
         XMLReader xr = XMLReaderFactory.createXMLReader();
         xr.setContentHandler(this);
         HttpURLConnection connection = openConnection("/listPaths" + path,
-            "ugi=" + ugi.getShortUserName() + (recur? "&recursive=yes" : ""));
+            "ugi=" + getUgiParameter() + (recur? "&recursive=yes" : ""));
 
         InputStream resp = connection.getInputStream();
         xr.parse(new InputSource(resp));
@@ -220,7 +387,7 @@ public class HftpFileSystem extends FileSystem {
 
     public FileStatus[] listStatus(Path f, boolean recur) throws IOException {
       fetchList(f.toUri().getPath(), recur);
-      if (fslist.size() > 0 && (fslist.size() != 1 || fslist.get(0).isDir())) {
+      if (fslist.size() > 0 && (fslist.size() != 1 || fslist.get(0).isDirectory())) {
         fslist.remove(0);
       }
       return fslist.toArray(new FileStatus[0]);
@@ -261,7 +428,7 @@ public class HftpFileSystem extends FileSystem {
 
     private FileChecksum getFileChecksum(String f) throws IOException {
       final HttpURLConnection connection = openConnection(
-          "/fileChecksum" + f, "ugi=" + ugi.getShortUserName());
+          "/fileChecksum" + f, "ugi=" + getUgiParameter());
       try {
         final XMLReader xr = XMLReaderFactory.createXMLReader();
         xr.setContentHandler(this);
@@ -301,7 +468,7 @@ public class HftpFileSystem extends FileSystem {
 
   @Override
   public FSDataOutputStream create(Path f, FsPermission permission,
-      EnumSet<CreateFlag> flag, int bufferSize, short replication,
+      boolean overwrite, int bufferSize, short replication,
       long blockSize, Progressable progress) throws IOException {
     throw new IOException("Not supported");
   }
@@ -348,7 +515,7 @@ public class HftpFileSystem extends FileSystem {
      */
     private ContentSummary getContentSummary(String path) throws IOException {
       final HttpURLConnection connection = openConnection(
-          "/contentSummary" + path, "ugi=" + ugi);
+          "/contentSummary" + path, "ugi=" + getUgiParameter());
       InputStream in = null;
       try {
         in = connection.getInputStream();        
@@ -417,5 +584,158 @@ public class HftpFileSystem extends FileSystem {
     final String s = makeQualified(f).toUri().getPath();
     final ContentSummary cs = new ContentSummaryParser().getContentSummary(s);
     return cs != null? cs: super.getContentSummary(f);
+  }
+
+
+  /**
+   * An action that will renew and replace the hftp file system's delegation 
+   * tokens automatically.
+   */
+  private static class RenewAction implements Delayed {
+    // when should the renew happen
+    private long timestamp;
+    // a weak reference to the file system so that it can be garbage collected
+    private final WeakReference<HftpFileSystem> weakFs;
+
+    RenewAction(long timestamp, HftpFileSystem fs) {
+      this.timestamp = timestamp;
+      this.weakFs = new WeakReference<HftpFileSystem>(fs);
+    }
+
+    /**
+     * Get the delay until this event should happen.
+     */
+    @Override
+    public long getDelay(TimeUnit unit) {
+      long millisLeft = timestamp - System.currentTimeMillis();
+      return unit.convert(millisLeft, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Compare two events in the same queue.
+     */
+    @Override
+    public int compareTo(Delayed o) {
+      if (o.getClass() != RenewAction.class) {
+        throw new IllegalArgumentException("Illegal comparision to non-RenewAction");
+      }
+      RenewAction other = (RenewAction) o;
+      return timestamp < other.timestamp ? -1 :
+        (timestamp == other.timestamp ? 0 : 1);
+    }
+    
+    @Override
+    public int hashCode() {
+      assert false : "hashCode not designed";
+    return 33;  
+    }
+    /**
+     * equals
+     */
+    @Override
+    public boolean equals(Object o) {
+      if(!( o instanceof Delayed))
+        return false;
+      
+      return compareTo((Delayed) o) == 0;
+    }
+
+    /**
+     * Set a new time for the renewal. Can only be called when the action
+     * is not in the queue.
+     * @param newTime the new time
+     */
+    public void setNewTime(long newTime) {
+      timestamp = newTime;
+    }
+
+    /**
+     * Renew or replace the delegation token for this file system.
+     * @return
+     * @throws IOException
+     */
+    @SuppressWarnings("unchecked")
+    public boolean renew() throws IOException, InterruptedException {
+      final HftpFileSystem fs = weakFs.get();
+      if (fs != null) {
+        synchronized (fs) {
+          fs.ugi.doAs(new PrivilegedExceptionAction<Void>() {
+
+            @Override
+            public Void run() throws Exception {
+              try {
+                DelegationTokenFetcher.renewDelegationToken(fs.nnHttpUrl, 
+                    fs.delegationToken);
+              } catch (IOException ie) {
+                try {
+                  fs.delegationToken = 
+                    (Token<DelegationTokenIdentifier>) fs.getDelegationToken(null);
+                } catch (IOException ie2) {
+                  throw new IOException("Can't renew or get new delegation token ", 
+                      ie);
+                }
+              }
+              return null;
+            } 
+          });
+        }
+      }
+      return fs != null;
+    }
+
+    public String toString() {
+      StringBuilder result = new StringBuilder();
+      HftpFileSystem fs = weakFs.get();
+      if (fs == null) {
+        return "evaporated token renew";
+      }
+      synchronized (fs) {
+        result.append(fs.delegationToken);
+      }
+      result.append(" renew in ");
+      result.append(getDelay(TimeUnit.SECONDS));
+      result.append(" secs");
+      return result.toString();
+    }
+  }
+
+  /**
+   * A daemon thread that waits for the next file system to renew.
+   */
+  private static class RenewerThread extends Thread {
+    private DelayQueue<RenewAction> queue = new DelayQueue<RenewAction>();
+    // wait for 95% of a day between renewals
+    private static final int RENEW_CYCLE = (int) (0.95 * 24 * 60 * 60 * 1000);
+
+    public RenewerThread() {
+      super("HFTP Delegation Token Renewer");
+      setDaemon(true);
+    }
+
+    public void addTokenToRenew(HftpFileSystem fs) {
+      queue.add(new RenewAction(RENEW_CYCLE + System.currentTimeMillis(),fs));
+    }
+
+    public void run() {
+      RenewAction action = null;
+      while (true) {
+        try {
+          action = queue.take();
+          if (action.renew()) {
+            action.setNewTime(RENEW_CYCLE + System.currentTimeMillis());
+            queue.add(action);
+          }
+          action = null;
+        } catch (InterruptedException ie) {
+          return;
+        } catch (Exception ie) {
+          if (action != null) {
+            LOG.warn("Failure to renew token " + action, ie);
+          } else {
+            LOG.warn("Failure in renew queue", ie);
+          }
+        }
+      }
+    }
   }
 }

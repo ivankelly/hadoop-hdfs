@@ -24,27 +24,33 @@ import java.net.InetSocketAddress;
 import java.security.PrivilegedExceptionAction;
 import java.util.Enumeration;
 import java.util.List;
+
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSInputStream;
 import org.apache.hadoop.hdfs.DFSClient;
+import org.apache.hadoop.hdfs.DFSInputStream;
 import org.apache.hadoop.hdfs.server.common.JspHelper;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.server.datanode.DataNode;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.mortbay.jetty.InclusiveByteRange;
 
+@InterfaceAudience.Private
 public class StreamFile extends DfsServlet {
   /** for java.io.Serializable */
   private static final long serialVersionUID = 1L;
+
+  public static final String CONTENT_LENGTH = "Content-Length";
 
   static InetSocketAddress nameNodeAddr;
   static DataNode datanode = null;
   static {
     if ((datanode = DataNode.getDataNode()) != null) {
-      nameNodeAddr = datanode.getNameNodeAddr();
+      nameNodeAddr = datanode.getNameNodeAddrForClient();
     }
   }
   
@@ -52,7 +58,7 @@ public class StreamFile extends DfsServlet {
   protected DFSClient getDFSClient(HttpServletRequest request)
       throws IOException, InterruptedException {
     final Configuration conf =
-      (Configuration) getServletContext().getAttribute("name.conf");
+      (Configuration) getServletContext().getAttribute(JspHelper.CURRENT_CONF);
     
     UserGroupInformation ugi = getUGI(request, conf);
     DFSClient client = ugi.doAs(new PrivilegedExceptionAction<DFSClient>() {
@@ -67,8 +73,9 @@ public class StreamFile extends DfsServlet {
   
   public void doGet(HttpServletRequest request, HttpServletResponse response)
     throws ServletException, IOException {
-    final String filename = JspHelper.validatePath(
-        request.getParameter("filename"));
+    final String path = request.getPathInfo() != null ? 
+                                        request.getPathInfo() : "/";
+    final String filename = JspHelper.validatePath(path);
     if (filename == null) {
       response.setContentType("text/plain");
       PrintWriter out = response.getWriter();
@@ -76,7 +83,7 @@ public class StreamFile extends DfsServlet {
       return;
     }
     
-    Enumeration reqRanges = request.getHeaders("Range");
+    Enumeration<?> reqRanges = request.getHeaders("Range");
     if (reqRanges != null && !reqRanges.hasMoreElements())
       reqRanges = null;
 
@@ -88,13 +95,13 @@ public class StreamFile extends DfsServlet {
       return;
     }
     
-    long fileLen = dfs.getFileInfo(filename).getLen();
-    FSInputStream in = dfs.open(filename);
+    final DFSInputStream in = dfs.open(filename);
+    final long fileLen = in.getFileLength();
     OutputStream os = response.getOutputStream();
 
     try {
       if (reqRanges != null) {
-        List ranges = InclusiveByteRange.satisfiableRanges(reqRanges,
+        List<?> ranges = InclusiveByteRange.satisfiableRanges(reqRanges,
                                                            fileLen);
         StreamFile.sendPartialData(in, os, response, fileLen, ranges);
       } else {
@@ -102,12 +109,21 @@ public class StreamFile extends DfsServlet {
         response.setHeader("Content-Disposition", "attachment; filename=\"" + 
                            filename + "\"");
         response.setContentType("application/octet-stream");
+        response.setHeader(CONTENT_LENGTH, "" + fileLen);
         StreamFile.writeTo(in, os, 0L, fileLen);
       }
+    } catch(IOException e) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("response.isCommitted()=" + response.isCommitted(), e);
+      }
+      throw e;
     } finally {
-      in.close();
-      os.close();
-      dfs.close();
+      try {
+        in.close();
+        os.close();
+      } finally {
+        dfs.close();
+      }
     }      
   }
   
@@ -115,7 +131,7 @@ public class StreamFile extends DfsServlet {
                               OutputStream os,
                               HttpServletResponse response,
                               long contentLength,
-                              List ranges)
+                              List<?> ranges)
   throws IOException {
 
     if (ranges == null || ranges.size() != 1) {

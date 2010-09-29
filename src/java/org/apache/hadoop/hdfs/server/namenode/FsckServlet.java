@@ -19,6 +19,7 @@ package org.apache.hadoop.hdfs.server.namenode;
 
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.net.InetAddress;
 import java.security.PrivilegedExceptionAction;
 import java.util.Map;
 
@@ -26,8 +27,8 @@ import javax.servlet.ServletContext;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.protocol.FSConstants.DatanodeReportType;
 import org.apache.hadoop.hdfs.server.common.JspHelper;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -35,6 +36,7 @@ import org.apache.hadoop.security.UserGroupInformation;
 /**
  * This class is used in Namesystem's web server to do fsck on namenode.
  */
+@InterfaceAudience.Private
 public class FsckServlet extends DfsServlet {
   /** for java.io.Serializable */
   private static final long serialVersionUID = 1L;
@@ -45,8 +47,10 @@ public class FsckServlet extends DfsServlet {
     @SuppressWarnings("unchecked")
     final Map<String,String[]> pmap = request.getParameterMap();
     final PrintWriter out = response.getWriter();
+    final InetAddress remoteAddress = 
+      InetAddress.getByName(request.getRemoteAddr());
     final Configuration conf = 
-      (Configuration) getServletContext().getAttribute("name.conf");
+      (Configuration) getServletContext().getAttribute(JspHelper.CURRENT_CONF);
 
     final UserGroupInformation ugi = getUGI(request, conf);
     try {
@@ -63,7 +67,7 @@ public class FsckServlet extends DfsServlet {
           final short minReplication = namesystem.getMinReplication();
 
           new NamenodeFsck(conf, nn, nn.getNetworkTopology(), pmap, out,
-              totalDatanodes, minReplication).fsck();
+              totalDatanodes, minReplication, remoteAddress).fsck();
           
           return null;
         }

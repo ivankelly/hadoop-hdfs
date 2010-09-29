@@ -28,6 +28,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.zip.Checksum;
 
@@ -40,6 +41,7 @@ import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.protocol.LocatedBlock;
 import org.apache.hadoop.hdfs.protocol.DataTransferProtocol.BlockConstructionStage;
 import org.apache.hadoop.hdfs.protocol.DataTransferProtocol.PipelineAck;
+import org.apache.hadoop.hdfs.protocol.DataTransferProtocol.PacketHeader;
 import org.apache.hadoop.hdfs.protocol.DataTransferProtocol.Status;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.util.Daemon;
@@ -333,9 +335,9 @@ class BlockReceiver implements java.io.Closeable, FSConstants {
        * calculation in DFSClient to make the guess accurate.
        */
       int chunkSize = bytesPerChecksum + checksumSize;
-      int chunksPerPacket = (datanode.writePacketSize - DataNode.PKT_HEADER_LEN - 
-                             SIZE_OF_INTEGER + chunkSize - 1)/chunkSize;
-      buf = ByteBuffer.allocate(DataNode.PKT_HEADER_LEN + SIZE_OF_INTEGER +
+      int chunksPerPacket = (datanode.writePacketSize - PacketHeader.PKT_HEADER_LEN
+                             + chunkSize - 1)/chunkSize;
+      buf = ByteBuffer.allocate(PacketHeader.PKT_HEADER_LEN +
                                 Math.max(chunksPerPacket, 1) * chunkSize);
       buf.limit(0);
     }
@@ -364,7 +366,9 @@ class BlockReceiver implements java.io.Closeable, FSConstants {
                             payloadLen);
     }
     
-    int pktSize = payloadLen + DataNode.PKT_HEADER_LEN;
+    // Subtract SIZE_OF_INTEGER since that accounts for the payloadLen that
+    // we read above.
+    int pktSize = payloadLen + PacketHeader.PKT_HEADER_LEN - SIZE_OF_INTEGER;
     
     if (buf.remaining() < pktSize) {
       //we need to read more data
@@ -406,30 +410,31 @@ class BlockReceiver implements java.io.Closeable, FSConstants {
   private int receivePacket() throws IOException {
     // read the next packet
     readNextPacket();
-    
+
     buf.mark();
-    //read the header
-    buf.getInt(); // packet length
-    long offsetInBlock = buf.getLong(); // get offset of packet in block
-    
-    if (offsetInBlock > replicaInfo.getNumBytes()) {
-      throw new IOException("Received an out-of-sequence packet for " + block + 
-          "from " + inAddr + " at offset " + offsetInBlock +
-          ". Expecting packet starting at " + replicaInfo.getNumBytes());
-    }
-    long seqno = buf.getLong();    // get seqno
-    boolean lastPacketInBlock = (buf.get() != 0);
-    
-    int len = buf.getInt();
-    if (len < 0) {
-      throw new IOException("Got wrong length during writeBlock(" + block + 
-                            ") from " + inAddr + " at offset " + 
-                            offsetInBlock + ": " + len); 
-    } 
+    PacketHeader header = new PacketHeader();
+    header.readFields(buf);
     int endOfHeader = buf.position();
     buf.reset();
-    
-    return receivePacket(offsetInBlock, seqno, lastPacketInBlock, len, endOfHeader);
+
+    // Sanity check the header
+    if (header.getOffsetInBlock() > replicaInfo.getNumBytes()) {
+      throw new IOException("Received an out-of-sequence packet for " + block + 
+          "from " + inAddr + " at offset " + header.getOffsetInBlock() +
+          ". Expecting packet starting at " + replicaInfo.getNumBytes());
+    }
+    if (header.getDataLen() < 0) {
+      throw new IOException("Got wrong length during writeBlock(" + block + 
+                            ") from " + inAddr + " at offset " + 
+                            header.getOffsetInBlock() + ": " +
+                            header.getDataLen()); 
+    }
+
+    return receivePacket(
+      header.getOffsetInBlock(),
+      header.getSeqno(),
+      header.isLastPacketInBlock(),
+      header.getDataLen(), endOfHeader);
   }
 
   /**
@@ -480,7 +485,9 @@ class BlockReceiver implements java.io.Closeable, FSConstants {
     buf.position(endOfHeader);        
     
     if (lastPacketInBlock || len == 0) {
-      LOG.debug("Receiving an empty packet or the end of the block " + block);
+      if(LOG.isDebugEnabled()) {
+        LOG.debug("Receiving an empty packet or the end of the block " + block);
+      }
     } else {
       int checksumLen = ((len + bytesPerChecksum - 1)/bytesPerChecksum)*
                                                             checksumSize;
@@ -509,6 +516,8 @@ class BlockReceiver implements java.io.Closeable, FSConstants {
         verifyChunks(pktBuf, dataOff, len, pktBuf, checksumOff);
       }
 
+      byte[] lastChunkChecksum;
+      
       try {
         long onDiskLen = replicaInfo.getBytesOnDisk();
         if (onDiskLen<offsetInBlock) {
@@ -546,16 +555,30 @@ class BlockReceiver implements java.io.Closeable, FSConstants {
             }
             partialCrc.update(pktBuf, startByteToDisk, numBytesToDisk);
             byte[] buf = FSOutputSummer.convertToByteStream(partialCrc, checksumSize);
+            lastChunkChecksum = Arrays.copyOfRange(
+              buf, buf.length - checksumSize, buf.length
+            );
             checksumOut.write(buf);
-            LOG.debug("Writing out partial crc for data len " + len);
+            if(LOG.isDebugEnabled()) {
+              LOG.debug("Writing out partial crc for data len " + len);
+            }
             partialCrc = null;
           } else {
+            lastChunkChecksum = Arrays.copyOfRange(
+              pktBuf, 
+              checksumOff + checksumLen - checksumSize, 
+              checksumOff + checksumLen
+            );
             checksumOut.write(pktBuf, checksumOff, checksumLen);
           }
-          replicaInfo.setBytesOnDisk(offsetInBlock);
-          datanode.myMetrics.bytesWritten.inc(len);
           /// flush entire packet
           flush();
+          
+          replicaInfo.setLastChecksumAndDataLen(
+            offsetInBlock, lastChunkChecksum
+          );
+          
+          datanode.myMetrics.bytesWritten.inc(len);
         }
       } catch (IOException iex) {
         datanode.checkDiskError(iex);
@@ -718,8 +741,6 @@ class BlockReceiver implements java.io.Closeable, FSConstants {
                    FSInputChecker.checksum2long(crcbuf);
       throw new IOException(msg);
     }
-    //LOG.debug("Partial CRC matches 0x" + 
-    //            Long.toHexString(partialCrc.getValue()));
   }
   
   
@@ -762,8 +783,10 @@ class BlockReceiver implements java.io.Closeable, FSConstants {
      */
     synchronized void enqueue(long seqno, boolean lastPacketInBlock, long lastByteInPacket) {
       if (running) {
-        LOG.debug("PacketResponder " + numTargets + " adding seqno " + seqno +
-                  " to ack queue.");
+        if(LOG.isDebugEnabled()) {
+          LOG.debug("PacketResponder " + numTargets + " adding seqno " + seqno +
+                    " to ack queue.");
+        }
         ackQueue.addLast(new Packet(seqno, lastPacketInBlock, lastByteInPacket));
         notifyAll();
       }
@@ -780,8 +803,10 @@ class BlockReceiver implements java.io.Closeable, FSConstants {
           running = false;
         }
       }
-      LOG.debug("PacketResponder " + numTargets +
-               " for block " + block + " Closing down.");
+      if(LOG.isDebugEnabled()) {
+        LOG.debug("PacketResponder " + numTargets +
+                 " for block " + block + " Closing down.");
+      }
       running = false;
       notifyAll();
     }

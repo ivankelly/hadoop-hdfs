@@ -26,6 +26,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
 import org.apache.hadoop.hdfs.protocol.FSConstants;
+import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.protocol.CheckpointCommand;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeCommand;
@@ -33,6 +34,8 @@ import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.http.HttpServer;
 import org.apache.hadoop.util.Daemon;
+import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_BACKUP_HTTP_ADDRESS_KEY;
+import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_BACKUP_HTTP_ADDRESS_DEFAULT;
 
 /**
  * The Checkpointer is responsible for supporting periodic checkpoints 
@@ -51,13 +54,16 @@ class Checkpointer extends Daemon {
 
   private BackupNode backupNode;
   volatile boolean shouldRun;
-  private long checkpointPeriod;	// in seconds
+  private long checkpointPeriod;    // in seconds
   private long checkpointSize;    // size (in MB) of current Edit Log
 
   /**
    * Number of checkpoints successfully made
    */
   private volatile int countSuccessfulCheckpoints;
+
+  private String infoBindAddress;
+
 
   private BackupStorage getFSImage() {
     return (BackupStorage)backupNode.getFSImage();
@@ -93,6 +99,11 @@ class Checkpointer extends Daemon {
     checkpointSize = conf.getLong(DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_SIZE_KEY, 
                                   DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_SIZE_DEFAULT);
 
+    // Pull out exact http address for posting url to avoid ip aliasing issues
+    String fullInfoAddr = conf.get(DFS_NAMENODE_BACKUP_HTTP_ADDRESS_KEY, 
+                                   DFS_NAMENODE_BACKUP_HTTP_ADDRESS_DEFAULT);
+    infoBindAddress = fullInfoAddr.substring(0, fullInfoAddr.indexOf(":"));
+    
     HttpServer httpServer = backupNode.httpServer;
     httpServer.setAttribute("name.system.image", getFSImage());
     httpServer.setAttribute("name.conf", conf);
@@ -125,10 +136,10 @@ class Checkpointer extends Daemon {
 
     long lastCheckpointTime = 0;
     if(!backupNode.shouldCheckpointAtStartup())
-      lastCheckpointTime = FSNamesystem.now();
+      lastCheckpointTime = now();
     while(shouldRun) {
       try {
-        long now = FSNamesystem.now();
+        long now = now();
         boolean shouldCheckpoint = false;
         if(now >= lastCheckpointTime + periodMSec) {
           shouldCheckpoint = true;
@@ -185,14 +196,15 @@ class Checkpointer extends Daemon {
    * Copy the new image into remote name-node.
    */
   private void uploadCheckpoint(CheckpointSignature sig) throws IOException {
+    // Use the exact http addr as specified in config to deal with ip aliasing
     InetSocketAddress httpSocAddr = backupNode.getHttpAddress();
     String fsName = backupNode.nnHttpAddress;
     int httpPort = httpSocAddr.getPort();
+
     String fileid = "putimage=" +
       (sig.newestFinalizedEditLogIndex + 1) +
       "&port=" + httpPort +
-      "&machine=" +
-      InetAddress.getLocalHost().getHostAddress() +
+      "&machine=" + infoBindAddress +
       "&token=" + sig.toString();
       LOG.info("Posted URL " + fsName + fileid);
     TransferFsImage.getFileClient(fsName, fileid, (File[])null);
@@ -202,7 +214,7 @@ class Checkpointer extends Daemon {
    * Create a new checkpoint
    */
   synchronized void doCheckpoint() throws IOException {
-    long startTime = FSNamesystem.now();
+    long startTime = now();
     BackupStorage bnImage = getFSImage();
     bnImage.stopReplicationOnNextRoll();
     
@@ -248,8 +260,8 @@ class Checkpointer extends Daemon {
     backupNode.setRegistration(); // keep registration up to date
     countSuccessfulCheckpoints++;
     LOG.info("Checkpoint completed in "
-        + (FSNamesystem.now() - startTime)/1000 + " seconds.");
-// TODO        +	" New Image Size: " + bnImage.getFsImageName().length());
+	     + (now() - startTime)/1000 + " seconds.");
+    // TODO        +	" New Image Size: " + bnImage.getFsImageName().length());
   }
   
   void syncWithCheckpointSignature(CheckpointSignature sig) throws IOException {

@@ -21,6 +21,8 @@ import java.io.DataInput;
 import java.io.IOException;
 import java.util.*;
 
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.BlockListAsLongs;
 import org.apache.hadoop.hdfs.protocol.DatanodeID;
@@ -36,16 +38,15 @@ import org.apache.hadoop.hdfs.DeprecatedUTF8;
 import org.apache.hadoop.io.WritableUtils;
 
 /**************************************************
- * DatanodeDescriptor tracks stats on a given DataNode,
- * such as available storage capacity, last update time, etc.,
- * and maintains a set of blocks stored on the datanode. 
+ * DatanodeDescriptor tracks stats on a given DataNode, such as
+ * available storage capacity, last update time, etc., and maintains a
+ * set of blocks stored on the datanode.
  *
- * This data structure is a data structure that is internal
- * to the namenode. It is *not* sent over-the-wire to the Client
- * or the Datnodes. Neither is it stored persistently in the
- * fsImage.
-
+ * This data structure is internal to the namenode. It is *not* sent
+ * over-the-wire to the Client or the Datanodes. Neither is it stored
+ * persistently in the fsImage.
  **************************************************/
+@InterfaceAudience.Private
 public class DatanodeDescriptor extends DatanodeInfo {
   
   // Stores status of decommissioning.
@@ -53,6 +54,8 @@ public class DatanodeDescriptor extends DatanodeInfo {
   DecommissioningStatus decommissioningStatus = new DecommissioningStatus();
   
   /** Block and targets pair */
+  @InterfaceAudience.Private
+  @InterfaceStability.Evolving
   public static class BlockTargetPair {
     public final Block block;
     public final DatanodeDescriptor[] targets;    
@@ -97,6 +100,7 @@ public class DatanodeDescriptor extends DatanodeInfo {
   }
 
   private volatile BlockInfo blockList = null;
+  private int numBlocks = 0;
   // isAlive == heartbeats.contains(this)
   // This is an optimization, because contains takes O(n) time on Arraylist
   protected boolean isAlive = false;
@@ -198,6 +202,7 @@ public class DatanodeDescriptor extends DatanodeInfo {
       return false;
     // add to the head of the data-node list
     blockList = b.listInsert(blockList, this);
+    numBlocks++;
     return true;
   }
   
@@ -207,7 +212,12 @@ public class DatanodeDescriptor extends DatanodeInfo {
    */
   boolean removeBlock(BlockInfo b) {
     blockList = b.listRemove(blockList, this);
-    return b.removeNode(this);
+    if ( b.removeNode(this) ) {
+      numBlocks--;
+      return true;
+    } else {
+      return false;
+    }
   }
 
   /**
@@ -243,7 +253,7 @@ public class DatanodeDescriptor extends DatanodeInfo {
   }
 
   public int numBlocks() {
-    return blockList == null ? 0 : blockList.listCount(this);
+    return numBlocks;
   }
 
   /**
@@ -468,9 +478,11 @@ public class DatanodeDescriptor extends DatanodeInfo {
                   Collection<Block> toAdd,    // add to DatanodeDescriptor
                   Collection<Block> toInvalidate, // should be removed from DN
                   Collection<BlockInfo> toCorrupt) {// add to corrupt replicas
-    FSNamesystem.LOG.debug("Reported block " + block
-        + " on " + getName() + " size " + block.getNumBytes()
-        + " replicaState = " + rState);
+    if(FSNamesystem.LOG.isDebugEnabled()) {
+      FSNamesystem.LOG.debug("Reported block " + block
+          + " on " + getName() + " size " + block.getNumBytes()
+          + " replicaState = " + rState);
+    }
 
     // find block by blockId
     BlockInfo storedBlock = blockManager.blocksMap.getStoredBlock(block);
@@ -481,7 +493,10 @@ public class DatanodeDescriptor extends DatanodeInfo {
       return null;
     }
 
-    FSNamesystem.LOG.debug("In memory blockUCState = " + storedBlock.getBlockUCState());
+    if(FSNamesystem.LOG.isDebugEnabled()) {
+      FSNamesystem.LOG.debug("In memory blockUCState = " +
+          storedBlock.getBlockUCState());
+    }
 
     // Block is on the DN
     boolean isCorrupt = false;

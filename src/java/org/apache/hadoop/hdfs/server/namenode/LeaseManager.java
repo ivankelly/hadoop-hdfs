@@ -29,9 +29,11 @@ import java.util.TreeSet;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.UnresolvedLinkException;
 import org.apache.hadoop.hdfs.protocol.FSConstants;
+import static org.apache.hadoop.hdfs.server.common.Util.now;
 
 /**
  * LeaseManager does the lease housekeeping for writing on files.   
@@ -55,6 +57,7 @@ import org.apache.hadoop.hdfs.protocol.FSConstants;
  *      and removes the lease once all files have been removed
  * 2.10) Namenode commit changes to edit log
  */
+@InterfaceAudience.Private
 public class LeaseManager {
   public static final Log LOG = LogFactory.getLog(LeaseManager.class);
 
@@ -204,17 +207,17 @@ public class LeaseManager {
     }
     /** Only LeaseManager object can renew a lease */
     private void renew() {
-      this.lastUpdate = FSNamesystem.now();
+      this.lastUpdate = now();
     }
 
     /** @return true if the Hard Limit Timer has expired */
     public boolean expiredHardLimit() {
-      return FSNamesystem.now() - lastUpdate > hardLimit;
+      return now() - lastUpdate > hardLimit;
     }
 
     /** @return true if the Soft Limit Timer has expired */
     public boolean expiredSoftLimit() {
-      return FSNamesystem.now() - lastUpdate > softLimit;
+      return now() - lastUpdate > softLimit;
     }
 
     /**
@@ -363,11 +366,15 @@ public class LeaseManager {
     /** Check leases periodically. */
     public void run() {
       for(; fsnamesystem.isRunning(); ) {
-        synchronized(fsnamesystem) {
+        fsnamesystem.writeLock();
+        try {
           if (!fsnamesystem.isInSafeMode()) {
             checkLeases();
           }
+        } finally {
+          fsnamesystem.writeUnlock();
         }
+
 
         try {
           Thread.sleep(2000);

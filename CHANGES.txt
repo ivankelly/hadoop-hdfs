@@ -2,306 +2,280 @@ Hadoop HDFS Change Log
 
 Trunk (unreleased changes)
 
-  INCOMPATIBLE CHANGES
-
-    HDFS-905. Use the new UserGroupInformation from HDFS-6299. 
-    (jghoman via omalley)
-
-    HDFS-984. Persistent delegation tokens. (Jitendra Pandey via shv)
-
-    HDFS-1016. HDFS side change for HADOOP-6569. This jira changes the
-    error message on the screen when cat a directory or a 
-    non-existent file. (hairong)
-
   NEW FEATURES
 
-    HDFS-654. Add support new atomic rename functionality in HDFS for 
-    supporting rename in FileContext. (suresh)
+    HDFS-992. Re-factor block access token implementation to conform to the 
+    generic Token interface in Common (Kan Zhang and Jitendra Pandey via jghoman)
 
-    HDFS-222. Support for concatenating of files into a single file
-    without copying. (Boris Shkolnik via hairong)
+    HDFS-599. Allow NameNode to have a seprate port for service requests from
+    client requests. (Dmytro Molkov via hairong)
 
-    HDFS-933. Adds Delegation token based authentication in the NameNode.
-    (Kan Zhang via ddas)
+    HDFS-1004. Update NN to support Kerberized SSL from HADOOP-6584. 
+    (jghoman and Kan Zhang via jghoman)
 
-    HDFS-935. Adds a real user component in Delegation token.
-    (Jitendra Nath Pandey via ddas)
+    HDFS-1005. Fsck security. (borya and Kan Zhang via jghoman)
 
-    HDFS-245. Adds a symlink implementation to HDFS. This complements the new 
-    symlink feature added in HADOOP-6421 (Eli Collins via Sanjay Radia)
+    HDFS-1006. getImage/putImage http requests should be https for the case 
+    of security enabled. (borya and jghoman via jghoman)
 
-    HDFS-1009. Support Kerberos authorization in HDFSProxy.  (Srikanth
-    Sundarrajan via szetszwo)
+    HDFS-1033. In secure clusters, NN and SNN should verify that the remote 
+    principal during image and edits transfer. (jghoman)
+
+    HDFS-1023. Allow http server to start as regular principal if https 
+    principal not defined. (jghoman)
+
+    HDFS-1150. Verify datanodes' identities to clients in secure clusters.
+    (jghoman)
+
+    HDFS-1330. Make RPCs to DataNodes timeout. (hairong)
+
+    HDFS-202.  HDFS support of listLocatedStatus introduced in HADOOP-6870.
+    HDFS piggyback block locations to each file status when listing a
+    directory.  (hairong)
+
+    HDFS-1361. Add -fileStatus operation to NNThroughputBenchmark. (shv)
 
   IMPROVEMENTS
-    HDFS-968. Use StringBuilder instead of StringBuffer for better
-    performance. (Kay Kay via suresh)
+
+    HDFS-1304. Add a new unit test for HftpFileSystem.open(..).  (szetszwo)
+
+    HDFS-1096. fix for prev. commit. (boryas)
+
+    HDFS-1096. allow dfsadmin/mradmin refresh of superuser proxy group
+     mappings (boryas)
+
+    HDFS-1146. Javadoc for getDelegationTokenSecretManager in FSNamesystem (jnp via boryas)
+
+    HDFS-1132. Refactor TestFileStatus (Eli Collins via cos)
+
+    HDFS-1163. normalize property names for JT/NN kerberos principal 
+    names in configuration (from HADOOP 6633) (boryas)
+
+    HDFS-1003. authorization checks for inter-server protocol 
+    (based on HADOOP-6600) (boryas)
+
+    HDFS-1061. Memory footprint optimization for INodeFile object. 
+    (Bharath Mundlapudi via jghoman)
+
+    HDFS-1079. Throw exceptions as specified by the AbstractFileSystem
+    in HDFS implemenation and protocols. (suresh)
+
+    HDFS-1112. Edit log buffer should not grow unfoundedly. (hairong)
+
+    HDFS-1119. Introduce a GSet interface to BlocksMap.  (szetszwo)
+
+    HDFS-1184. Replace tabs in code with spaces. (Jeff Ames via jghoman)
+
+    HDFS-1185. Remove duplicate now() functions in DataNode, FSNamesysetm.
+    (Jeff Ames via jghoman)
+
+    HDFS-1183. Remove some duplicate code in NamenodeJspHelper.java.
+    (Jeff Ames via jghoman)
     
-    HDFS-703. Replace current fault injection implementation with one
-    from (cos)
+    HDFS-1190.  Remove unused getNamenode() method from DataNode.
+    (Jeff Ames via jghoman)
 
-    HDFS-754. Reduce ivy console output to observable level (cos)
+    HDFS-1110. Reuses objects for commonly used file names in namenode to
+    reduce the heap usage. (suresh)
 
-    HDFS-832. HDFS side of HADOOP-6222. (cos)
+    HDFS-752. Add interfaces classification to to HDFS source code. (suresh)
 
-    HDFS-840. Change tests to use FileContext test helper introduced in
-    HADOOP-6394. (Jitendra Nath Pandey via suresh)
+    HDFS-947. An Hftp read request is redirected to a datanode that has 
+    the most replicas of the blocks in the file. (Dmytro Molkov via dhruba)
 
-    HDFS-685. Use the user-to-groups mapping service in the NameNode. 
-    (boryas, acmurthy)
+    HDFS-1272. Fixes to take care of the changes in HADOOP-6845.
+    (Jitendra Pandey via ddas)
 
-    HDFS-755. Read multiple checksum chunks at once in DFSInputStream.
-    (Todd Lipcon via tomwhite)
+    HDFS-1298 - Add support in HDFS for new statistics added in FileSystem
+    to track the file system operations. (suresh)
 
-    HDFS-786. Implement getContentSummary in HftpFileSystem.
-    (Tsz Wo (Nicholas), SZE via cdouglas)
-
-    HDFS-587. Add support for specifying queue name in mapreduce tests.
-    (Erik Steffl via suresh)
-
-    HDFS-902 Move contrib/raid to MapReduce. (Eli Collins via omalley)
-
-    HDFS-800. The last block of a file under construction may change to the
-    COMPLETE state in response to getAdditionalBlock or completeFileInternal.
-    (hairong)
-
-    HDFS-899. Delegation Token Implementation
-     and corresponding changes in Namenode and DFS Api to issue, 
-    renew and cancel delegation tokens. (jnp via boryas)
-
-    HDFS-844. Log the filename when file locking fails. (tomwhite)
-
-    HDFS-914. Refactor DFSOutputStream and DFSInputStream out of DFSClient.
-    (Todd Lipcon via tomwhite)
-
-    HDFS-949. Move DelegationToken into Common so that it can be used by
-    MapReduce. (omalley)
-
-    HDFS-930. Better error message for DATA_TRANSFER_VERSION mismatched.
-    (Kay Kay via szetszwo)
-
-    HDFS-986. Delegation token renewing and cancelling should provide
-    meaningful exceptions when there are failures instead of returning 
-    false. (omalley)
-
-    HADOOP-6579. Upgrade the commons-codec library to 1.4. (omalley)
-
-    HDFS-991. Allow authentication to the web ui via a delegation token. 
-    (omalley)
-
-    HDFS-994. Allow fetching of delegation token from NameNode for hftp.
-    (Jakob Homan via acmurthy) 
-
-    HDFS-998. Quote blocks streamed through jsps. (cdouglas)
-
-    HDFS-729. NameNode API to list files that have missing blocks.
-    (Rodrigo Schmidt via dhruba)
-
-    HDFS-850. The WebUI display more details about namenode memory usage.
-    (Dmytro Molkov via dhruba)
-
-    HDFS-826. The DFSOutputStream has a API that returns the number of
-    active datanode(s) in the current pipeline. (dhruba)
-
-    HDFS-985. HDFS should issue multiple RPCs for listing a large
-    directory. (hairong)
-
-    HDFS-1043. NNThroughputBenchmark modifications to support benchmarking of
-    server-side user group resolution. (shv)
-
-    HDFS-892. Optionally use Avro reflection for Namenode RPC.  This
-    is not a complete implementation yet, but rather a starting point.
-    (cutting)
+    HDFS-1201. The HDFS component for HADOOP-6632. 
+    (Kan Zhang & Jitendra Pandey via ddas)
     
-    HDFS-854. Datanode should scan devices in parallel to generate
-    block report. (Dmytro Molkov via jhoman)
+    HDFS-1307 Add start time, end time and total time taken for FSCK to 
+    FSCK report (suresh)
 
-    HDFS-1032. fsck has an option to list corrupt files.
-    (Andre Oriai via dhruba)
-
-    HDFS-1024. SecondaryNameNode verifies size of fsimage and edits file.
-    (Dmytro Molkov via dhruba)
+    HDFS-1302. The HDFS side of the changes corresponding to HADOOP-6861.
+    (Jitendra Pandey & Owen O'Malley via ddas)
     
-    HDFS-1011. hdfsproxy: Improve log messages by restoring the previous
-    thread name.  (Srikanth Sundarrajan via szetszwo)
+    HDFS-1315. Add fsck event to audit log and remove other audit log events 
+    corresponding to FSCK listStatus and open calls. (suresh)
 
-    HDFS-997. Allow datanode storage directory permissions to be configurable.
-    (Luke Lu via cdouglas)
+    HDFS-1178. The NameNode servlets should not use RPC to connect to the 
+    NameNode. (Kan Zhang via jghoman)
 
-    HDFS-1012. hdfsproxy: Support for fully qualified HDFS path in addition to
-    simple unqualified path.  (Srikanth Sundarrajan via szetszwo)
+    HDFS-1130. Adds dfs.cluster.administrator ACL configuration that can
+    be used to control who can view the default hdfs servlets. (ddas)
 
-    HDFS-933. Namenode should issue a delegation token only for kerberos 
-    authenticated clients.(jnp via boryas)
+    HDFS-1297. Fix some comments. (Jeff Ames via jghoman)
 
-    HDFS-1087. Modify audit log to use a StringBuilder rather than a Formatter.
-    (cdouglas)
+    HDFS-330.  Datanode Web UIs should provide robots.txt.
+    (Allen Wittenauer via jghoman)
 
-    HDFS-1083. Update TestHDFSCLI not to expect exception class name
-    in error messages. (suresh)
-
-    HDFS-1099. Add test for umask backward compatibility. (suresh)
-
-    HDFS-1092. Use logging rather than System.err in MiniDFSCluster.
-    (Kay Kay via jghoman)
-
-    HDFS-1047. Install/deploy source jars to Maven repo. 
-    (Patrick Angeles via jghoman)
-
-    HDFS-666. Unit test for FsShell -text. (cdouglas via jghoman)
-
-    HDFS-1054. Remove unnecessary sleep after failure in nextBlockOutputStream.
+    HDFS-881.  Refactor DataNode Packet header into DataTransferProtocol.
     (Todd Lipcon via jghoman)
 
-    HDFS-921. Convert TestDFSClientRetries::testNotYetReplicatedErrors
-    to Mockito. (jghoman)
+    HDFS-1036. docs for fetchdt
+
+    HDFS-1318. Add JMX interface for read access to namenode and datanode
+    web UI information. (Tanping Wang via suresh).
+
+    HDFS-1356.  Provide information as to whether or not security is 
+    enabled on web interface for NameNode (boryas)
+
+    HDFS-1205. FSDatasetAsyncDiskService should name its threads.
+    (Todd Lipcon via eli)
+
+    HDFS-1111. Introduce getCorruptFileBlocks() for fsck. (Sriram Rao via shv)
+
+    HDFS-1395. Add @Override to FSDataset methods that implement
+    FSDatasetInterface methods. (suresh)
+
+    HDFS-1383. Improve the error messages when using hftp://.  (szetszwo)
+
+    HDFS-1093. Change the FSNamesystem lock to a read/write lock. (dhruba)
+
+    HDFS-1407. Change DataTransferProtocol methods to use Block instead 
+    of individual elements of Block. (suresh)
+
+    HDFS-1417. Add @Override to SimulatedFSDataset methods that implement
+    FSDatasetInterface methods. (suresh)
 
   OPTIMIZATIONS
 
-    HDFS-946. NameNode should not return full path name when lisitng a
-    diretory or getting the status of a file. (hairong)
+    HDFS-1140. Speedup INode.getPathComponents. (Dmytro Molkov via shv)
+
+    HDFS-1081. Performance regression in 
+    DistributedFileSystem::getFileBlockLocations in secure systems (jghoman)
+
+    HDFS-1114. Implement LightWeightGSet for BlocksMap in order to reduce
+    NameNode memory footprint.  (szetszwo)
+
+    HDFS-1320. Add LOG.isDebugEnabled() guard for each LOG.debug(..).
+    (Erik Steffl via szetszwo)
+
+    HDFS-1368. Add a block counter to DatanodeDescriptor. (hairong)
 
   BUG FIXES
 
-    HDFS-132. Fix namenode to not report files deleted metrics for deletions
-    done while replaying edits during startup. (suresh)
+    HDFS-1039. Adding test for  JspHelper.getUGI(jnp via boryas)
 
-    HDFS-913. Rename fault injection test TestRename.java to TestFiRename.java
-    to include it in tests run by ant target run-test-hdfs-fault-inject.
-    (suresh)
-  
-    HDFS-695. RaidNode should read in configuration from hdfs-site.xml.
-    (dhruba)
+    HDFS-1019. Incorrect default values for delegation tokens in 
+    hdfs-default.xml (jnp via boryas)
 
-    HDFS-726. Eclipse .classpath template has outdated jar files and is
-    missing some new ones. (cos)
+    HDFS-1039.  Service should be set in the token in JspHelper.getUGI(jnp via boryas)
 
-    HDFS-750. Fix build failure due to TestRename. (suresh)
+    HDFS-1038. FIX. A test missed in a previous commit for this JIRA. (boryas)
 
-    HDFS-712. Move libhdfs from mapreduce subproject to hdfs subproject.
-    (Eli Collins via dhruba)
+    HDFS-1038. In nn_browsedfscontent.jsp fetch delegation token only 
+    if security is enabled. (jnp via boryas)
 
-    HDFS-757. Enable Unit test for HDFS Raid. (dhruba)
+    HDFS-1044. Cannot submit mapreduce job from secure client to 
+    unsecure sever (boryas)
 
-    HDFS-611. Prevent DataNode heartbeat times from increasing even when
-    the DataNode has many blocks to delete. (Zheng Shao via dhruba)
+    HDFS-1021. specify correct server principal for RefreshAuthorizationPolicyProtocol 
+    and RefreshUserToGroupMappingsProtocol protocols in DFSAdmin (for HADOOP-6612) (boryas)
 
-    HDFS-751. Fix TestCrcCorruption to pick up the correct datablocks to
-    corrupt. (dhruba)
-    
-    HDFS-763. Fix slightly misleading report from DataBlockScanner 
-    about corrupted scans. (dhruba)
+    HDFS-970. fsync fsimage to disk before closing fsimage file.
+    (Todd Lipcon via dhruba)
 
-    HDFS-727. bug setting block size hdfsOpenFile (Eli Collins via cos)
+    HDFS-1027. Update copyright year to 2010. (Ravi Phulari via jghoman)
 
-    HDFS-756. libhdfs unit tests do not run. (Eli Collins via cos)
+    HDFS-1080. SecondaryNameNode image transfer should use the defined http 
+    address rather than local ip address. (jghoman)
 
-    HDFS-783. libhdfs tests brakes code coverage runs with Clover (cos)
+    HDFS-1198. Resolving cross-realm principals. (Jitendra Pandey via jghoman)
 
-    HDFS-785. Add Apache license to several namenode unit tests. 
-    (Ravi Phulari via jghoman)
+    HDFS-1118. Fix socketleak on DFSClient. (Zheng Shao via dhruba)
 
-    HDFS-802. Update Eclipse configuration to match changes to Ivy
-    configuration (Edwin Chan via cos)
+    HDFS-1192. refreshSuperUserGroupsConfiguration should use server side 
+    configuration for the refresh (for HADOOP-6815) (boryas)
 
-    HDFS-423. Unbreak FUSE build and fuse_dfs_wrapper.sh (Eli Collins via cos)
+    HDFS-1036. in DelegationTokenFetch dfs.getURI returns no port (boryas)
 
-    HDFS-825. Build fails to pull latest hadoop-core-* artifacts (cos)
+    HDFS-1017. browsedfs jsp should call JspHelper.getUGI rather 
+    than using createRemoteUser() (jnp via boryas)
 
-    HDFS-94. The Heap Size printed in the NameNode WebUI is accurate.
-    (Dmytro Molkov via dhruba)
+    HDFS-1250. Namenode should reject block reports and block received
+    requests from dead datanodes (suresh)
 
-    HDFS-767. An improved retry policy when the DFSClient is unable to fetch a
-    block from the datanode.  (Ning Zhang via dhruba)
+    HDFS-1145. When NameNode is shutdown it does not try to exit
+    safemode anymore. (dhruba)
 
-    HDFS-775. FSDataset calls getCapacity() twice. (stevel)
-    
-    HDFS-885. Datanode toString() NPEs on null dnRegistration. (stevel)
+    HDFS-1202. DataBlockScanner throws NPE when updated before 
+    initialized. (Todd Lipcon via dhruba)
 
-    HDFS-877. Client-driven block verification not functioning. (Todd
-    Lipcon via hairong)
-
-    HDFS-630. In DFSOutputStream.nextBlockOutputStream(), the client can
-    exclude specific datanodes when locating the next block.
-    (Cosmin Lehene via Stack)
-
-    HDFS-922. Remove unnecessary semicolon added by HDFS-877 that causes
-    problems for Eclipse compilation. (jghoman)
-
-    HDFS-927  DFSInputStream retries too many times for new block locations
-    (Todd Lipcon via Stack)
-
-    HDFS-938. Replace calls to UGI.getUserName() with UGI.getShortUserName()
-    (jghoman)
-
-    HDFS-894. DatanodeID.ipcPort is not updated when existing node 
-    re-registers. (Todd Lipcon via tomwhite)
-
-    HDFS-965. Split TestDelegationToken in to two parts and fix configuration
-    to allow proxy users in the test. (Jitendra Pandey via omalley)
-
-    HDFS-999. Secondary namenode should login using kerberos if security is 
-    configured (boryas)
-
-    HDFS-856. Hardcoded replication level for new files in fuse-dfs.
-    (Brian Bockelman via tomwhite)
-
-    HDFS-857. Incorrect type for fuse-dfs capacity can cause "df" to return
-    negative values on 32-bit machines. (Brian Bockelman via tomwhite)
-
-    HDFS-858. Incorrect return codes for fuse-dfs. (Brian Bockelman via
-    tomwhite)
-
-    HDFS-859. fuse-dfs utime behavior causes issues with tar.
-    (Brian Bockelman via tomwhite)
-
-    HDFS-861. fuse-dfs does not support O_RDWR. (Brian Bockelman via tomwhite)
-
-    HDFS-961. dfs_readdir incorrectly parses paths. (Eli Collins via tomwhite)
-
-    HDFS-1015. Fix intermittent failure in TestSecurityTokenEditLog.
-    (Jitendra Nath Pandey via suresh)
-
-    HDFS-939. libhdfs test is broken. (Eli Collins via tomwhite)
-    
-    HDFS-1074. hdfsproxy: Fix bugs in TestProxyUtil.  (Srikanth Sundarrajan
-    via szetszwo)
-
-    HDFS-481. hdfsproxy: Bug Fixes + HdfsProxy to use proxy user to
-    impresonate the real user.  (Srikanth Sundarrajan via szetszwo)
-
-    HDFS-482. Move HsftpFileSystem's ssl.client.do.not.authenticate.server
-    configuration setting to ssl-client.xml.  (Srikanth Sundarrajan via
-    szetszwo)
-
-    HDFS-1010. hdfsproxy: Retrieve groups from UnixUserGroupInformation
-    instead of LdapEntry.  (Srikanth Sundarrajan via szetszwo)
-
-    HDFS-466. hdfs_write infinite loop when dfs fails and cannot write
-    files > 2 GB. (Pete Wyckoff via tomwhite)
-
-    HDFS-651. HDFS Docs - fix listing of docs in the doc menu.
-    (Corinne Chandel via tomwhite)
-
-    HDFS-1014. Error in reading delegation tokens from edit logs.
-    (Jitendra Nath Pandey via jhoman)
-
-    HDFS-1088. Prevent renaming a symbolik link to its target.
-    (Eli Collins via suresh)
-
-    HDFS-966. NameNode does not recovers lease when it is in safemode.
-    (dhruba)
-
-    HDFS-833. Datanode shutdown should log problems with Storage.unlockAll()
+    HDFS-882. Datanode logs the hostname and port its listening on.
     (Steve Loughran via dhruba)
 
-    HDFS-1101. TestDiskError.testLocalDirs() fails. (cdouglas via jghoman)
+    HDFS-1238. ant eclipse-files has drifted again, (jghoman)
 
-    HDFS-1031. Enhance the webUi to list a few of the corrupted files in HDFS.
-    (André Orian via dhruba)
+    HDFS-1045. In secure clusters, re-login is necessary for https 
+    clients before opening connections. (jghoman)
 
-    HDFS-1078. Create static and dynamic versions of libhdfs.
-    (Sam Rash via dhruba)
+    HDFS-1289. Datanode secure mode is broken. (Kan Zhang via jghoman)
+
+    HDFS-1007. HFTP needs to be updated to use delegation tokens (boryas)
+
+    HDFS-1085. HFTP read may fail silently on the client side if there is an
+    exception on the server side.  (szetszwo)
+
+    HDFS-1308. job conf key for the services name of DelegationToken for HFTP
+    url is constructed incorrectly in HFTPFileSystem (boryas)
+
+    HDFS-1319. Fix location of re-login for secondary namenode from HDFS-999. 
+    (jghoman)
+
+    HDFS-1317. Remove the FILEPATH_PATTERN from hdfsproxy.AuthorizationFilter.
+    (Rohini Palaniswamy via szetszwo)
+
+    HDFS-912. sed in build.xml on Solaris fails. (Allen Wittenauer via jghoman)
+
+    HDFS-1296. using delegation token over hftp for long running 
+    clients (boryas)
+
+    HDFS-1334. open in HftpFileSystem does not add delegation tokens to the url.
+    (Jitendra Pandey via jghoman)
+
+    HDFS-1301.  TestHDFSProxy need to use server side conf for ProxyUser 
+    stuff. (boryas)
+
+    HDFS-1340. When security is turned off, there is a potential XSS attack. 
+    This patch fixes it by removing delegationtoken string from the URL, 
+    before returning a response to the client. (Jitendra Pandey via ddas)
+
+    HDFS-1347.  TestDelegationToken uses mortbay.log for logging (boryas)
+
+    HDFS-1157. Modifications introduced by HDFS-1150 are breaking aspect's
+    bindings (cos)
+
+    HDFS-1349. Remove empty java files. (Eli Collins)
+
+    HDFS-1340. A null delegation token is appended to the url if security
+    is disabled when browsing filesystem. (boryas)
+    
+    HDFS-1352. Fix jsvc.location. (Eli Collins via jghoman)
+
+    HDFS-1284. TestBlockToken fails.  (Kan Zhang via jghoman)
+
+    HDFS-1355. ant veryclean (clean-cache) doesn't clean enough. 
+    (Luke Lu via jghoman)
+
+    HDFS-1353. Remove most of getBlockLocation optimization. (jghoman)
+
+    HDFS-1369. Invalid javadoc reference in FSDatasetMBean.java (Eli Collins)
+
+    HDFS-829. hdfsJniHelper.c: #include <error.h> is not portable. 
+    (Allen Wittenauer via jghoman)
+
+    HDFS-1310. The ClientDatanodeProtocol proxy should be stopped in
+    DFSInputStream.readBlockLength(..).  (sam rash via szetszwo)
+
+    HDFS-1357. HFTP traffic served by DataNode shouldn't use service port 
+    on NameNode. (Kan Zhang via jghoman)
+
+    HDFS-96. HDFS supports blocks larger than 2 GB.
+    (Patrick Kling via dhruba)
 
 Release 0.21.0 - Unreleased
 
@@ -337,7 +311,18 @@ Release 0.21.0 - Unreleased
     HDFS-873. Configuration specifies data-node storage directories as URIs.
     (shv)
 
+    HDFS-905. Use the new UserGroupInformation from HDFS-6299. 
+    (jghoman via omalley)
+
+    HDFS-984. Persistent delegation tokens. (Jitendra Pandey via shv)
+
+    HDFS-1016. HDFS side change for HADOOP-6569. This jira changes the
+    error message on the screen when cat a directory or a 
+    non-existent file. (hairong)
+
   NEW FEATURES
+
+    HDFS-1134. Large-scale Automated Framework. (cos)
 
     HDFS-436. Introduce AspectJ framework for HDFS code and tests.
     (Konstantin Boudnik via szetszwo)
@@ -421,6 +406,27 @@ Release 0.21.0 - Unreleased
 
     HDFS-814. Add an api to get the visible length of a DFSDataInputStream.
     (szetszwo)
+
+    HDFS-654. Add support new atomic rename functionality in HDFS for 
+    supporting rename in FileContext. (suresh)
+
+    HDFS-222. Support for concatenating of files into a single file
+    without copying. (Boris Shkolnik via hairong)
+
+    HDFS-933. Adds Delegation token based authentication in the NameNode.
+    (Kan Zhang via ddas)
+
+    HDFS-935. Adds a real user component in Delegation token.
+    (Jitendra Nath Pandey via ddas)
+
+    HDFS-245. Adds a symlink implementation to HDFS. This complements the new 
+    symlink feature added in HADOOP-6421 (Eli Collins via Sanjay Radia)
+
+    HDFS-1009. Support Kerberos authorization in HDFSProxy.  (Srikanth
+    Sundarrajan via szetszwo)
+
+    HDFS-1091. Implement listStatus that returns an iterator of FileStatus.
+    (hairong)
 
   IMPROVEMENTS
 
@@ -640,6 +646,177 @@ Release 0.21.0 - Unreleased
 
     HDFS-1067. Create block recovery tests that handle errors. (hairong)
 
+    HDFS-1107. Turn on append by default. (shv)
+
+    HDFS-968. Use StringBuilder instead of StringBuffer for better
+    performance. (Kay Kay via suresh)
+    
+    HDFS-703. Replace current fault injection implementation with one
+    from (cos)
+
+    HDFS-754. Reduce ivy console output to observable level (cos)
+
+    HDFS-832. HDFS side of HADOOP-6222. (cos)
+
+    HDFS-840. Change tests to use FileContext test helper introduced in
+    HADOOP-6394. (Jitendra Nath Pandey via suresh)
+
+    HDFS-685. Use the user-to-groups mapping service in the NameNode. 
+    (boryas, acmurthy)
+
+    HDFS-755. Read multiple checksum chunks at once in DFSInputStream.
+    (Todd Lipcon via tomwhite)
+
+    HDFS-786. Implement getContentSummary in HftpFileSystem.
+    (Tsz Wo (Nicholas), SZE via cdouglas)
+
+    HDFS-587. Add support for specifying queue name in mapreduce tests.
+    (Erik Steffl via suresh)
+
+    HDFS-902 Move contrib/raid to MapReduce. (Eli Collins via omalley)
+
+    HDFS-800. The last block of a file under construction may change to the
+    COMPLETE state in response to getAdditionalBlock or completeFileInternal.
+    (hairong)
+
+    HDFS-899. Delegation Token Implementation
+     and corresponding changes in Namenode and DFS Api to issue, 
+    renew and cancel delegation tokens. (jnp via boryas)
+
+    HDFS-844. Log the filename when file locking fails. (tomwhite)
+
+    HDFS-914. Refactor DFSOutputStream and DFSInputStream out of DFSClient.
+    (Todd Lipcon via tomwhite)
+
+    HDFS-949. Move DelegationToken into Common so that it can be used by
+    MapReduce. (omalley)
+
+    HDFS-930. Better error message for DATA_TRANSFER_VERSION mismatched.
+    (Kay Kay via szetszwo)
+
+    HDFS-986. Delegation token renewing and cancelling should provide
+    meaningful exceptions when there are failures instead of returning 
+    false. (omalley)
+
+    HADOOP-6579. Upgrade the commons-codec library to 1.4. (omalley)
+
+    HDFS-991. Allow authentication to the web ui via a delegation token. 
+    (omalley)
+
+    HDFS-994. Allow fetching of delegation token from NameNode for hftp.
+    (Jakob Homan via acmurthy) 
+
+    HDFS-998. Quote blocks streamed through jsps. (cdouglas)
+
+    HDFS-729. NameNode API to list files that have missing blocks.
+    (Rodrigo Schmidt via dhruba)
+
+    HDFS-850. The WebUI display more details about namenode memory usage.
+    (Dmytro Molkov via dhruba)
+
+    HDFS-826. The DFSOutputStream has a API that returns the number of
+    active datanode(s) in the current pipeline. (dhruba)
+
+    HDFS-985. HDFS should issue multiple RPCs for listing a large
+    directory. (hairong)
+
+    HDFS-1043. NNThroughputBenchmark modifications to support benchmarking of
+    server-side user group resolution. (shv)
+
+    HDFS-892. Optionally use Avro reflection for Namenode RPC.  This
+    is not a complete implementation yet, but rather a starting point.
+    (cutting)
+    
+    HDFS-854. Datanode should scan devices in parallel to generate
+    block report. (Dmytro Molkov via jhoman)
+
+    HDFS-1032. fsck has an option to list corrupt files.
+    (Andre Oriai via dhruba)
+
+    HDFS-1024. SecondaryNameNode verifies size of fsimage and edits file.
+    (Dmytro Molkov via dhruba)
+    
+    HDFS-1011. hdfsproxy: Improve log messages by restoring the previous
+    thread name.  (Srikanth Sundarrajan via szetszwo)
+
+    HDFS-997. Allow datanode storage directory permissions to be configurable.
+    (Luke Lu via cdouglas)
+
+    HDFS-1012. hdfsproxy: Support for fully qualified HDFS path in addition to
+    simple unqualified path.  (Srikanth Sundarrajan via szetszwo)
+
+    HDFS-933. Namenode should issue a delegation token only for kerberos 
+    authenticated clients.(jnp via boryas)
+
+    HDFS-1087. Modify audit log to use a StringBuilder rather than a Formatter.
+    (cdouglas)
+
+    HDFS-1083. Update TestHDFSCLI not to expect exception class name
+    in error messages. (suresh)
+
+    HDFS-1099. Add test for umask backward compatibility. (suresh)
+
+    HDFS-1092. Use logging rather than System.err in MiniDFSCluster.
+    (Kay Kay via jghoman)
+
+    HDFS-1047. Install/deploy source jars to Maven repo. 
+    (Patrick Angeles via jghoman)
+
+    HDFS-666. Unit test for FsShell -text. (cdouglas via jghoman)
+
+    HDFS-1054. Remove unnecessary sleep after failure in nextBlockOutputStream.
+    (Todd Lipcon via jghoman)
+
+    HDFS-921. Convert TestDFSClientRetries::testNotYetReplicatedErrors
+    to Mockito. (jghoman)
+
+    HDFS-1100. Override unwrapException in TestFcHdfsSymlink to test 
+    symlink API conformance. (Eli Collins via suresh).
+
+    HDFS-1089. Remove uses of FileContext#isFile, isDirectory, and exists.
+    (Eli Collins via hairong)
+
+    HDFS-1028. Efficient splitting of path components reduces the time
+    to load in fsimage by 20%. (Dmytro Molkov via dhruba)
+
+    HDFS-1109. HFTP supports filenames that contains the character "+".
+    (Dmytro Molkov via dhruba)
+
+    HDFS-853. The HDFS webUI displays the balanced-ness of the cluster.
+    (Dmytro Molkov via dhruba)
+
+    HDFS-1126. Change HDFS to depend on Hadoop 'common' artifacts instead
+    of 'core'. (tomwhite)
+
+    HDFS-995.  Replace usage of FileStatus#isDir().  (Eli Collins via
+    tomwhite)
+
+    HDFS-1161.  Make DN minimum valid volumes configurable.
+    (Eli Collins via tomwhite)
+
+    HDFS-1181. Move configuration and script files post split. (tomwhite)
+
+    HDFS-1170.  Add more assertions to TestLargeDirectoryDelete.
+    (Steve Loughran via tomwhite)
+
+    HDFS-1199. Extract a subset of tests for smoke (DOA) validation. (cos)
+
+    HDFS-1174. New properties for suspend and resume process. (Vinay Thota via
+    cos)
+
+    HDFS-1277. [Herriot] New property for multi user list. (Vinay Thota via
+    cos)
+
+    HDFS-806. Add new unit tests to the 10-mins 'run-commit-test' target (cos)
+
+    HDFS-1411. Correct backup node startup command in hdfs user guide.
+    (Ching-Shen Chen via shv) 
+
+  OPTIMIZATIONS
+
+    HDFS-946. NameNode should not return full path name when lisitng a
+    diretory or getting the status of a file. (hairong)
+
   BUG FIXES
 
     HDFS-76. Better error message to users when commands fail because of 
@@ -855,6 +1032,182 @@ Release 0.21.0 - Unreleased
 
     HDFS-1072. Fix TestReadWhileWriting failure. (Erik Steffl via shv)
 
+    HDFS-913. Rename fault injection test TestRename.java to TestFiRename.java
+    to include it in tests run by ant target run-test-hdfs-fault-inject.
+    (suresh)
+  
+    HDFS-695. RaidNode should read in configuration from hdfs-site.xml.
+    (dhruba)
+
+    HDFS-726. Eclipse .classpath template has outdated jar files and is
+    missing some new ones. (cos)
+
+    HDFS-750. Fix build failure due to TestRename. (suresh)
+
+    HDFS-712. Move libhdfs from mapreduce subproject to hdfs subproject.
+    (Eli Collins via dhruba)
+
+    HDFS-757. Enable Unit test for HDFS Raid. (dhruba)
+
+    HDFS-611. Prevent DataNode heartbeat times from increasing even when
+    the DataNode has many blocks to delete. (Zheng Shao via dhruba)
+
+    HDFS-751. Fix TestCrcCorruption to pick up the correct datablocks to
+    corrupt. (dhruba)
+    
+    HDFS-763. Fix slightly misleading report from DataBlockScanner 
+    about corrupted scans. (dhruba)
+
+    HDFS-727. bug setting block size hdfsOpenFile (Eli Collins via cos)
+
+    HDFS-756. libhdfs unit tests do not run. (Eli Collins via cos)
+
+    HDFS-783. libhdfs tests brakes code coverage runs with Clover (cos)
+
+    HDFS-785. Add Apache license to several namenode unit tests. 
+    (Ravi Phulari via jghoman)
+
+    HDFS-802. Update Eclipse configuration to match changes to Ivy
+    configuration (Edwin Chan via cos)
+
+    HDFS-423. Unbreak FUSE build and fuse_dfs_wrapper.sh (Eli Collins via cos)
+
+    HDFS-825. Build fails to pull latest hadoop-core-* artifacts (cos)
+
+    HDFS-94. The Heap Size printed in the NameNode WebUI is accurate.
+    (Dmytro Molkov via dhruba)
+
+    HDFS-767. An improved retry policy when the DFSClient is unable to fetch a
+    block from the datanode.  (Ning Zhang via dhruba)
+
+    HDFS-775. FSDataset calls getCapacity() twice. (stevel)
+    
+    HDFS-885. Datanode toString() NPEs on null dnRegistration. (stevel)
+
+    HDFS-877. Client-driven block verification not functioning. (Todd
+    Lipcon via hairong)
+
+    HDFS-630. In DFSOutputStream.nextBlockOutputStream(), the client can
+    exclude specific datanodes when locating the next block.
+    (Cosmin Lehene via Stack)
+
+    HDFS-922. Remove unnecessary semicolon added by HDFS-877 that causes
+    problems for Eclipse compilation. (jghoman)
+
+    HDFS-927  DFSInputStream retries too many times for new block locations
+    (Todd Lipcon via Stack)
+
+    HDFS-938. Replace calls to UGI.getUserName() with UGI.getShortUserName()
+    (jghoman)
+
+    HDFS-894. DatanodeID.ipcPort is not updated when existing node 
+    re-registers. (Todd Lipcon via tomwhite)
+
+    HDFS-965. Split TestDelegationToken in to two parts and fix configuration
+    to allow proxy users in the test. (Jitendra Pandey via omalley)
+
+    HDFS-999. Secondary namenode should login using kerberos if security is 
+    configured (boryas)
+
+    HDFS-856. Hardcoded replication level for new files in fuse-dfs.
+    (Brian Bockelman via tomwhite)
+
+    HDFS-857. Incorrect type for fuse-dfs capacity can cause "df" to return
+    negative values on 32-bit machines. (Brian Bockelman via tomwhite)
+
+    HDFS-858. Incorrect return codes for fuse-dfs. (Brian Bockelman via
+    tomwhite)
+
+    HDFS-859. fuse-dfs utime behavior causes issues with tar.
+    (Brian Bockelman via tomwhite)
+
+    HDFS-861. fuse-dfs does not support O_RDWR. (Brian Bockelman via tomwhite)
+
+    HDFS-961. dfs_readdir incorrectly parses paths. (Eli Collins via tomwhite)
+
+    HDFS-1015. Fix intermittent failure in TestSecurityTokenEditLog.
+    (Jitendra Nath Pandey via suresh)
+
+    HDFS-939. libhdfs test is broken. (Eli Collins via tomwhite)
+    
+    HDFS-1074. hdfsproxy: Fix bugs in TestProxyUtil.  (Srikanth Sundarrajan
+    via szetszwo)
+
+    HDFS-481. hdfsproxy: Bug Fixes + HdfsProxy to use proxy user to
+    impresonate the real user.  (Srikanth Sundarrajan via szetszwo)
+
+    HDFS-482. Move HsftpFileSystem's ssl.client.do.not.authenticate.server
+    configuration setting to ssl-client.xml.  (Srikanth Sundarrajan via
+    szetszwo)
+
+    HDFS-1010. hdfsproxy: Retrieve groups from UnixUserGroupInformation
+    instead of LdapEntry.  (Srikanth Sundarrajan via szetszwo)
+
+    HDFS-466. hdfs_write infinite loop when dfs fails and cannot write
+    files > 2 GB. (Pete Wyckoff via tomwhite)
+
+    HDFS-651. HDFS Docs - fix listing of docs in the doc menu.
+    (Corinne Chandel via tomwhite)
+
+    HDFS-1014. Error in reading delegation tokens from edit logs.
+    (Jitendra Nath Pandey via jhoman)
+
+    HDFS-1088. Prevent renaming a symbolik link to its target.
+    (Eli Collins via suresh)
+
+    HDFS-966. NameNode does not recovers lease when it is in safemode.
+    (dhruba)
+
+    HDFS-833. Datanode shutdown should log problems with Storage.unlockAll()
+    (Steve Loughran via dhruba)
+
+    HDFS-1101. TestDiskError.testLocalDirs() fails. (cdouglas via jghoman)
+
+    HDFS-1031. Enhance the webUi to list a few of the corrupted files in HDFS.
+    (Andre Orian via dhruba)
+
+    HDFS-1078. Create static and dynamic versions of libhdfs.
+    (Sam Rash via dhruba)
+
+    HDFS-1104. Fsck triggers full GC on NameNode. (hairong)
+
+    HDFS-1141. Closing a file is successful only if the client still has a
+    valid lease. (Todd Lipcon via dhruba)
+
+    HDFS-1138. Prevent erroneous updation of modification time of a directory
+    when fsimage loads. (Dmytro Molkov via dhruba)
+
+    HDFS-1000. Updates libhdfs to the new API for UGI (ddas)
+
+    HDFS-609. Create a file with the append flag does not work in HDFS.
+    (tomwhite)
+
+    HDFS-1255. Fix failing test-libhdfs.sh test. (tomwhite)
+
+    HDFS-1256. libhdfs is missing from the tarball. (tomwhite)
+
+    HDFS-1057. Concurrent readers hit ChecksumExceptions if following a
+    writer to very end of file. (sam rash via hairong)
+
+    HDFS-1212. Harmonize HDFS JAR library versions with Common. (tomwhite)
+
+    HDFS-1159. clean-cache target removes wrong ivy cache (cos)
+
+    HDFS-1193. -mvn-system-deploy target is broken which inturn fails the
+    mvn-deploy task leading to unstable mapreduce build (Giridharan
+    Kesavan via cos)
+
+    HDFS-1299. 'compile-fault-inject' never should be called directly. (cos)
+
+    HDFS-1311. Running tests with 'testcase' cause triple execution of the
+    same test case (Cos)
+
+    HDFS-1267. fuse-dfs does not compile. (Devaraj Das via tomwhite)
+
+    HDFS-1363. Eliminate second synchronized sections in appendFile(). (shv)
+
+    HDFS-1413. Fix broken links to HDFS Wiki. (shv)
+
 Release 0.20.3 - Unreleased
 
   IMPROVEMENTS
@@ -869,6 +1222,12 @@ Release 0.20.3 - Unreleased
 
     HDFS-909. Wait until edits syncing is finishes before purging edits.
     (Todd Lipcon via shv)
+
+    HDFS-1258. Clearing namespace quota on "/" corrupts fs image.
+    (Aaron T. Myers via szetszwo)
+
+    HDFS-132. Fix namenode to not report files deleted metrics for deletions
+    done while replaying edits during startup. (suresh & shv)
 
 Release 0.20.2 - Unreleased
 

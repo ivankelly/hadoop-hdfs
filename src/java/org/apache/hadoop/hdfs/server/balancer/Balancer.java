@@ -50,6 +50,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -61,9 +62,9 @@ import org.apache.hadoop.hdfs.protocol.DataTransferProtocol;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
 import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.protocol.FSConstants.DatanodeReportType;
-import org.apache.hadoop.hdfs.security.BlockAccessToken;
-import org.apache.hadoop.hdfs.security.AccessTokenHandler;
-import org.apache.hadoop.hdfs.security.ExportedAccessKeys;
+import org.apache.hadoop.hdfs.security.token.block.BlockTokenIdentifier;
+import org.apache.hadoop.hdfs.security.token.block.BlockTokenSecretManager;
+import org.apache.hadoop.hdfs.security.token.block.ExportedBlockKeys;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants;
 import org.apache.hadoop.hdfs.server.common.Util;
 import org.apache.hadoop.hdfs.server.namenode.NameNode;
@@ -81,6 +82,7 @@ import org.apache.hadoop.ipc.RemoteException;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.net.NetworkTopology;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.Daemon;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.util.Tool;
@@ -183,6 +185,7 @@ import org.apache.hadoop.util.ToolRunner;
  * balancer is running.
  */
 
+@InterfaceAudience.Private
 public class Balancer implements Tool {
   private static final Log LOG = 
     LogFactory.getLog(Balancer.class.getName());
@@ -199,10 +202,10 @@ public class Balancer implements Tool {
   private NamenodeProtocol namenode;
   private ClientProtocol client;
   private FileSystem fs;
-  private boolean isAccessTokenEnabled;
+  private boolean isBlockTokenEnabled;
   private boolean shouldRun;
   private long keyUpdaterInterval;
-  private AccessTokenHandler accessTokenHandler;
+  private BlockTokenSecretManager blockTokenSecretManager;
   private Daemon keyupdaterthread = null; // AccessKeyUpdater thread
   private final static Random rnd = new Random();
   
@@ -367,15 +370,15 @@ public class Balancer implements Tool {
     
     /* Send a block replace request to the output stream*/
     private void sendRequest(DataOutputStream out) throws IOException {
-      BlockAccessToken accessToken = BlockAccessToken.DUMMY_TOKEN;
-      if (isAccessTokenEnabled) {
-        accessToken = accessTokenHandler.generateToken(null, block.getBlock()
-            .getBlockId(), EnumSet.of(AccessTokenHandler.AccessMode.REPLACE,
-            AccessTokenHandler.AccessMode.COPY));
+      Token<BlockTokenIdentifier> accessToken = BlockTokenSecretManager.DUMMY_TOKEN;
+      if (isBlockTokenEnabled) {
+        accessToken = blockTokenSecretManager.generateToken(null, block
+            .getBlock(), EnumSet.of(BlockTokenSecretManager.AccessMode.REPLACE,
+            BlockTokenSecretManager.AccessMode.COPY));
       }
       DataTransferProtocol.Sender.opReplaceBlock(out,
-          block.getBlock().getBlockId(), block.getBlock().getGenerationStamp(),
-          source.getStorageID(), proxySource.getDatanode(), accessToken);
+          block.getBlock(), source.getStorageID(), 
+          proxySource.getDatanode(), accessToken);
     }
     
     /* Receive a block copy response from the input stream */ 
@@ -860,25 +863,25 @@ public class Balancer implements Tool {
     this.namenode = createNamenode(conf);
     this.client = DFSClient.createNamenode(conf);
     this.fs = FileSystem.get(conf);
-    ExportedAccessKeys keys = namenode.getAccessKeys();
-    this.isAccessTokenEnabled = keys.isAccessTokenEnabled();
-    if (isAccessTokenEnabled) {
-      long accessKeyUpdateInterval = keys.getKeyUpdateInterval();
-      long accessTokenLifetime = keys.getTokenLifetime();
-      LOG.info("Access token params received from NN: keyUpdateInterval="
-          + accessKeyUpdateInterval / (60 * 1000) + " min(s), tokenLifetime="
-          + accessTokenLifetime / (60 * 1000) + " min(s)");
-      this.accessTokenHandler = new AccessTokenHandler(false,
-          accessKeyUpdateInterval, accessTokenLifetime);
-      this.accessTokenHandler.setKeys(keys);
+    ExportedBlockKeys keys = namenode.getBlockKeys();
+    this.isBlockTokenEnabled = keys.isBlockTokenEnabled();
+    if (isBlockTokenEnabled) {
+      long blockKeyUpdateInterval = keys.getKeyUpdateInterval();
+      long blockTokenLifetime = keys.getTokenLifetime();
+      LOG.info("Block token params received from NN: keyUpdateInterval="
+          + blockKeyUpdateInterval / (60 * 1000) + " min(s), tokenLifetime="
+          + blockTokenLifetime / (60 * 1000) + " min(s)");
+      this.blockTokenSecretManager = new BlockTokenSecretManager(false,
+          blockKeyUpdateInterval, blockTokenLifetime);
+      this.blockTokenSecretManager.setKeys(keys);
       /*
-       * Balancer should sync its access keys with NN more frequently than NN
-       * updates its access keys
+       * Balancer should sync its block keys with NN more frequently than NN
+       * updates its block keys
        */
-      this.keyUpdaterInterval = accessKeyUpdateInterval / 4;
-      LOG.info("Balancer will update its access keys every "
+      this.keyUpdaterInterval = blockKeyUpdateInterval / 4;
+      LOG.info("Balancer will update its block keys every "
           + keyUpdaterInterval / (60 * 1000) + " minute(s)");
-      this.keyupdaterthread = new Daemon(new AccessKeyUpdater());
+      this.keyupdaterthread = new Daemon(new BlockKeyUpdater());
       this.shouldRun = true;
       this.keyupdaterthread.start();
     }
@@ -887,12 +890,12 @@ public class Balancer implements Tool {
   /**
    * Periodically updates access keys.
    */
-  class AccessKeyUpdater implements Runnable {
+  class BlockKeyUpdater implements Runnable {
 
     public void run() {
       while (shouldRun) {
         try {
-          accessTokenHandler.setKeys(namenode.getAccessKeys());
+          blockTokenSecretManager.setKeys(namenode.getBlockKeys());
         } catch (Exception e) {
           LOG.error(StringUtils.stringifyException(e));
         }
@@ -908,7 +911,7 @@ public class Balancer implements Tool {
    * set up the retry policy */ 
   private static NamenodeProtocol createNamenode(Configuration conf)
     throws IOException {
-    InetSocketAddress nameNodeAddr = NameNode.getAddress(conf);
+    InetSocketAddress nameNodeAddr = NameNode.getServiceAddress(conf, true);
     RetryPolicy timeoutPolicy = RetryPolicies.exponentialBackoffRetry(
         5, 200, TimeUnit.MILLISECONDS);
     Map<Class<? extends Exception>,RetryPolicy> exceptionToPolicyMap =
@@ -1466,7 +1469,7 @@ public class Balancer implements Tool {
   final public static int ILLEGAL_ARGS = -5;
   /** main method of Balancer
    * @param args arguments to a Balancer
-   * @exception any exception occurs during datanode balancing
+   * @throws Exception exception that occured during datanode balancing
    */
   public int run(String[] args) throws Exception {
     long startTime = Util.now();

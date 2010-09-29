@@ -20,6 +20,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableFactories;
 import org.apache.hadoop.io.WritableFactory;
@@ -28,6 +30,8 @@ import org.apache.hadoop.io.WritableFactory;
  * This class defines a partial listing of a directory to support
  * iterative directory listing.
  */
+@InterfaceAudience.Private
+@InterfaceStability.Evolving
 public class DirectoryListing implements Writable {
   static {                                      // register a ctor
     WritableFactories.setFactory
@@ -105,9 +109,16 @@ public class DirectoryListing implements Writable {
   public void readFields(DataInput in) throws IOException {
     int numEntries = in.readInt();
     partialListing = new HdfsFileStatus[numEntries];
-    for (int i=0; i<numEntries; i++) {
-      partialListing[i] = new HdfsFileStatus();
-      partialListing[i].readFields(in);
+    if (numEntries !=0 ) {
+      boolean hasLocation = in.readBoolean();
+      for (int i=0; i<numEntries; i++) {
+        if (hasLocation) {
+          partialListing[i] = new HdfsLocatedFileStatus();
+        } else {
+          partialListing[i] = new HdfsFileStatus();
+        }
+        partialListing[i].readFields(in);
+      }
     }
     remainingEntries = in.readInt();
   }
@@ -115,8 +126,15 @@ public class DirectoryListing implements Writable {
   @Override
   public void write(DataOutput out) throws IOException {
     out.writeInt(partialListing.length);
-    for (HdfsFileStatus fileStatus : partialListing) {
-      fileStatus.write(out);
+    if (partialListing.length != 0) { 
+       if (partialListing[0] instanceof HdfsLocatedFileStatus) {
+         out.writeBoolean(true);
+       } else {
+         out.writeBoolean(false);
+       }
+       for (HdfsFileStatus fileStatus : partialListing) {
+         fileStatus.write(out);
+       }
     }
     out.writeInt(remainingEntries);
   }

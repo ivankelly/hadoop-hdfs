@@ -17,8 +17,11 @@
  */
 package org.apache.hadoop.hdfs.protocol;
 
-import org.apache.hadoop.hdfs.security.BlockAccessToken;
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.hdfs.security.token.block.BlockTokenIdentifier;
 import org.apache.hadoop.io.*;
+import org.apache.hadoop.security.token.Token;
 
 import java.io.*;
 
@@ -27,6 +30,8 @@ import java.io.*;
  * objects.  It tells where to find a Block.
  * 
  ****************************************************/
+@InterfaceAudience.Private
+@InterfaceStability.Evolving
 public class LocatedBlock implements Writable {
 
   static {                                      // register a ctor
@@ -44,7 +49,7 @@ public class LocatedBlock implements Writable {
   // else false. If block has few corrupt replicas, they are filtered and 
   // their locations are not part of this object
   private boolean corrupt;
-  private BlockAccessToken accessToken = new BlockAccessToken();
+  private Token<BlockTokenIdentifier> blockToken = new Token<BlockTokenIdentifier>();
 
   /**
    */
@@ -78,12 +83,12 @@ public class LocatedBlock implements Writable {
     }
   }
 
-  public BlockAccessToken getAccessToken() {
-    return accessToken;
+  public Token<BlockTokenIdentifier> getBlockToken() {
+    return blockToken;
   }
 
-  public void setAccessToken(BlockAccessToken token) {
-    this.accessToken = token;
+  public void setBlockToken(Token<BlockTokenIdentifier> token) {
+    this.blockToken = token;
   }
 
   /**
@@ -122,7 +127,7 @@ public class LocatedBlock implements Writable {
   // Writable
   ///////////////////////////////////////////
   public void write(DataOutput out) throws IOException {
-    accessToken.write(out);
+    blockToken.write(out);
     out.writeBoolean(corrupt);
     out.writeLong(offset);
     b.write(out);
@@ -133,7 +138,7 @@ public class LocatedBlock implements Writable {
   }
 
   public void readFields(DataInput in) throws IOException {
-    accessToken.readFields(in);
+    blockToken.readFields(in);
     this.corrupt = in.readBoolean();
     offset = in.readLong();
     this.b = new Block();

@@ -33,6 +33,7 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
@@ -44,6 +45,8 @@ import java.util.Properties;
 import java.util.Random;
 import java.util.Set;
 
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
@@ -59,6 +62,7 @@ import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.StorageInfo;
 import org.apache.hadoop.hdfs.server.common.UpgradeManager;
 import org.apache.hadoop.hdfs.server.common.Util;
+import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.BlockUCState;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NodeType;
@@ -77,6 +81,8 @@ import org.apache.hadoop.hdfs.DFSConfigKeys;
  * FSImage handles checkpointing and logging of the namespace edits.
  * 
  */
+@InterfaceAudience.Private
+@InterfaceStability.Evolving
 public class FSImage extends Storage {
 
   private static final SimpleDateFormat DATE_FORM =
@@ -586,9 +592,10 @@ public class FSImage extends Storage {
   
     // Do upgrade for each directory
     long oldCTime = this.getCTime();
-    this.cTime = FSNamesystem.now();  // generate new cTime for the state
+    this.cTime = now();  // generate new cTime for the state
     int oldLV = this.getLayoutVersion();
     this.layoutVersion = FSConstants.LAYOUT_VERSION;
+
     for (Iterator<StorageDirectory> it = 
                            dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
@@ -1000,14 +1007,14 @@ public class FSImage extends Storage {
 
       LOG.info("Number of files = " + numFiles);
 
-      String path;
-      String parentPath = "";
+      byte[][] pathComponents;
+      byte[][] parentPath = {{}};
       INodeDirectory parentINode = fsDir.rootDir;
       for (long i = 0; i < numFiles; i++) {
         long modificationTime = 0;
         long atime = 0;
         long blockSize = 0;
-        path = readString(in);
+        pathComponents = readPathComponents(in);
         replication = in.readShort();
         replication = fsNamesys.adjustReplication(replication);
         modificationTime = in.readLong();
@@ -1069,7 +1076,7 @@ public class FSImage extends Storage {
           permissions = PermissionStatus.read(in);
         }
         
-        if (path.length() == 0) { // it is the root
+        if (isRoot(pathComponents)) { // it is the root
           // update the root's attributes
           if (nsQuota != -1 || dsQuota != -1) {
             fsDir.rootDir.setQuota(nsQuota, dsQuota);
@@ -1079,14 +1086,15 @@ public class FSImage extends Storage {
           continue;
         }
         // check if the new inode belongs to the same parent
-        if(!isParent(path, parentPath)) {
+        if(!isParent(pathComponents, parentPath)) {
           parentINode = null;
-          parentPath = getParent(path);
+          parentPath = getParent(pathComponents);
         }
         // add new inode
-        parentINode = fsDir.addToParent(path, parentINode, permissions,
+        // without propagating modification time to parent
+        parentINode = fsDir.addToParent(pathComponents, parentINode, permissions,
                                         blocks, symlink, replication, modificationTime, 
-                                        atime, nsQuota, dsQuota, blockSize);
+                                        atime, nsQuota, dsQuota, blockSize, false);
       }
       
       // load datanode info
@@ -1123,12 +1131,33 @@ public class FSImage extends Storage {
   String getParent(String path) {
     return path.substring(0, path.lastIndexOf(Path.SEPARATOR));
   }
-
-  private boolean isParent(String path, String parent) {
-    return parent != null && path != null
-          && path.indexOf(parent) == 0
-          && path.lastIndexOf(Path.SEPARATOR) == parent.length();
+  
+  byte[][] getParent(byte[][] path) {
+    byte[][] result = new byte[path.length - 1][];
+    for (int i = 0; i < result.length; i++) {
+      result[i] = new byte[path[i].length];
+      System.arraycopy(path[i], 0, result[i], 0, path[i].length);
+    }
+    return result;
   }
+
+  private boolean isRoot(byte[][] path) {
+    return path.length == 1 &&
+      path[0] == null;    
+  }
+
+  private boolean isParent(byte[][] path, byte[][] parent) {
+    if (path == null || parent == null)
+      return false;
+    if (parent.length == 0 || path.length != parent.length + 1)
+      return false;
+    boolean isParent = true;
+    for (int i = 0; i < parent.length; i++) {
+      isParent = isParent && Arrays.equals(path[i], parent[i]); 
+    }
+    return isParent;
+  }
+
 
   /**
    * Load edits from a set of files.
@@ -1161,13 +1190,13 @@ public class FSImage extends Storage {
   void saveFSImage(File newFile) throws IOException {
     FSNamesystem fsNamesys = getFSNamesystem();
     FSDirectory fsDir = fsNamesys.dir;
-    long startTime = FSNamesystem.now();
+    long startTime = now();
     //
     // Write out data
     //
+    FileOutputStream fos = new FileOutputStream(newFile);
     DataOutputStream out = new DataOutputStream(
-                                                new BufferedOutputStream(
-                                                                         new FileOutputStream(newFile)));
+      new BufferedOutputStream(fos));
     try {
       out.writeInt(FSConstants.LAYOUT_VERSION);
       out.writeInt(namespaceID);
@@ -1182,13 +1211,98 @@ public class FSImage extends Storage {
       fsNamesys.saveFilesUnderConstruction(out);
       fsNamesys.saveSecretManagerState(out);
       strbuf = null;
+
+      out.flush();
+      fos.getChannel().force(true);
     } finally {
       out.close();
     }
 
     LOG.info("Image file " + newFile + " of size " +
              newFile.length() + " saved in " +
-             (FSNamesystem.now() - startTime)/1000 + " seconds.");
+             (now() - startTime)/1000 + " seconds.");
+  }
+
+  /**
+   * Save the contents of the FS image and create empty edits.
+   * 
+   * In order to minimize the recovery effort in case of failure during
+   * saveNamespace the algorithm reduces discrepancy between directory states
+   * by performing updates in the following order:
+   * <ol>
+   * <li> rename current to lastcheckpoint.tmp for all of them,</li>
+   * <li> save image and recreate edits for all of them,</li>
+   * <li> rename lastcheckpoint.tmp to previous.checkpoint.</li>
+   * </ol>
+   * On stage (2) we first save all images, then recreate edits.
+   * Otherwise the name-node may purge all edits and fail,
+   * in which case the journal will be lost.
+   */
+  void saveNamespace(boolean renewCheckpointTime) throws IOException {
+    assert editLog != null : "editLog must be initialized";
+    editLog.close();
+    if(renewCheckpointTime)
+      this.checkpointTime = now();
+    ArrayList<StorageDirectory> errorSDs = new ArrayList<StorageDirectory>();
+
+    // mv current -> lastcheckpoint.tmp
+    for (Iterator<StorageDirectory> it = dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
+      try {
+        moveCurrent(sd);
+      } catch(IOException ie) {
+        LOG.error("Unable to move current for " + sd.getRoot(), ie);
+        errorSDs.add(sd);
+      }
+    }
+
+    // save images into current
+    for (Iterator<StorageDirectory> it = dirIterator(NameNodeDirType.IMAGE);
+                                                              it.hasNext();) {
+      StorageDirectory sd = it.next();
+      try {
+        saveCurrent(sd);
+      } catch(IOException ie) {
+        LOG.error("Unable to save image for " + sd.getRoot(), ie);
+        errorSDs.add(sd);
+      }
+    }
+
+    // -NOTE-
+    // If NN has image-only and edits-only storage directories and fails here 
+    // the image will have the latest namespace state.
+    // During startup the image-only directories will recover by discarding
+    // lastcheckpoint.tmp, while
+    // the edits-only directories will recover by falling back
+    // to the old state contained in their lastcheckpoint.tmp.
+    // The edits directories should be discarded during startup because their
+    // checkpointTime is older than that of image directories.
+
+    // recreate edits in current
+    for (Iterator<StorageDirectory> it = dirIterator(NameNodeDirType.EDITS);
+                                                              it.hasNext();) {
+      StorageDirectory sd = it.next();
+      try {
+        saveCurrent(sd);
+      } catch(IOException ie) {
+        LOG.error("Unable to save edits for " + sd.getRoot(), ie);
+        errorSDs.add(sd);
+      }
+    }
+    // mv lastcheckpoint.tmp -> previous.checkpoint
+    for (Iterator<StorageDirectory> it = dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
+      try {
+        moveLastCheckpoint(sd);
+      } catch(IOException ie) {
+        LOG.error("Unable to move last checkpoint for " + sd.getRoot(), ie);
+        errorSDs.add(sd);
+      }
+    }
+    processIOError(errorSDs, false);
+    if(!editLog.isOpen()) editLog.open();
+    ckptState = CheckpointStates.UPLOAD_DONE;
+>>>>>>> trunk
   }
   
   /**
@@ -1238,7 +1352,7 @@ public class FSImage extends Storage {
    */
   private int newNamespaceID() {
     Random r = new Random();
-    r.setSeed(FSNamesystem.now());
+    r.setSeed(now());
     int newID = 0;
     while(newID == 0)
       newID = r.nextInt(0x7FFFFFFF);  // use 31 bits only
@@ -1268,6 +1382,7 @@ public class FSImage extends Storage {
     this.layoutVersion = FSConstants.LAYOUT_VERSION;
     this.namespaceID = newNamespaceID();
     this.cTime = 0L;
+
     for (Iterator<StorageDirectory> it = 
                            dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
@@ -1498,6 +1613,7 @@ public class FSImage extends Storage {
     for (Iterator<StorageDirectory> it = 
            dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
       StorageDirectory sd = it.next();
+
       File ckpt = getImageFile(sd, NameNodeFile.IMAGE_NEW, indexToRoll);
       File dst = getImageFile(sd, NameNodeFile.IMAGE, indexToRoll);
       try {
@@ -1844,6 +1960,22 @@ public class FSImage extends Storage {
   static String readString_EmptyAsNull(DataInputStream in) throws IOException {
     final String s = readString(in);
     return s.isEmpty()? null: s;
+  }
+  
+  /**
+   * Reading the path from the image and converting it to byte[][] directly
+   * this saves us an array copy and conversions to and from String
+   * @param in
+   * @return the array each element of which is a byte[] representation 
+   *            of a path component
+   * @throws IOException
+   */
+  public static byte[][] readPathComponents(DataInputStream in)
+      throws IOException {
+      U_STR.readFields(in);
+      return DFSUtil.bytes2byteArray(U_STR.getBytes(),
+        U_STR.getLength(), (byte) Path.SEPARATOR_CHAR);
+    
   }
 
   // Same comments apply for this method as for readString()
