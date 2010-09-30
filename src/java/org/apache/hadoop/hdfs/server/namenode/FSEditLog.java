@@ -933,6 +933,9 @@ public class FSEditLog {
     if(!it.hasNext()) 
       throw new IOException("No storage directories!");
 
+    if (FSImage.LOG.isDebugEnabled()) {
+      FSImage.LOG.debug("Rolling edit log, current index = " + currentLogIndex + ", next expected index = " + expectedNewIndex);
+    }
     int nextIndex = currentLogIndex + 1;
     if (expectedNewIndex != nextIndex) {
       throw new IOException("Image wanted to roll to edit #" + expectedNewIndex +

@@ -617,7 +617,7 @@ public class FSImage extends Storage {
       if (!curDir.mkdir())
         throw new IOException("Cannot create directory " + curDir);
       saveFSImage(getImageFile(sd, NameNodeFile.IMAGE, 0));
-      FSEditLog.createEditLogFile(getImageFile(sd, NameNodeFile.EDITS, 0));
+
       // write version and time files
       sd.write();
       // rename tmp to previous
@@ -626,7 +626,9 @@ public class FSImage extends Storage {
       LOG.info("Upgrade of " + sd.getRoot() + " is complete.");
     }
     initializeDistributedUpgrade();
-    editLog.openNewLogs(0);
+
+    // reset the logs id
+    namesystemReflectsLogsThrough = -1;
   }
 
   private void doRollback() throws IOException {
@@ -1231,10 +1233,10 @@ public class FSImage extends Storage {
     // fsimage_N means we have data from all the logs up to but not including
     // N
     int imageIndexToSave = namesystemReflectsLogsThrough + 1;
-    if (editLog != null) {
-      LOG.info("Rolling edits log in saveFSImage to " + imageIndexToSave);
-      editLog.rollEditLog(imageIndexToSave);
-    }
+
+    LOG.info("Rolling edits log in saveFSImage to " + imageIndexToSave);
+    editLog.rollEditLog(imageIndexToSave);
+    
     saveFSImage(imageIndexToSave);
     namesystemReflectsLogsThrough = imageIndexToSave;
   }
