@@ -824,6 +824,7 @@ public class FSImage extends Storage {
     return editLog;
   }
 
+  // TODELETE
   public boolean isConversionNeeded(StorageDirectory sd) throws IOException {
     File oldImageDir = new File(sd.getRoot(), "image");
     if (!oldImageDir.exists()) {
@@ -1393,6 +1394,7 @@ public class FSImage extends Storage {
    * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getLastCheckpointTmp()
    * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getPreviousCheckpoint()
    */
+  // TODELETE
   protected void moveCurrent(StorageDirectory sd)
   throws IOException {
     File curDir = sd.getCurrentDir();
@@ -1415,6 +1417,7 @@ public class FSImage extends Storage {
    * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getPreviousCheckpoint()
    * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getLastCheckpointTmp()
    */
+  // TODELETE
   protected void moveLastCheckpoint(StorageDirectory sd)
   throws IOException {
     File tmpCkptDir = sd.getLastCheckpointTmp();
@@ -2028,6 +2031,7 @@ public class FSImage extends Storage {
     }
   }
 
+  // TODELETE
   protected void corruptPreUpgradeStorage(File rootDir) throws IOException {
     File oldImageDir = new File(rootDir, "image");
     if (!oldImageDir.exists())
