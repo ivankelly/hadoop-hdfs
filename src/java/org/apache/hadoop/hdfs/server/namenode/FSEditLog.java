@@ -43,7 +43,7 @@ import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
+//import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.namenode.JournalStream.JournalType;
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
@@ -56,6 +56,11 @@ import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableFactories;
 import org.apache.hadoop.io.WritableFactory;
 import org.apache.hadoop.security.token.delegation.DelegationKey;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 /**
  * FSEditLog maintains a log of the namespace modifications.
@@ -91,6 +96,8 @@ public class FSEditLog {
   private static final byte OP_CANCEL_DELEGATION_TOKEN = 20; //cancel delegation token
   private static final byte OP_UPDATE_MASTER_KEY = 21; //update master key
 
+  
+  
   /* 
    * The following operations are used to control remote edit log streams,
    * and not logged into file streams.
@@ -106,8 +113,7 @@ public class FSEditLog {
   private volatile int sizeOutputFlushBuffer = 512*1024;
 
   private ArrayList<EditLogOutputStream> editStreams = null;
-  private FSImage fsimage = null;
-
+  
   // a monotonically increasing counter that represents transactionIds.
   private long txid = 0;
 
@@ -144,26 +150,44 @@ public class FSEditLog {
     }
   };
 
+  /*
   FSEditLog(FSImage image) {
     fsimage = image;
     isSyncRunning = false;
     metrics = NameNode.getNameNodeMetrics();
     lastPrintTime = now();
+  }*/
+  
+  
+  ///////////////////////////////////////////////////////////////////////////////////////
+  // ADDED on PH1P2
+  ///////////////////////////////////////////////////////////////////////////////////////
+  private Configuration conf;
+  private NNStorage storage;
+    
+  private static final Log LOG = LogFactory.getLog(NameNode.class.getName());
+
+  
+  
+  FSEditLog(Configuration conf, NNStorage storage){
+	  this.conf = conf;
+	  this.storage = storage;
   }
   
+    
   private File getEditFile(StorageDirectory sd) {
-    return fsimage.getEditFile(sd);
+    return storage.getEditFile(sd);
   }
   
   private File getEditNewFile(StorageDirectory sd) {
-    return fsimage.getEditNewFile(sd);
+    return storage.getEditNewFile(sd);
   }
   
   private int getNumEditsDirs() {
-   return fsimage.getNumStorageDirs(NameNodeDirType.EDITS);
+   return storage.getNumStorageDirs(NameNodeDirType.EDITS);
   }
 
-  synchronized int getNumEditStreams() {
+  private synchronized int getNumEditStreams() {
     return editStreams == null ? 0 : editStreams.size();
   }
 
@@ -192,7 +216,7 @@ public class FSEditLog {
     
     ArrayList<StorageDirectory> al = null;
     for (Iterator<StorageDirectory> it = 
-           fsimage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
+           storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
       StorageDirectory sd = it.next();
       File eFile = getEditFile(sd);
       try {
@@ -328,6 +352,7 @@ public class FSEditLog {
     FSNamesystem.LOG.info("at the end current list of storage dirs:" + lsd);
   }
 
+  
 
   /**
    * get an editStream corresponding to a sd
@@ -338,7 +363,7 @@ public class FSEditLog {
     String parentStorageDir = ((EditLogFileOutputStream)es).getFile()
     .getParentFile().getParentFile().getAbsolutePath();
 
-    Iterator<StorageDirectory> it = fsimage.dirIterator(); 
+    Iterator<StorageDirectory> it = storage.dirIterator(); 
     while (it.hasNext()) {
       StorageDirectory sd = it.next();
       FSNamesystem.LOG.info("comparing: " + parentStorageDir + " and " + sd.getRoot().getAbsolutePath()); 
@@ -379,7 +404,7 @@ public class FSEditLog {
     DataInputStream in = edits.getDataInputStream();
     long startTime = now();
     int numEdits = loadFSEdits(in, true);
-    FSImage.LOG.info("Edits file " + edits.getName() 
+    LOG.info("Edits file " + edits.getName() 
         + " of size " + edits.length() + " edits # " + numEdits 
         + " loaded in " + (now()-startTime)/1000 + " seconds.");
     return numEdits;
@@ -470,7 +495,7 @@ public class FSEditLog {
                                     " but writables.length is " +
                                     length + ". ");
           }
-          path = FSImage.readString(in);
+          path = NNUtils.readString(in);
           short replication = adjustReplication(readShort(in));
           mtime = readLong(in);
           if (logVersion <= -17) {
@@ -504,8 +529,8 @@ public class FSEditLog {
 
           // clientname, clientMachine and block locations of last block.
           if (opcode == OP_ADD && logVersion <= -12) {
-            clientName = FSImage.readString(in);
-            clientMachine = FSImage.readString(in);
+            clientName = NNUtils.readString(in);
+            clientMachine = NNUtils.readString(in);
             if (-13 <= logVersion) {
               readDatanodeDescriptorArray(in);
             }
@@ -553,7 +578,7 @@ public class FSEditLog {
         } 
         case OP_SET_REPLICATION: {
           numOpSetRepl++;
-          path = FSImage.readString(in);
+          path = NNUtils.readString(in);
           short replication = adjustReplication(readShort(in));
           fsDir.unprotectedSetReplication(path, replication, null);
           break;
@@ -569,11 +594,11 @@ public class FSEditLog {
             throw new IOException("Incorrect data format. " 
                                   + "Mkdir operation.");
           }
-          String trg = FSImage.readString(in);
+          String trg = NNUtils.readString(in);
           int srcSize = length - 1 - 1; //trg and timestamp
           String [] srcs = new String [srcSize];
           for(int i=0; i<srcSize;i++) {
-            srcs[i]= FSImage.readString(in);
+            srcs[i]= NNUtils.readString(in);
           }
           timestamp = readLong(in);
           fsDir.unprotectedConcat(trg, srcs);
@@ -586,8 +611,8 @@ public class FSEditLog {
             throw new IOException("Incorrect data format. " 
                                   + "Mkdir operation.");
           }
-          String s = FSImage.readString(in);
-          String d = FSImage.readString(in);
+          String s = NNUtils.readString(in);
+          String d = NNUtils.readString(in);
           timestamp = readLong(in);
           HdfsFileStatus dinfo = fsDir.getFileInfo(d, false);
           fsDir.unprotectedRenameTo(s, d, timestamp);
@@ -601,7 +626,7 @@ public class FSEditLog {
             throw new IOException("Incorrect data format. " 
                                   + "delete operation.");
           }
-          path = FSImage.readString(in);
+          path = NNUtils.readString(in);
           timestamp = readLong(in);
           fsDir.unprotectedDelete(path, timestamp);
           break;
@@ -615,7 +640,7 @@ public class FSEditLog {
             throw new IOException("Incorrect data format. " 
                                   + "Mkdir operation.");
           }
-          path = FSImage.readString(in);
+          path = NNUtils.readString(in);
           timestamp = readLong(in);
 
           // The disk format stores atimes for directories as well.
@@ -657,7 +682,7 @@ public class FSEditLog {
             throw new IOException("Unexpected opcode " + opcode
                                   + " for version " + logVersion);
           fsDir.unprotectedSetPermission(
-              FSImage.readString(in), FsPermission.read(in));
+        		  NNUtils.readString(in), FsPermission.read(in));
           break;
         }
         case OP_SET_OWNER: {
@@ -665,9 +690,9 @@ public class FSEditLog {
           if (logVersion > -11)
             throw new IOException("Unexpected opcode " + opcode
                                   + " for version " + logVersion);
-          fsDir.unprotectedSetOwner(FSImage.readString(in),
-              FSImage.readString_EmptyAsNull(in),
-              FSImage.readString_EmptyAsNull(in));
+          fsDir.unprotectedSetOwner(NNUtils.readString(in),
+        		  NNUtils.readString_EmptyAsNull(in),
+        		  NNUtils.readString_EmptyAsNull(in));
           break;
         }
         case OP_SET_NS_QUOTA: {
@@ -675,7 +700,7 @@ public class FSEditLog {
             throw new IOException("Unexpected opcode " + opcode
                 + " for version " + logVersion);
           }
-          fsDir.unprotectedSetQuota(FSImage.readString(in), 
+          fsDir.unprotectedSetQuota(NNUtils.readString(in), 
                                     readLongWritable(in), 
                                     FSConstants.QUOTA_DONT_SET);
           break;
@@ -685,14 +710,14 @@ public class FSEditLog {
             throw new IOException("Unexpected opcode " + opcode
                 + " for version " + logVersion);
           }
-          fsDir.unprotectedSetQuota(FSImage.readString(in),
+          fsDir.unprotectedSetQuota(NNUtils.readString(in),
                                     FSConstants.QUOTA_RESET,
                                     FSConstants.QUOTA_DONT_SET);
           break;
         }
 
         case OP_SET_QUOTA:
-          fsDir.unprotectedSetQuota(FSImage.readString(in),
+          fsDir.unprotectedSetQuota(NNUtils.readString(in),
                                     readLongWritable(in),
                                     readLongWritable(in));
                                       
@@ -705,7 +730,7 @@ public class FSEditLog {
             throw new IOException("Incorrect data format. " 
                                   + "times operation.");
           }
-          path = FSImage.readString(in);
+          path = NNUtils.readString(in);
           mtime = readLong(in);
           atime = readLong(in);
           fsDir.unprotectedSetTimes(path, mtime, atime, true);
@@ -718,8 +743,8 @@ public class FSEditLog {
             throw new IOException("Incorrect data format. " 
                                   + "symlink operation.");
           }
-          path = FSImage.readString(in);
-          String value = FSImage.readString(in);
+          path = NNUtils.readString(in);
+          String value = NNUtils.readString(in);
           mtime = readLong(in);
           atime = readLong(in);
           PermissionStatus perm = PermissionStatus.read(in);
@@ -737,8 +762,8 @@ public class FSEditLog {
             throw new IOException("Incorrect data format. " 
                                   + "Mkdir operation.");
           }
-          String s = FSImage.readString(in);
-          String d = FSImage.readString(in);
+          String s = NNUtils.readString(in);
+          String d = NNUtils.readString(in);
           timestamp = readLong(in);
           Rename[] options = readRenameOptions(in);
           HdfsFileStatus dinfo = fsDir.getFileInfo(d, false);
@@ -808,8 +833,8 @@ public class FSEditLog {
       if(closeOnExit)
         in.close();
     }
-    if (FSImage.LOG.isDebugEnabled()) {
-      FSImage.LOG.debug("numOpAdd = " + numOpAdd + " numOpClose = " + numOpClose 
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("numOpAdd = " + numOpAdd + " numOpClose = " + numOpClose 
           + " numOpDelete = " + numOpDelete 
           + " numOpRenameOld = " + numOpRenameOld 
           + " numOpSetRepl = " + numOpSetRepl + " numOpMkDir = " + numOpMkDir
@@ -867,8 +892,8 @@ public class FSEditLog {
       ArrayList<EditLogOutputStream> errorStreams = null;
       long start = now();
       for(EditLogOutputStream eStream : editStreams) {
-        if(FSImage.LOG.isDebugEnabled()) {
-          FSImage.LOG.debug("loggin edits into " + eStream.getName() +
+        if(LOG.isDebugEnabled()) {
+          LOG.debug("loggin edits into " + eStream.getName() +
               " stream");
         }
         if(!eStream.isOperationSupported(op))
@@ -876,7 +901,7 @@ public class FSEditLog {
         try {
           eStream.write(op, writables);
         } catch (IOException ie) {
-          FSImage.LOG.warn("logEdit: removing "+ eStream.getName(), ie);
+          LOG.warn("logEdit: removing "+ eStream.getName(), ie);
           if(errorStreams == null)
             errorStreams = new ArrayList<EditLogOutputStream>(1);
           errorStreams.add(eStream);
@@ -1332,7 +1357,7 @@ public class FSEditLog {
           "Wrong streams size";
         size = Math.max(size, curSize);
       } catch (IOException e) {
-        FSImage.LOG.warn("getEditLogSize: editstream.length failed. removing editlog (" +
+        LOG.warn("getEditLogSize: editstream.length failed. removing editlog (" +
             idx + ") " + es.getName());
         if(al==null) al = new ArrayList<EditLogOutputStream>(1);
         al.add(es);
@@ -1347,7 +1372,7 @@ public class FSEditLog {
    */
   synchronized void rollEditLog() throws IOException {
     waitForSyncToFinish();
-    Iterator<StorageDirectory> it = fsimage.dirIterator(NameNodeDirType.EDITS);
+    Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS);
     if(!it.hasNext()) 
       return;
     //
@@ -1387,7 +1412,7 @@ public class FSEditLog {
     EditStreamIterator itE = 
       (EditStreamIterator)getOutputStreamIterator(JournalType.FILE);
     Iterator<StorageDirectory> itD = 
-      fsimage.dirIterator(NameNodeDirType.EDITS);
+    	storage.dirIterator(NameNodeDirType.EDITS);
     while(itE.hasNext() && itD.hasNext()) {
       EditLogOutputStream eStream = itE.next();
       StorageDirectory sd = itD.next();
@@ -1453,7 +1478,7 @@ public class FSEditLog {
     EditStreamIterator itE = 
       (EditStreamIterator)getOutputStreamIterator(JournalType.FILE);
     Iterator<StorageDirectory> itD = 
-      fsimage.dirIterator(NameNodeDirType.EDITS);
+    	storage.dirIterator(NameNodeDirType.EDITS);
     while(itE.hasNext() && itD.hasNext()) {
       EditLogOutputStream eStream = itE.next();
       StorageDirectory sd = itD.next();
@@ -1497,7 +1522,7 @@ public class FSEditLog {
   synchronized File getFsEditName() {
     StorageDirectory sd = null;   
     for (Iterator<StorageDirectory> it = 
-      fsimage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
+    	storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
       sd = it.next();   
       if(sd.getRoot().canRead())
         return getEditFile(sd);
@@ -1509,7 +1534,7 @@ public class FSEditLog {
    * Returns the timestamp of the edit log
    */
   synchronized long getFsEditTime() {
-    Iterator<StorageDirectory> it = fsimage.dirIterator(NameNodeDirType.EDITS);
+    Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS);
     if(it.hasNext())
       return getEditFile(it.next()).lastModified();
     return 0;

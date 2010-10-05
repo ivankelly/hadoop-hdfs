@@ -27,22 +27,28 @@ import java.util.Iterator;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.permission.PermissionStatus;
+import org.apache.hadoop.hdfs.DFSConfigKeys;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.Util;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NodeType;
+import org.apache.hadoop.hdfs.server.common.HdfsConstants.StartupOption;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirType;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 //import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.namenode.JournalStream.JournalType;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.util.*;
+
+
 
 public class NNStorage extends Storage implements Iterable{
 
-	private Configuration conf;
-	private List<StorageErrorListener> errorlisteners;
+  private Configuration conf;
+  private List<StorageErrorListener> errorlisteners;
 
-	private static final Log LOG = LogFactory.getLog(NameNode.class.getName());
+  private static final Log LOG = LogFactory.getLog(NameNode.class.getName());
 	
 	
 	/**
@@ -90,6 +96,9 @@ public class NNStorage extends Storage implements Iterable{
 	public NNStorage(Configuration conf){
 		super(NodeType.NAME_NODE);
 		this.conf = conf;
+		
+		//Collection<URI> dirsToFormat = FSNamesystem.getNamespaceDirs(conf);
+		//Collection<URI> editDirsToFormat = FSNamesystem.getNamespaceEditsDirs(conf);
 		
 	}
 
@@ -198,8 +207,100 @@ public class NNStorage extends Storage implements Iterable{
 		return new File(sd.getCurrentDir(), type.getName());
 	}
 
-	  
-	// TODO
+	/**
+	 * In esence, it does the same as 
+	 * FSNamesystem.getStorageDirs + FSImage.setstoragedirs
+	 */
+	protected void loadStorages(Configuration conf){
+		
+		Collection<String> dirNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_KEY);
+		Collection<String> editsNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY);
+	
+		StartupOption startOpt = NameNode.getStartupOption(conf);
+		if(startOpt == StartupOption.IMPORT) {
+			// In case of IMPORT this will get rid of default directories 
+			// but will retain directories specified in hdfs-site.xml
+			// When importing image from a checkpoint, the name-node can
+			// start with empty set of storage directories.
+			Configuration cE = new HdfsConfiguration(false);
+			cE.addResource("core-default.xml");
+			cE.addResource("core-site.xml");
+			cE.addResource("hdfs-default.xml");
+
+			dirNames.removeAll(
+					cE.getStringCollection(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_KEY));
+			editsNames.removeAll(
+					cE.getStringCollection(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY));
+			
+			if(dirNames.isEmpty() || editsNames.isEmpty() ){
+				String property = dirNames.isEmpty() ? DFSConfigKeys.DFS_NAMENODE_NAME_DIR_KEY.toString() : "";
+				property += dirNames.isEmpty() ? " and " + DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY.toString() : "";
+				
+				LOG.warn("!!! WARNING !!!" +
+						"\n\tThe NameNode currently runs without persistent storage." +
+						"\n\tAny changes to the file system meta-data may be lost." +
+						"\n\tRecommended actions:" +
+						"\n\t\t- shutdown and restart NameNode with configured \""
+						+ property + "\" in hdfs-site.xml;" +
+						"\n\t\t- use Backup Node as a persistent and up-to-date storage " +
+				"of the file system meta-data.");
+			}
+			
+			
+		} else if (dirNames.isEmpty())
+			dirNames.add("file:///tmp/hadoop/dfs/name");
+		
+		
+		Collection<URI> fsNameDirs = Util.stringCollectionAsURIs(dirNames);
+        Collection<URI> fsEditsDirs = Util.stringCollectionAsURIs(dirNames);
+        
+		this.storageDirs = new ArrayList<StorageDirectory>();
+	    
+		//this.removedStorageDirs = new ArrayList<StorageDirectory>();
+	    
+	        
+	    // Add all name dirs with appropriate NameNodeDirType 
+	    for (URI dirName : fsNameDirs) {
+	    	NNUtils.checkSchemeConsistency(dirName);
+	      boolean isAlsoEdits = false;
+	      for (URI editsDirName : fsEditsDirs) {
+	    	  if (editsDirName.compareTo(dirName) == 0) {
+	    		  isAlsoEdits = true;
+	    		  fsEditsDirs.remove(editsDirName);
+	    		  break;
+	    	  }
+	      }
+	      NameNodeDirType dirType = (isAlsoEdits) ?
+	                          NameNodeDirType.IMAGE_AND_EDITS :
+	                          NameNodeDirType.IMAGE;
+	      // Add to the list of storage directories, only if the 
+	      // URI is of type file://
+	      if(dirName.getScheme().compareTo(JournalType.FILE.name().toLowerCase()) 
+	          == 0){
+	        this.addStorageDir(new StorageDirectory(new File(dirName.getPath()), 
+	            dirType));
+	      }
+	    }
+	    
+	    // Add edits dirs if they are different from name dirs
+	    for (URI dirName : fsEditsDirs) {
+	      NNUtils.checkSchemeConsistency(dirName);
+	      // Add to the list of storage directories, only if the 
+	      // URI is of type file://
+	      if(dirName.getScheme().compareTo(JournalType.FILE.name().toLowerCase())
+	          == 0)
+	    	  this.addStorageDir(new StorageDirectory(new File(dirName.getPath()), 
+	                    NameNodeDirType.EDITS));
+	    }
+		
+	}
+	
+	// Edits
+	// DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY
+	// ns dirs  
+	// DFSConfigKeys.DFS_NAMENODE_NAME_DIR_KEY
+	
+	/*
 	void setStorageDirectories(Collection<URI> fsNameDirs,
 	                            Collection<URI> fsEditsDirs) throws IOException {
 		
@@ -240,41 +341,40 @@ public class NNStorage extends Storage implements Iterable{
 	                    NameNodeDirType.EDITS));
 	    }
 	 }
-
+*/
 
 	// TODO
 	synchronized void attemptRestoreRemovedStorage() {
-		// if directory is "alive" - copy the images there...
-		if (!restoreFailedStorage || removedStorageDirs.size() == 0)
-			return; // nothing to restore
+	  // if directory is "alive" - copy the images there...
+	  if (!restoreFailedStorage || removedStorageDirs.size() == 0)
+	    return; // nothing to restore
 
-		LOG.info("FSImage.attemptRestoreRemovedStorage: check removed(failed) "
-				+ "storarge. removedStorages size = "
-				+ removedStorageDirs.size());
-		for (Iterator<StorageDirectory> it = this.removedStorageDirs.iterator(); it
-				.hasNext();) {
-			StorageDirectory sd = it.next();
-			File root = sd.getRoot();
-			LOG.info("currently disabled dir " + root.getAbsolutePath()
-					+ "; type=" + sd.getStorageDirType() + ";canwrite="
-					+ root.canWrite());
-			try {
-
-				if (root.exists() && root.canWrite()) {
-					format(sd);
-					LOG.info("restoring dir " + sd.getRoot().getAbsolutePath());
-					if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-						File eFile = getEditFile(sd);
-						editLog.addNewEditLogStream(eFile);
-					}
-					this.addStorageDir(sd); // restore
-					it.remove();
-				}
-			} catch (IOException e) {
-				LOG.warn("failed to restore " + sd.getRoot().getAbsolutePath(),
-						e);
-			}
-		}
+	  LOG.info("FSImage.attemptRestoreRemovedStorage: check removed(failed) "
+	      + "storarge. removedStorages size = "
+	      + removedStorageDirs.size());
+	  for (Iterator<StorageDirectory> it = this.removedStorageDirs.iterator(); 
+	        it.hasNext();) {
+	    StorageDirectory sd = it.next();
+	    File root = sd.getRoot();
+	    LOG.info("currently disabled dir " + root.getAbsolutePath()
+	        + "; type=" + sd.getStorageDirType() + ";canwrite="
+		     	        + root.canWrite());
+      try {
+	      if (root.exists() && root.canWrite()) {
+	        format(sd);
+	        LOG.info("restoring dir " + sd.getRoot().getAbsolutePath());
+	        if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
+	          File eFile = getEditFile(sd);
+	          editLog.addNewEditLogStream(eFile);
+	        }
+	        this.addStorageDir(sd); // restore
+	        it.remove();
+	        }
+	      } catch (IOException e) {
+	        LOG.warn("failed to restore " + sd.getRoot().getAbsolutePath(),
+	            e);
+	      }
+	  }
 	}
 
 

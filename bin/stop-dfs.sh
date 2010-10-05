@@ -24,9 +24,5 @@ bin=`cd "$bin"; pwd`
 . "$bin"/hdfs-config.sh
 
 "$HADOOP_COMMON_HOME"/bin/hadoop-daemon.sh --config $HADOOP_CONF_DIR --script "$bin"/hdfs stop namenode
-if [ -n "$HADOOP_SECURE_DN_USER" ]; then
-  echo "Attempting to stop secure cluster, skipping datanodes. Run stop-secure-dns.sh as root to complete shutdown."
-else
-  "$HADOOP_COMMON_HOME"/bin/hadoop-daemons.sh --config $HADOOP_CONF_DIR --script "$bin"/hdfs stop datanode
-fi
+"$HADOOP_COMMON_HOME"/bin/hadoop-daemons.sh --config $HADOOP_CONF_DIR --script "$bin"/hdfs stop datanode
 "$HADOOP_COMMON_HOME"/bin/hadoop-daemons.sh --config $HADOOP_CONF_DIR --hosts masters --script "$bin"/hdfs stop secondarynamenode

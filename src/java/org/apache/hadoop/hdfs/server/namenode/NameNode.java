@@ -1364,6 +1364,9 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   private static boolean format(Configuration conf,
                                 boolean isConfirmationNeeded)
       throws IOException {
+	// ns dirs  
+	DFSConfigKeys.DFS_NAMENODE_NAME_DIR_KEY
+	
     Collection<URI> dirsToFormat = FSNamesystem.getNamespaceDirs(conf);
     Collection<URI> editDirsToFormat = 
                  FSNamesystem.getNamespaceEditsDirs(conf);
