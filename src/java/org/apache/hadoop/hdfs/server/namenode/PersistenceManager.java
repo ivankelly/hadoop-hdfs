@@ -23,49 +23,49 @@ import org.apache.hadoop.conf.Configuration;
 
 public class PersistenceManager {
 
-	
-	private FSImage fsi;
-	private FSEditLog fse;
-	private NNStorage storage;
-	
-	/* Constructor */
-	public PersistenceManager(Configuration conf){
-		
-		storage = new NNStorage(conf);
-		fsi = new FSImage(conf,storage);
-		
-		
-	}
-	
-	
-	
-	
-	/**
-	For managing checkpoints
-	*/
-	public void startCheckpoint();
-	public void endCheckpoint();
-	/**
-	Implement functionallity used by the command line options
-	*/
-	public static void upgrade();
-	public static void rollback();
-	public static void finalize();
-	public static void format();
-	/**
-	Save the contents of FSNameSystem to disk
-	Fundamentally just dumps mem and resets the edit log
-	*/
-	public void save();
-	/**
-	Load the latest version of the FSNameSystem from disk
-	w Interfaces
-	*/
-	public void load();
-	
-	FSEditLog getLog();
+  
+  private FSImage fsi;
+  private FSEditLog fse;
+  private NNStorage storage;
+  
+  /* Constructor */
+  public PersistenceManager(Configuration conf){
+    
+    storage = new NNStorage(conf);
+    fsi = new FSImage(conf,storage);
+    
+    
+  }
+  
+  
+  
+  
+  /**
+  For managing checkpoints
+  */
+  public void startCheckpoint();
+  public void endCheckpoint();
+  /**
+  Implement functionallity used by the command line options
+  */
+  public static void upgrade();
+  public static void rollback();
+  public static void finalize();
+  public static void format();
+  /**
+  Save the contents of FSNameSystem to disk
+  Fundamentally just dumps mem and resets the edit log
+  */
+  public void save();
+  /**
+  Load the latest version of the FSNameSystem from disk
+  w Interfaces
+  */
+  public void load();
+  
+  FSEditLog getLog();
 
-	
-	
-	
+  
+  
+  
 }
