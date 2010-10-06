@@ -86,7 +86,7 @@ public class FSImage extends Storage {
   private static final SimpleDateFormat DATE_FORM =
     new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
-  //
+  // DELETEME
   // The filenames used for storing the images
   //
   enum NameNodeFile {
@@ -275,7 +275,7 @@ public class FSImage extends Storage {
     }
   };
   
-  void setCheckpointDirectories(Collection<URI> dirs,
+  public void setCheckpointDirectories(Collection<URI> dirs,
                                 Collection<URI> editsDirs) {
     checkpointDirs = dirs;
     checkpointEditsDirs = editsDirs;
@@ -368,7 +368,7 @@ public class FSImage extends Storage {
    * @throws IOException
    * @return true if the image needs to be saved or false otherwise
    */
-  boolean recoverTransitionRead(Collection<URI> dataDirs,
+  public boolean recoverTransitionRead(Collection<URI> dataDirs,
                                 Collection<URI> editsDirs,
                                 StartupOption startOpt)
       throws IOException {
@@ -484,15 +484,16 @@ public class FSImage extends Storage {
     }
     
     boolean needToSave = loadFSImage();
-
+    
+    /* TODELETE
     assert editLog != null : "editLog must be initialized";
     if(!editLog.isOpen())
       editLog.open();
-    
+    */
     return needToSave;
   }
 
-  private void doUpgrade() throws IOException {
+  public void doUpgrade() throws IOException {
     if(getDistributedUpgradeState()) {
       // only distributed upgrade need to continue
       // don't do version upgrade
@@ -548,7 +549,7 @@ public class FSImage extends Storage {
     editLog.open();
   }
 
-  private void doRollback() throws IOException {
+  public void doRollback() throws IOException {
     // Rollback is allowed only if there is 
     // a previous fs states in at least one of the storage directories.
     // Directories that don't have previous state do not rollback
@@ -628,7 +629,7 @@ public class FSImage extends Storage {
    * Load image from a checkpoint directory and save it into the current one.
    * @throws IOException
    */
-  void doImportCheckpoint() throws IOException {
+  public void doImportCheckpoint() throws IOException {
     FSNamesystem fsNamesys = getFSNamesystem();
     FSImage ckptImage = new FSImage(fsNamesys);
     // replace real image with the checkpoint image
@@ -677,6 +678,8 @@ public class FSImage extends Storage {
     this.checkpointTime = readCheckpointTime(sd);
   }
 
+
+  // TODELETE
   /**
    * Determine the checkpoint time of the specified StorageDirectory
    * 
@@ -849,7 +852,7 @@ public class FSImage extends Storage {
     return true;
   }
   
-  //
+  // TODELETE
   // Atomic move sequence, to recover from interrupted checkpoint
   //
   boolean recoverInterruptedCheckpoint(StorageDirectory nameSD,
@@ -911,7 +914,8 @@ public class FSImage extends Storage {
    * @return whether the image should be saved
    * @throws IOException
    */
-  boolean loadFSImage() throws IOException {
+  // TODELETE
+  public boolean loadFSImage() throws IOException {
     long latestNameCheckpointTime = Long.MIN_VALUE;
     long latestEditsCheckpointTime = Long.MIN_VALUE;
     boolean needToSave = false;
@@ -1029,11 +1033,85 @@ public class FSImage extends Storage {
   }
 
   /**
+   * Choose latest image from one of the directories,
+   * load it and merge with the edits from that directory.
+   * 
+   * Saving and loading fsimage should never trigger symlink resolution. 
+   * The paths that are persisted do not have *intermediate* symlinks 
+   * because intermediate symlinks are resolved at the time files, 
+   * directories, and symlinks are created. All paths accessed while 
+   * loading or saving fsimage should therefore only see symlinks as 
+   * the final path component, and the functions called below do not
+   * resolve symlinks that are the final path component.
+   *
+   * @return whether the image should be saved
+   * @throws IOException
+   */
+  public NNStorage.LoadDirectory findLatestImageDirectory() throws IOException {
+    long latestNameCheckpointTime = Long.MIN_VALUE;
+    boolean needToSave = false;
+    isUpgradeFinalized = true;
+    
+    StorageDirectory latestNameSD = null;
+    
+    Collection<String> imageDirs = new ArrayList<String>();
+    
+    // Set to determine if all of storageDirectories share the same checkpoint
+    Set<Long> checkpointTimes = new HashSet<Long>();
+
+    // Process each of the storage directories to find the pair of
+    // newest image file and edit file
+    for (Iterator<StorageDirectory> it = dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
+
+      // Was the file just formatted?
+      if (!sd.getVersionFile().exists()) {
+        needToSave |= true;
+        continue;
+      }
+      
+      boolean imageExists = false;
+      
+      // Determine if sd is image, edits or both
+      if (sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
+        imageExists = getImageFile(sd, NameNodeFile.IMAGE).exists();
+        imageDirs.add(sd.getRoot().getCanonicalPath());
+      }
+      
+      checkpointTime = readCheckpointTime(sd);
+
+      checkpointTimes.add(checkpointTime);
+      
+      if (sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE) && 
+         (latestNameCheckpointTime < checkpointTime) && imageExists) {
+        latestNameCheckpointTime = checkpointTime;
+        latestNameSD = sd;
+      }
+      
+      // check that we have a valid, non-default checkpointTime
+      if (checkpointTime <= 0L)
+        needToSave |= true;
+      
+      // set finalized flag
+      isUpgradeFinalized = isUpgradeFinalized && !sd.getPreviousDir().exists();
+    }
+
+    // We should have at least one image and one edits dirs
+    if (latestNameSD == null)
+      throw new IOException("Image file is not found in " + imageDirs);
+
+    // If there was more than one checkpointTime recorded we should save
+    needToSave |= checkpointTimes.size() != 1;
+
+    return new NNStorage.LoadDirectory(latestNameSD, needToSave);
+  }
+
+  /**
    * Load in the filesystem image from file. It's a big list of
    * filenames and blocks.  Return whether we should
    * "re-save" and consolidate the edit-logs
    */
-  boolean loadFSImage(File curFile) throws IOException {
+  public boolean loadFSImage(File curFile) throws IOException {
     assert this.getLayoutVersion() < 0 : "Negative layout version is expected.";
     assert curFile != null : "curFile is null";
 
@@ -1304,9 +1382,11 @@ public class FSImage extends Storage {
    * Otherwise the name-node may purge all edits and fail,
    * in which case the journal will be lost.
    */
-  void saveNamespace(boolean renewCheckpointTime) throws IOException {
+  public void saveNamespace(boolean renewCheckpointTime) throws IOException {
+    /* TODELETE
     assert editLog != null : "editLog must be initialized";
     editLog.close();
+    */
     if(renewCheckpointTime)
       this.checkpointTime = now();
     ArrayList<StorageDirectory> errorSDs = new ArrayList<StorageDirectory>();
@@ -1366,7 +1446,9 @@ public class FSImage extends Storage {
       }
     }
     processIOError(errorSDs, false);
+    /* TODELETE
     if(!editLog.isOpen()) editLog.open();
+    */
     ckptState = CheckpointStates.UPLOAD_DONE;
   }
 
@@ -1911,7 +1993,7 @@ public class FSImage extends Storage {
     ckptState = CheckpointStates.UPLOAD_DONE;
   }
 
-  synchronized void close() throws IOException {
+  public synchronized void close() throws IOException {
     getEditLog().close();
     unlockAll();
   }
