@@ -681,7 +681,7 @@ public class SecondaryNameNode implements Runnable {
       this.layoutVersion = -1; // to avoid assert in loadFSImage()
       loadFSImage(FSImage.getImageFile(sdName, NameNodeFile.IMAGE));
       loadFSEdits(sdEdits);
-      sig.validateStorageInfo(this);
+      //FIXME sig.validateStorageInfo(this);
       saveNamespace(false);
     }
   }

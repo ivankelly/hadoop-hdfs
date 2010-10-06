@@ -45,6 +45,7 @@ import org.apache.hadoop.util.*;
 
 
 public class NNStorage extends Storage implements Iterable<StorageDirectory> {
+  protected long checkpointTime = -1L;  // The age of the image
 
   public interface StorageErrorListener {
     public void errorOccurred(StorageDirectory sd);
@@ -134,20 +135,34 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     /*    checkpointTime = newCpT;
     // Write new checkpoint time in all storage directories
     for(Iterator<StorageDirectory> it =
-                          dirIterator(); it.hasNext();) {
-      StorageDirectory sd = it.next();
-        try {
-          writeCheckpointTime(sd);
-        } catch(IOException e) {
-          // Close any edits stream associated with this dir and remove directory
-            LOG.warn("incrementCheckpointTime failed on " + sd.getRoot().getPath() + ";type="+sd.getStorageDirType());
-        }
-        }*/
+    dirIterator(); it.hasNext();) {
+    StorageDirectory sd = it.next();
+    try {
+    writeCheckpointTime(sd);
+    } catch(IOException e) {
+    // Close any edits stream associated with this dir and remove directory
+    LOG.warn("incrementCheckpointTime failed on " + sd.getRoot().getPath() + ";type="+sd.getStorageDirType());
+    }
+    }*/
   }
   
+  /**
+   * The age of the namespace state.<p>
+   * Reflects the latest time the image was saved.
+   * Modified with every save or a checkpoint.
+   * Persisted in VERSION file.
+   */
+  public long getCheckpointTime() {
+    return checkpointTime;
+  }  
   
-  
-  
+  synchronized public long getEditsTime() {
+    Iterator<StorageDirectory> it = dirIterator(NameNodeDirType.EDITS);
+    if(it.hasNext())
+      return getEditFile(it.next()).lastModified();
+    return 0;
+  }
+
   
   /////////////////////////////////////////////////////////////////////
   // PUBLIC API, but not so sure about them
@@ -479,4 +494,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     if(tmpCkptDir.exists())
     rename(tmpCkptDir, prevCkptDir);*/
   }
+
+  
 }

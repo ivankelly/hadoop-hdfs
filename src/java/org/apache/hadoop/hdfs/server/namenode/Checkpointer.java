@@ -251,7 +251,7 @@ class Checkpointer extends Daemon {
 
     BackupStorage bnImage = getFSImage();
     bnImage.loadCheckpoint(sig);
-    sig.validateStorageInfo(bnImage);
+    // FIXME sig.validateStorageInfo(bnImage);
     bnImage.saveCheckpoint();
 
     if(cpCmd.needToReturnImage())

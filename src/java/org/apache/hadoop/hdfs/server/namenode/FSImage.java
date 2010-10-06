@@ -127,6 +127,7 @@ public class FSImage extends Storage {
   }
 
   protected FSNamesystem namesystem = null;
+    // TODELETE
   protected long checkpointTime = -1L;  // The age of the image
   protected FSEditLog editLog = null;
   private boolean isUpgradeFinalized = false;
@@ -755,6 +756,7 @@ public class FSImage extends Storage {
     setCheckpointTime(checkpointTime + 1);
   }
 
+    // TODELETE
   /**
    * The age of the namespace state.<p>
    * Reflects the latest time the image was saved.
@@ -1804,7 +1806,7 @@ public class FSImage extends Storage {
                             DATE_FORM.format(new Date(sig.editsTime)) + 
                             ". Checkpoint Aborted.");
     }
-    sig.validateStorageInfo(this);
+    // FIXME sig.validateStorageInfo(this);
     ckptState = FSImage.CheckpointStates.UPLOAD_START;
   }
 
@@ -1883,7 +1885,7 @@ public class FSImage extends Storage {
    */
   void endCheckpoint(CheckpointSignature sig, 
                      NamenodeRole remoteNNRole) throws IOException {
-    sig.validateStorageInfo(this);
+      // FIXME sig.validateStorageInfo(this);
     // Renew checkpoint time for the active if the other is a checkpoint-node.
     // The checkpoint-node should have older image for the next checkpoint 
     // to take effect.
