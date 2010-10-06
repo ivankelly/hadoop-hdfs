@@ -141,6 +141,8 @@ Trunk (unreleased changes)
     HDFS-1417. Add @Override to SimulatedFSDataset methods that implement
     FSDatasetInterface methods. (suresh)
 
+    HDFS-1426. Remove unused method BlockInfo#listCount. (hairong)
+
   OPTIMIZATIONS
 
     HDFS-1140. Speedup INode.getPathComponents. (Dmytro Molkov via shv)
@@ -155,6 +157,9 @@ Trunk (unreleased changes)
     (Erik Steffl via szetszwo)
 
     HDFS-1368. Add a block counter to DatanodeDescriptor. (hairong)
+
+    HDFS-1434. Refactor Datanode#startDataNode method into smaller methods.
+    (suresh)
 
   BUG FIXES
 
@@ -277,7 +282,32 @@ Trunk (unreleased changes)
     HDFS-96. HDFS supports blocks larger than 2 GB.
     (Patrick Kling via dhruba)
 
-Release 0.21.0 - Unreleased
+    HDFS-1433. Fix test failures - TestPread and TestFileLimit. (suresh)
+
+    HDFS-1364. Makes long running HFTP-based applications do relogins
+    if necessary. (Jitendra Pandey via ddas)
+
+    HDFS-1399. Distinct minicluster services (e.g. NN and JT) overwrite each
+    other's service policies.  (Aaron T. Myers via tomwhite)
+
+    HDFS-1440. Fix TestComputeInvalidateWork failure. (suresh)
+
+Release 0.21.1 - Unreleased
+
+  IMPROVEMENTS
+
+    HDFS-1411. Correct backup node startup command in hdfs user guide.
+    (Ching-Shen Chen via shv)
+
+  BUG FIXES
+
+    HDFS-1363. Eliminate second synchronized sections in appendFile(). (shv)
+
+    HDFS-1413. Fix broken links to HDFS Wiki. (shv)
+
+    HDFS-1420. Clover build doesn't generate per-test coverage (cos)
+
+Release 0.21.0 - 2010-08-13
 
   INCOMPATIBLE CHANGES
 
@@ -809,9 +839,6 @@ Release 0.21.0 - Unreleased
 
     HDFS-806. Add new unit tests to the 10-mins 'run-commit-test' target (cos)
 
-    HDFS-1411. Correct backup node startup command in hdfs user guide.
-    (Ching-Shen Chen via shv) 
-
   OPTIMIZATIONS
 
     HDFS-946. NameNode should not return full path name when lisitng a
@@ -1203,10 +1230,6 @@ Release 0.21.0 - Unreleased
     same test case (Cos)
 
     HDFS-1267. fuse-dfs does not compile. (Devaraj Das via tomwhite)
-
-    HDFS-1363. Eliminate second synchronized sections in appendFile(). (shv)
-
-    HDFS-1413. Fix broken links to HDFS Wiki. (shv)
 
 Release 0.20.3 - Unreleased
 
