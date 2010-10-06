@@ -62,7 +62,7 @@ public class CheckpointSignature extends StorageInfo
          + String.valueOf(checkpointTime);
   }
 
-  void validateStorageInfo(NNStorage si) throws IOException {
+  public void validateStorageInfo(NNStorage si) throws IOException {
     if(layoutVersion != si.layoutVersion
         || namespaceID != si.namespaceID || cTime != si.cTime
        || checkpointTime != si.getCheckpointTime()) {

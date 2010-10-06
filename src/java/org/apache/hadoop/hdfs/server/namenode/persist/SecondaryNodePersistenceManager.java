@@ -136,7 +136,7 @@ public class SecondaryNodePersistenceManager extends PersistenceManager {
 
     load();
 
-    // TODO fix checkpointsignatures sig.validateStorageInfo(storage);
+    sig.validateStorageInfo(storage);
 
     save();
   }

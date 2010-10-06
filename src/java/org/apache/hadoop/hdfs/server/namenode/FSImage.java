@@ -1784,7 +1784,8 @@ public class FSImage extends Storage {
     ckptState = CheckpointStates.ROLLED_EDITS;
     // If checkpoint fails this should be the most recent image, therefore
     incrementCheckpointTime();
-    return new CheckpointSignature(this);
+    //return new CheckpointSignature(null); //FIXME should pass NNStorage
+    return null;
   }
 
   /**

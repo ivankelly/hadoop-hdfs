@@ -75,6 +75,32 @@ public class PersistenceManager {
      w Interfaces
   */
   public void load() throws IOException {
+        // format before starting up if requested
+    /*    if (startOpt == StartupOption.FORMAT) {
+      fsImage.setStorageDirectories(dataDirs, editsDirs);
+      fsImage.format();
+      startOpt = StartupOption.REGULAR;
+    }
+    try {
+      if (fsImage.recoverTransitionRead(dataDirs, editsDirs, startOpt)) {
+        fsImage.saveNamespace(true);
+      }
+      FSEditLog editLog = fsImage.getEditLog();
+      assert editLog != null : "editLog must be initialized";
+      fsImage.setCheckpointDirectories(null, null);
+    } catch(IOException e) {
+      fsImage.close();
+      throw e;
+    }
+    writeLock();
+    try {
+      this.ready = true;
+      this.nameCache.initialized();
+      cond.signalAll();
+    } finally {
+      writeUnlock();
+    }
+    */
     
   }
   
