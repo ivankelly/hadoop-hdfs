@@ -21,6 +21,8 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.DataInputStream;
+import java.io.FileInputStream;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -43,6 +45,24 @@ import org.apache.hadoop.conf.Configuration;
 
 
 public class NNStorage extends Storage implements Iterable<StorageDirectory> {
+  public static class LoadDirectory {
+    private StorageDirectory directory;
+    private boolean needToSave;
+    
+    public LoadDirectory(StorageDirectory directory, boolean needToSave) {
+      this.directory = directory;
+      this.needToSave = needToSave;
+    }
+
+    public StorageDirectory getDirectory() {
+      return directory;
+    }
+
+    public boolean getNeedToSave() {
+      return needToSave;
+    }
+  };
+  
   protected long checkpointTime = -1L;  // The age of the image
 
   public interface StorageErrorListener {
@@ -54,14 +74,30 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
 
   private static final Log LOG = LogFactory.getLog(NameNode.class.getName());
   
-  
+
+  // 
+  // The filenames used for storing the images
+  //
+  public enum NameNodeFile {
+    IMAGE     ("fsimage"),
+    TIME      ("fstime"),
+    EDITS     ("edits"),
+    IMAGE_NEW ("fsimage.ckpt"),
+    EDITS_NEW ("edits.new");
+    
+    private String fileName = null;
+    private NameNodeFile(String name) {this.fileName = name;}
+    String getName() {return fileName;}
+  }
+
+
   /**
    * Implementation of StorageDirType specific to namenode storage A Storage
    * directory could be of type IMAGE which stores only fsimage, or of type
    * EDITS which stores edits or of type IMAGE_AND_EDITS which stores both
    * fsimage and edits.
    */
-  static enum NameNodeDirType implements StorageDirType {
+  public static enum NameNodeDirType implements StorageDirType {
     UNDEFINED, IMAGE, EDITS, IMAGE_AND_EDITS;
 
     public StorageDirType getStorageDirType() {
@@ -74,19 +110,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       return this == type;
     }
   }
-  
-  enum NameNodeFile {
-    IMAGE     ("fsimage"),
-    TIME      ("fstime"),
-    EDITS     ("edits"),
-    IMAGE_NEW ("fsimage.ckpt"),
-    EDITS_NEW ("edits.new");
-    
-    private String fileName = null;
-    private NameNodeFile(String name) {this.fileName = name;}
-    String getName() {return fileName;}
-  }
-  
+ 
   
   ////////////////////////////////////////////////////////////////////////  
   public void registerErrorListener(StorageErrorListener sel) {
@@ -201,10 +225,28 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     }
   }
   
-  
-  
 
-  
+    /**
+   * Determine the checkpoint time of the specified StorageDirectory
+   * 
+   * @param sd StorageDirectory to check
+   * @return If file exists and can be read, last checkpoint time. If not, 0L.
+   * @throws IOException On errors processing file pointed to by sd
+   */
+  public long readCheckpointTime(StorageDirectory sd) throws IOException {
+    File timeFile = getImageFile(sd, NameNodeFile.TIME);
+    long timeStamp = 0L;
+    if (timeFile.exists() && timeFile.canRead()) {
+      DataInputStream in = new DataInputStream(new FileInputStream(timeFile));
+      try {
+        timeStamp = in.readLong();
+      } finally {
+        in.close();
+      }
+    }
+    return timeStamp;
+  }
+
   synchronized public long getEditsTime() {
     Iterator<StorageDirectory> it = dirIterator(NameNodeDirType.EDITS);
     if(it.hasNext())
@@ -270,11 +312,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       buf.append(sd.getRoot() + "(" + sd.getStorageDirType() + ");");
     }
     return buf.toString();
-  }
-  
-  
-  public Iterator<StorageDirectory> iterator() {
-    return dirIterator();
   }
   
   
@@ -389,7 +426,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   ///////////////////////////////////////////////////////////////////////
   // PRIVATE methods
   ///////////////////////////////////////////////////////////////////////
-    
   static protected File getImageFile(StorageDirectory sd, NameNodeFile type) {
     return new File(sd.getCurrentDir(), type.getName());
     //return null;
@@ -541,7 +577,169 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       }*/
   }
   
+  public Iterator<StorageDirectory> iterator() {
+    return dirIterator();
+  }
+  
+  /*
+  public Iterable<StorageDirectory> iterable(final NameNodeDirType type) {
+    return new Iterable() {
+        public Iterator<StorageDirectory> iterator() {
+	  return dirIterator(type);
+	}
+    };
+  }
+  */
+  /**
+   * Analyze storage directories.
+   * Recover from previous transitions if required. 
+   * Read storage info. 
+   * 
+   * @param startOpt startup option
+   * @throws IOException
+   * @return true if the image needs to be saved or false otherwise
+   */
+  public void initializeDirectories(StartupOption startOpt) throws IOException {
+    /*
+    assert startOpt != StartupOption.FORMAT : 
+      "NameNode formatting should be performed before reading the image";
+    
+    // none of the data dirs exist
+    if((getNumStorageDirs(NameNodeDirType.IMAGE) == 0 || getNumStorageDirs(NameNodeDirType.EDITS) == 0) 
+       && startOpt != StartupOption.IMPORT) {
+      throw new IOException("All specified directories are not accessible or do not exist.");
+    }
 
+    if(startOpt == StartupOption.IMPORT 
+       && (checkpointDirs == null || checkpointDirs.isEmpty())) {
+      throw new IOException("Cannot import image from a checkpoint. "
+                          + "\"dfs.namenode.checkpoint.dir\" is not set." );
+    }
+
+    if(startOpt == StartupOption.IMPORT 
+       && (checkpointEditsDirs == null || checkpointEditsDirs.isEmpty())) {
+      throw new IOException("Cannot import image from a checkpoint. "
+			    + "\"dfs.namenode.checkpoint.dir\" is not set." );
+    }
+    
+    // 1. For each data directory calculate its state and 
+    // check whether all is consistent before transitioning.
+    Map<StorageDirectory, StorageState> dataDirStates = 
+             new HashMap<StorageDirectory, StorageState>();
+    boolean isFormatted = false;
+    for (StorageDirectory sd : this) {
+      StorageState curState;
+      try {
+        curState = sd.analyzeStorage(startOpt);
+        // sd is locked but not opened
+        switch(curState) {
+        case NON_EXISTENT:
+          // name-node fails if any of the configured storage dirs are missing
+          throw new InconsistentFSStateException(sd.getRoot(),
+                      "storage directory does not exist or is not accessible.");
+        case NOT_FORMATTED:
+          break;
+        case NORMAL:
+          break;
+        default:  // recovery is possible
+          sd.doRecover(curState);      
+        }
+        if (curState != StorageState.NOT_FORMATTED 
+            && startOpt != StartupOption.ROLLBACK) {
+          sd.read(); // read and verify consistency with other directories
+          isFormatted = true;
+        }
+        if (startOpt == StartupOption.IMPORT && isFormatted)
+          // import of a checkpoint is allowed only into empty image directories
+          throw new IOException("Cannot import image from a checkpoint. " 
+              + " NameNode already contains an image in " + sd.getRoot());
+      } catch (IOException ioe) {
+        sd.unlock();
+        throw ioe;
+      }
+      dataDirStates.put(sd,curState);
+    }
+    
+    if (!isFormatted && startOpt != StartupOption.ROLLBACK 
+                     && startOpt != StartupOption.IMPORT)
+      throw new IOException("NameNode is not formatted.");
+    if (layoutVersion < LAST_PRE_UPGRADE_LAYOUT_VERSION) {
+      checkVersionUpgradable(layoutVersion);
+    }
+    if (startOpt != StartupOption.UPGRADE
+          && layoutVersion < LAST_PRE_UPGRADE_LAYOUT_VERSION
+          && layoutVersion != FSConstants.LAYOUT_VERSION)
+        throw new IOException(
+           "\nFile system image contains an old layout version " + layoutVersion
+         + ".\nAn upgrade to version " + FSConstants.LAYOUT_VERSION
+         + " is required.\nPlease restart NameNode with -upgrade option.");
+    // check whether distributed upgrade is reguired and/or should be continued
+    verifyDistributedUpgradeProgress(startOpt);
+
+    // 2. Format unformatted dirs.
+    this.checkpointTime = 0L;
+    for (Iterator<StorageDirectory> it = 
+                     dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
+      StorageState curState = dataDirStates.get(sd);
+      switch(curState) {
+      case NON_EXISTENT:
+        throw new IOException(StorageState.NON_EXISTENT + 
+                              " state cannot be here");
+      case NOT_FORMATTED:
+        LOG.info("Storage directory " + sd.getRoot() + " is not formatted.");
+        LOG.info("Formatting ...");
+        sd.clearDirectory(); // create empty currrent dir
+        break;
+      default:
+        break;
+      }
+      }*/
+  }
+
+  public boolean recoverInterruptedCheckpoint(StorageDirectory nameSD,
+					      StorageDirectory editsSD) 
+    throws IOException {
+    boolean needToSave = false;
+    File curFile = getImageFile(nameSD, NameNodeFile.IMAGE);
+    File ckptFile = getImageFile(nameSD, NameNodeFile.IMAGE_NEW);
+
+    //
+    // If we were in the midst of a checkpoint
+    //
+    if (ckptFile.exists()) {
+      needToSave = true;
+      if (getImageFile(editsSD, NameNodeFile.EDITS_NEW).exists()) {
+        //
+        // checkpointing migth have uploaded a new
+        // merged image, but we discard it here because we are
+        // not sure whether the entire merged image was uploaded
+        // before the namenode crashed.
+        //
+        if (!ckptFile.delete()) {
+          throw new IOException("Unable to delete " + ckptFile);
+        }
+      } else {
+        //
+        // checkpointing was in progress when the namenode
+        // shutdown. The fsimage.ckpt was created and the edits.new
+        // file was moved to edits. We complete that checkpoint by
+        // moving fsimage.new to fsimage. There is no need to 
+        // update the fstime file here. renameTo fails on Windows
+        // if the destination file already exists.
+        //
+        if (!ckptFile.renameTo(curFile)) {
+          if (!curFile.delete())
+            LOG.warn("Unable to delete dir " + curFile + " before rename");
+          if (!ckptFile.renameTo(curFile)) {
+            throw new IOException("Unable to rename " + ckptFile +
+                                  " to " + curFile);
+          }
+        }
+      }
+    }
+    return needToSave;
+  }
 
   
 }

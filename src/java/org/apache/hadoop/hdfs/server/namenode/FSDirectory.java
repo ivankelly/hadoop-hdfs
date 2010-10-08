@@ -148,11 +148,12 @@ class FSDirectory implements Closeable {
                    StartupOption startOpt) 
       throws IOException {
     // format before starting up if requested
-    if (startOpt == StartupOption.FORMAT) {
+    /* TODELETE dead path 
+       if (startOpt == StartupOption.FORMAT) {
       fsImage.setStorageDirectories(dataDirs, editsDirs);
       fsImage.format();
       startOpt = StartupOption.REGULAR;
-    }
+      }*/
     try {
       if (fsImage.recoverTransitionRead(dataDirs, editsDirs, startOpt)) {
         fsImage.saveNamespace(true);

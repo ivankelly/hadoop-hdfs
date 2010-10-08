@@ -25,6 +25,9 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.Collection;
+import java.util.Set;
+import java.util.HashSet;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -242,7 +245,7 @@ public class FSEditLog {
     return editStreams;
   }
 
-  boolean isOpen() {
+  public boolean isOpen() {
     return getNumEditStreams() > 0;
   }
 
@@ -252,7 +255,7 @@ public class FSEditLog {
    * 
    * @throws IOException
    */
-  synchronized void open() throws IOException {
+  synchronized public void open() throws IOException {
     numTransactions = totalTimeTransactions = numTransactionsBatchedInSync = 0;
     if (editStreams == null)
       editStreams = new ArrayList<EditLogOutputStream>();
@@ -297,7 +300,7 @@ public class FSEditLog {
   /**
    * Shutdown the file store.
    */
-  synchronized void close() {
+  synchronized public void close() {
     waitForSyncToFinish();
     if (editStreams == null || editStreams.isEmpty()) {
       return;
@@ -1885,5 +1888,79 @@ public class FSEditLog {
       bytes[i] = options[i].value();
     }
     return new BytesWritable(bytes);
+  }
+
+
+  public NNStorage.LoadDirectory findLatestEditsDirectory() throws IOException {
+    long latestEditsCheckpointTime = Long.MIN_VALUE;
+    boolean needToSave = false;
+    
+    StorageDirectory latestEditsSD = null;
+
+    Collection<String> editsDirs = new ArrayList<String>();
+    
+    // Set to determine if all of storageDirectories share the same checkpoint
+    Set<Long> checkpointTimes = new HashSet<Long>();
+
+    // Process each of the storage directories to find the pair of
+    // newest image file and edit file
+    for (StorageDirectory sd : storage.iterable(NNStorage.NameNodeDirType.EDITS)) {
+      
+      // Was the file just formatted?
+      if (!sd.getVersionFile().exists()) {
+        needToSave |= true;
+        continue;
+      }
+      
+      boolean editsExists = false;
+      
+      if (sd.getStorageDirType().isOfType(NNStorage.NameNodeDirType.EDITS)) {
+        editsExists = storage.getImageFile(sd, NNStorage.NameNodeFile.EDITS).exists();
+        editsDirs.add(sd.getRoot().getCanonicalPath());
+      }
+      
+      long checkpointTime = storage.readCheckpointTime(sd);
+      checkpointTimes.add(checkpointTime);
+      
+      if (sd.getStorageDirType().isOfType(NNStorage.NameNodeDirType.EDITS) && 
+          (latestEditsCheckpointTime < checkpointTime) && editsExists) {
+        latestEditsCheckpointTime = checkpointTime;
+        latestEditsSD = sd;
+      }
+      
+      // check that we have a valid, non-default checkpointTime
+      if (checkpointTime <= 0L)
+        needToSave |= true;
+    }
+
+    // We should have at least one image and one edits dirs
+    if (latestEditsSD == null)
+      throw new IOException("Edits file is not found in " + editsDirs);
+
+    // If there was more than one checkpointTime recorded we should save
+    needToSave |= checkpointTimes.size() != 1;
+    
+    return new NNStorage.LoadDirectory(latestEditsSD, needToSave);
+  }
+
+  public int loadEdits(StorageDirectory sd) throws IOException {
+    int numEdits = 0;
+    EditLogFileInputStream editstream = 
+      new EditLogFileInputStream(storage.getImageFile(sd, NNStorage.NameNodeFile.EDITS));
+    
+    numEdits = loadFSEdits(editstream);
+    editstream.close();
+    File editsNew = storage.getImageFile(sd, NNStorage.NameNodeFile.EDITS_NEW);
+    
+    if (editsNew.exists() && editsNew.length() > 0) {
+      editstream = new EditLogFileInputStream(editsNew);
+      numEdits += loadFSEdits(editstream);
+      editstream.close();
+    }
+    
+    // update the counts.
+    fsn.dir.updateCountForINodeWithQuota();    
+    
+    return numEdits;
   }
 }
