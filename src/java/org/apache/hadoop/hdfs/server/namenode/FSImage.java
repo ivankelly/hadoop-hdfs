@@ -74,6 +74,7 @@ import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.StorageErrorListener;
 
 /**
  * FSImage handles checkpointing and logging of the namespace edits.
@@ -81,7 +82,8 @@ import org.apache.hadoop.hdfs.DFSConfigKeys;
  */
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
-public class FSImage extends Storage {
+public class FSImage extends Storage
+ implements StorageErrorListener{
 
   private static final SimpleDateFormat DATE_FORM =
     new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
@@ -160,6 +162,19 @@ public class FSImage extends Storage {
   static private final FsPermission FILE_PERM = new FsPermission((short)0);
   static private final byte[] PATH_SEPARATOR = DFSUtil.string2Bytes(Path.SEPARATOR);
 
+  
+  private Configuration conf;
+  private NNStorage storage;
+  
+  FSImage(Configuration conf, NNStorage storage){
+    // temp, just for compiling-testing purposes
+    // FSImage should no longer extends Storage.
+    super(NodeType.NAME_NODE);
+
+    this.conf = conf;
+    this.storage = storage;
+  }
+
   /**
    */
   FSImage() {
@@ -168,7 +183,7 @@ public class FSImage extends Storage {
 
   FSImage(FSNamesystem ns) {
     super(NodeType.NAME_NODE);
-    this.editLog = new FSEditLog(this);
+    //this.editLog = new FSEditLog(this);
     setFSNamesystem(ns);
   }
 
@@ -197,6 +212,13 @@ public class FSImage extends Storage {
     editsDirs.add(imageDir);
     setStorageDirectories(dirs, editsDirs);
   }
+  
+  @Override
+  public void errorOccurred(StorageDirectory sd) {
+    
+    
+  }
+  
   
   protected FSNamesystem getFSNamesystem() {
     return namesystem;
@@ -727,6 +749,7 @@ public class FSImage extends Storage {
    * @param sd
    * @throws IOException
    */
+  // TO DELETE
   void writeCheckpointTime(StorageDirectory sd) throws IOException {
     if (checkpointTime < 0L)
       return; // do not write negative time
@@ -815,8 +838,10 @@ public class FSImage extends Storage {
       }
     }
     // if there are some edit log streams to remove    
-    if(propagate && al != null) 
-      editLog.processIOError(al, false);
+    if(propagate && al != null)
+      // TODO
+      //removed for compiling porpoues (and uploading to git)
+      editLog.processIOError(al);
     
     //if called from edits log, the it will call increment from there
     if(propagate) incrementCheckpointTime(); 
@@ -1703,7 +1728,7 @@ public class FSImage extends Storage {
     }
     editLog.purgeEditLog(); // renamed edits.new to edits
     if(LOG.isDebugEnabled()) {
-      LOG.debug("rollFSImage after purgeEditLog: storageList=" + listStorageDirectories());
+      LOG.debug("rollFSImage after purgeEditLog: storageList=" + storage.listStorageDirectories());
     }
     //
     // Renames new image
@@ -2167,4 +2192,5 @@ public class FSImage extends Storage {
     U_STR.set(str);
     U_STR.write(out);
   }
+
 }

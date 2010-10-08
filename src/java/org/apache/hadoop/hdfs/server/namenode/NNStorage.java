@@ -17,7 +17,9 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
+import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
@@ -27,21 +29,17 @@ import java.util.List;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.fs.permission.PermissionStatus;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.Util;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NodeType;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.StartupOption;
-import org.apache.hadoop.hdfs.server.common.Storage.StorageDirType;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
-//import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.namenode.JournalStream.JournalType;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.util.*;
 
+//import org.apache.hadoop.hdfs.server.common.Storage.StorageDirType;
 
 
 public class NNStorage extends Storage implements Iterable<StorageDirectory> {
@@ -77,8 +75,20 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     }
   }
   
+  enum NameNodeFile {
+    IMAGE     ("fsimage"),
+    TIME      ("fstime"),
+    EDITS     ("edits"),
+    IMAGE_NEW ("fsimage.ckpt"),
+    EDITS_NEW ("edits.new");
+    
+    private String fileName = null;
+    private NameNodeFile(String name) {this.fileName = name;}
+    String getName() {return fileName;}
+  }
+  
+  
   ////////////////////////////////////////////////////////////////////////  
-  // TODO
   public void registerErrorListener(StorageErrorListener sel) {
     errorlisteners.add(sel);
   }
@@ -90,6 +100,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     }
   }
   
+  
     
   ///////////////////////////////////////////////////////////////////////
   // PUBLIC API
@@ -99,13 +110,11 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
    * Constructor
    */
   
-  public NNStorage(Configuration conf){
+  public NNStorage(Configuration conf) throws IOException{
     super(NodeType.NAME_NODE);
     this.conf = conf;
-    
-    //Collection<URI> dirsToFormat = FSNamesystem.getNamespaceDirs(conf);
-    //Collection<URI> editDirsToFormat = FSNamesystem.getNamespaceEditsDirs(conf);
-    
+    loadStorages(conf);
+       
   }
 
   /**
@@ -114,38 +123,18 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
    * @throws IOException
    */
   public void format(StorageDirectory sd) throws IOException {
-    /*sd.clearDirectory(); // create currrent dir
-      sd.lock();
-      try {
-        saveCurrent(sd);
-      } finally {
-        sd.unlock();
-      }
-      LOG.info("Storage directory " + sd.getRoot()
-      + " has been successfully formatted.");*/
-  }
-  
-  /**
-   * The age of the namespace state.<p>
-   * Reflects the latest time the image was saved.
-   * Modified with every save or a checkpoint.
-   * Persisted in VERSION file.
-   */
-  public void setCheckpointTime(long newCpT) {
-    /*    checkpointTime = newCpT;
-    // Write new checkpoint time in all storage directories
-    for(Iterator<StorageDirectory> it =
-    dirIterator(); it.hasNext();) {
-    StorageDirectory sd = it.next();
+    sd.clearDirectory(); // create currrent dir
+    sd.lock();
     try {
-    writeCheckpointTime(sd);
-    } catch(IOException e) {
-    // Close any edits stream associated with this dir and remove directory
-    LOG.warn("incrementCheckpointTime failed on " + sd.getRoot().getPath() + ";type="+sd.getStorageDirType());
+      saveCurrent(sd);
+    } finally {
+      sd.unlock();
     }
-    }*/
+    LOG.info("Storage directory " + sd.getRoot()
+    + " has been successfully formatted.");
   }
   
+  // CHECKPOINTING 
   /**
    * The age of the namespace state.<p>
    * Reflects the latest time the image was saved.
@@ -156,6 +145,66 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     return checkpointTime;
   }  
   
+  /**
+   * Record new checkpoint time in order to
+   * distinguish healthy directories from the removed ones.
+   * If there is an error writing new checkpoint time, the corresponding
+   * storage directory is removed from the list.
+   */
+  void incrementCheckpointTime() {
+    setCheckpointTime(checkpointTime + 1);
+  }
+  
+  /**
+   * The age of the namespace state.<p>
+   * Reflects the latest time the image was saved.
+   * Modified with every save or a checkpoint.
+   * Persisted in VERSION file.
+   */
+  public void setCheckpointTime(long newCpT) {
+    checkpointTime = newCpT;
+    // Write new checkpoint time in all storage directories
+    for(Iterator<StorageDirectory> it =
+    dirIterator(); it.hasNext();) {
+    StorageDirectory sd = it.next();
+    try {
+    writeCheckpointTime(sd);
+    } catch(IOException e) {
+    // Close any edits stream associated with this dir and remove directory
+    LOG.warn("incrementCheckpointTime failed on " + sd.getRoot().getPath() + ";type="+sd.getStorageDirType());
+    }
+    }
+  }
+  
+  /**
+   * Write last checkpoint time into a separate file.
+   * 
+   * @param sd
+   * @throws IOException
+   */
+  public void writeCheckpointTime(StorageDirectory sd) throws IOException {
+    if (checkpointTime < 0L)
+      return; // do not write negative time
+    File timeFile = getImageFile(sd, NameNodeFile.TIME);
+    if (timeFile.exists() && ! timeFile.delete()) {
+        LOG.error("Cannot delete chekpoint time file: "
+                  + timeFile.getCanonicalPath());
+    }
+    FileOutputStream fos = new FileOutputStream(timeFile);
+    DataOutputStream out = new DataOutputStream(fos);
+    try {
+      out.writeLong(checkpointTime);
+      out.flush();
+      fos.getChannel().force(true);
+    } finally {
+      out.close();
+    }
+  }
+  
+  
+  
+
+  
   synchronized public long getEditsTime() {
     Iterator<StorageDirectory> it = dirIterator(NameNodeDirType.EDITS);
     if(it.hasNext())
@@ -164,23 +213,17 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   }
 
   
-  /////////////////////////////////////////////////////////////////////
-  // PUBLIC API, but not so sure about them
-  /////////////////////////////////////////////////////////////////////
-  
   /**
    * Return number of storage directories of the given type.
-   * 
-   * @param dirType
-   *            directory type
+   * @param dirType directory type
    * @return number of storage directories of type dirType
    */
   public int getNumStorageDirs(NameNodeDirType dirType) {
-    if (dirType == null)
+    if(dirType == null)
       return getNumStorageDirs();
     Iterator<StorageDirectory> it = dirIterator(dirType);
     int numDirs = 0;
-    for (; it.hasNext(); it.next())
+    for(; it.hasNext(); it.next())
       numDirs++;
     return numDirs;
   }
@@ -193,8 +236,8 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
    *             in case of URI processing error
    */
   public Collection<URI> getEditsDirectories() throws IOException {
-    // return getDirectories(NameNodeDirType.EDITS);
-    return null;
+    return getDirectories(NameNodeDirType.EDITS);
+    //return null;
   }
   
   /**
@@ -206,39 +249,159 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
    */
   
   public Collection<URI> getImageDirectories() throws IOException {
-    // return getDirectories(NameNodeDirType.IMAGE);
-    return null;
+    return getDirectories(NameNodeDirType.IMAGE);
+    //return null;
   }
   
   
   public File getEditFile(StorageDirectory sd) {
-    // return getImageFile(sd, NameNodeFile.EDITS);
-    return null;
+    return getImageFile(sd, NameNodeFile.EDITS);
+    //return null;
   }
   
   public File getEditNewFile(StorageDirectory sd) {
-    // return getImageFile(sd, NameNodeFile.EDITS_NEW);
-    return null;
+    return getImageFile(sd, NameNodeFile.EDITS_NEW);
+    //return null;
+  }
+
+  public String listStorageDirectories() {
+    StringBuilder buf = new StringBuilder();
+    for (StorageDirectory sd : storageDirs) {
+      buf.append(sd.getRoot() + "(" + sd.getStorageDirType() + ");");
+    }
+    return buf.toString();
   }
   
   
+  public Iterator<StorageDirectory> iterator() {
+    return dirIterator();
+  }
+  
+  
+  Collection<URI> getDirectories(NameNodeDirType dirType) 
+  throws IOException {
+    ArrayList<URI> list = new ArrayList<URI>();
+    Iterator<StorageDirectory> it = (dirType == null) ? dirIterator() :
+                                dirIterator(dirType);
+    for ( ;it.hasNext(); ) {
+      StorageDirectory sd = it.next();
+      try {
+        list.add(Util.fileAsURI(sd.getRoot()));
+      } catch (IOException e) {
+        throw new IOException("Exception while processing " +
+            "StorageDirectory " + sd.getRoot(), e);
+      }
+    }
+    return list;
+  }
+  
+  
+  @Override
+  public boolean isConversionNeeded(StorageDirectory sd) throws IOException {
+      /*File oldImageDir = new File(sd.getRoot(), "image");
+    if (!oldImageDir.exists()) {
+      if(sd.getVersionFile().exists())
+        throw new InconsistentFSStateException(sd.getRoot(),
+            oldImageDir + " does not exist.");
+      return false;
+    }
+    // check the layout version inside the image file
+    File oldF = new File(oldImageDir, "fsimage");
+    RandomAccessFile oldFile = new RandomAccessFile(oldF, "rws");
+    try {
+      oldFile.seek(0);
+      int odlVersion = oldFile.readInt();
+      if (odlVersion < LAST_PRE_UPGRADE_LAYOUT_VERSION)
+        return false;
+    } finally {
+      oldFile.close();
+      }*/
+    return true;
+  }
+  
+  
+  /**
+   * Save current image and empty journal into {@code current} directory.
+   */
+  public void saveCurrent(StorageDirectory sd) throws IOException {
+/*    File curDir = sd.getCurrentDir();
+    NameNodeDirType dirType = (NameNodeDirType)sd.getStorageDirType();
+    // save new image or new edits
+    if (!curDir.exists() && !curDir.mkdir())
+      throw new IOException("Cannot create directory " + curDir);
+    if (dirType.isOfType(NameNodeDirType.IMAGE))
+      saveFSImage(getImageFile(sd, NameNodeFile.IMAGE));
+    if (dirType.isOfType(NameNodeDirType.EDITS))
+      editLog.createEditLogFile(getImageFile(sd, NameNodeFile.EDITS));
+    // write version and time files
+    sd.write();
+    */
+  }
+
+
+  /**
+   * Move {@code current} to {@code lastcheckpoint.tmp} and
+   * recreate empty {@code current}.
+   * {@code current} is moved only if it is well formatted,
+   * that is contains VERSION file.
+   * 
+   * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getLastCheckpointTmp()
+   * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getPreviousCheckpoint()
+   */
+  public void moveCurrent(StorageDirectory sd)
+  throws IOException {
+    /*    File curDir = sd.getCurrentDir();
+    File tmpCkptDir = sd.getLastCheckpointTmp();
+    // mv current -> lastcheckpoint.tmp
+    // only if current is formatted - has VERSION file
+    if(sd.getVersionFile().exists()) {
+      assert curDir.exists() : curDir + " directory must exist.";
+      assert !tmpCkptDir.exists() : tmpCkptDir + " directory must not exist.";
+      rename(curDir, tmpCkptDir);
+    }
+    // recreate current
+    if(!curDir.exists() && !curDir.mkdir())
+    throw new IOException("Cannot create directory " + curDir);*/
+  }
+
+  /**
+   * Move {@code lastcheckpoint.tmp} to {@code previous.checkpoint}
+   * 
+   * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getPreviousCheckpoint()
+   * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getLastCheckpointTmp()
+   */
+  public void moveLastCheckpoint(StorageDirectory sd)
+  throws IOException {
+    /*
+    File tmpCkptDir = sd.getLastCheckpointTmp();
+    File prevCkptDir = sd.getPreviousCheckpoint();
+    // remove previous.checkpoint
+    if (prevCkptDir.exists())
+      deleteDir(prevCkptDir);
+    // mv lastcheckpoint.tmp -> previous.checkpoint
+    if(tmpCkptDir.exists())
+    rename(tmpCkptDir, prevCkptDir);*/
+  }
+
+  
+  
+
   ///////////////////////////////////////////////////////////////////////
   // PRIVATE methods
   ///////////////////////////////////////////////////////////////////////
-  
-  
+    
   static protected File getImageFile(StorageDirectory sd, NameNodeFile type) {
-    // return new File(sd.getCurrentDir(), type.getName());
-    return null;
+    return new File(sd.getCurrentDir(), type.getName());
+    //return null;
   }
 
   /**
    * In esence, it does the same as 
    * FSNamesystem.getStorageDirs + FSImage.setstoragedirs
    */
-  protected void loadStorages(Configuration conf){
+  private void loadStorages(Configuration conf) throws IOException{
     
-    /*    Collection<String> dirNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_KEY);
+    Collection<String> dirNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_KEY);
     Collection<String> editsNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY);
   
     StartupOption startOpt = NameNode.getStartupOption(conf);
@@ -277,10 +440,9 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     
     
     Collection<URI> fsNameDirs = Util.stringCollectionAsURIs(dirNames);
-        Collection<URI> fsEditsDirs = Util.stringCollectionAsURIs(dirNames);
+    Collection<URI> fsEditsDirs = Util.stringCollectionAsURIs(editsNames);
         
     this.storageDirs = new ArrayList<StorageDirectory>();
-      
     //this.removedStorageDirs = new ArrayList<StorageDirectory>();
       
           
@@ -317,57 +479,13 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
           this.addStorageDir(new StorageDirectory(new File(dirName.getPath()), 
                       NameNodeDirType.EDITS));
       }
-    */
-  }
-  
-  // Edits
-  // DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY
-  // ns dirs  
-  // DFSConfigKeys.DFS_NAMENODE_NAME_DIR_KEY
-  
-  /*
-  void setStorageDirectories(Collection<URI> fsNameDirs,
-                              Collection<URI> fsEditsDirs) throws IOException {
     
-    this.storageDirs = new ArrayList<StorageDirectory>();
-      this.removedStorageDirs = new ArrayList<StorageDirectory>();
-      
-      // Add all name dirs with appropriate NameNodeDirType 
-      for (URI dirName : fsNameDirs) {
-        NNUtils.checkSchemeConsistency(dirName);
-        boolean isAlsoEdits = false;
-        for (URI editsDirName : fsEditsDirs) {
-          if (editsDirName.compareTo(dirName) == 0) {
-            isAlsoEdits = true;
-            fsEditsDirs.remove(editsDirName);
-            break;
-          }
-        }
-        NameNodeDirType dirType = (isAlsoEdits) ?
-                            NameNodeDirType.IMAGE_AND_EDITS :
-                            NameNodeDirType.IMAGE;
-        // Add to the list of storage directories, only if the 
-        // URI is of type file://
-        if(dirName.getScheme().compareTo(JournalType.FILE.name().toLowerCase()) 
-            == 0){
-          this.addStorageDir(new StorageDirectory(new File(dirName.getPath()), 
-              dirType));
-        }
-      }
-      
-      // Add edits dirs if they are different from name dirs
-      for (URI dirName : fsEditsDirs) {
-        checkSchemeConsistency(dirName);
-        // Add to the list of storage directories, only if the 
-        // URI is of type file://
-        if(dirName.getScheme().compareTo(JournalType.FILE.name().toLowerCase())
-            == 0)
-          this.addStorageDir(new StorageDirectory(new File(dirName.getPath()), 
-                      NameNodeDirType.EDITS));
-      }
-   }
-*/
+  }
 
+  /**
+   * See if any of removed storages iw "writable" again, and can be returned 
+   * into service
+   */
   // TODO
   synchronized void attemptRestoreRemovedStorage() {
       /*
@@ -423,77 +541,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       }*/
   }
   
-  @Override
-  public boolean isConversionNeeded(StorageDirectory sd) throws IOException {
-      /*File oldImageDir = new File(sd.getRoot(), "image");
-    if (!oldImageDir.exists()) {
-      if(sd.getVersionFile().exists())
-        throw new InconsistentFSStateException(sd.getRoot(),
-            oldImageDir + " does not exist.");
-      return false;
-    }
-    // check the layout version inside the image file
-    File oldF = new File(oldImageDir, "fsimage");
-    RandomAccessFile oldFile = new RandomAccessFile(oldF, "rws");
-    try {
-      oldFile.seek(0);
-      int odlVersion = oldFile.readInt();
-      if (odlVersion < LAST_PRE_UPGRADE_LAYOUT_VERSION)
-        return false;
-    } finally {
-      oldFile.close();
-      }*/
-    return true;
-  }
-  
-  public Iterator<StorageDirectory> iterator() {
-    return dirIterator();
-  }
 
-
-  /**
-   * Move {@code current} to {@code lastcheckpoint.tmp} and
-   * recreate empty {@code current}.
-   * {@code current} is moved only if it is well formatted,
-   * that is contains VERSION file.
-   * 
-   * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getLastCheckpointTmp()
-   * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getPreviousCheckpoint()
-   */
-  public void moveCurrent(StorageDirectory sd)
-  throws IOException {
-    /*    File curDir = sd.getCurrentDir();
-    File tmpCkptDir = sd.getLastCheckpointTmp();
-    // mv current -> lastcheckpoint.tmp
-    // only if current is formatted - has VERSION file
-    if(sd.getVersionFile().exists()) {
-      assert curDir.exists() : curDir + " directory must exist.";
-      assert !tmpCkptDir.exists() : tmpCkptDir + " directory must not exist.";
-      rename(curDir, tmpCkptDir);
-    }
-    // recreate current
-    if(!curDir.exists() && !curDir.mkdir())
-    throw new IOException("Cannot create directory " + curDir);*/
-  }
-
-  /**
-   * Move {@code lastcheckpoint.tmp} to {@code previous.checkpoint}
-   * 
-   * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getPreviousCheckpoint()
-   * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getLastCheckpointTmp()
-   */
-  public void moveLastCheckpoint(StorageDirectory sd)
-  throws IOException {
-    /*
-    File tmpCkptDir = sd.getLastCheckpointTmp();
-    File prevCkptDir = sd.getPreviousCheckpoint();
-    // remove previous.checkpoint
-    if (prevCkptDir.exists())
-      deleteDir(prevCkptDir);
-    // mv lastcheckpoint.tmp -> previous.checkpoint
-    if(tmpCkptDir.exists())
-    rename(tmpCkptDir, prevCkptDir);*/
-  }
 
   
 }
