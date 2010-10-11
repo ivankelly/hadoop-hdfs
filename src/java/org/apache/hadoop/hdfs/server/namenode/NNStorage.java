@@ -17,6 +17,8 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
+import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -33,18 +35,21 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
+import org.apache.hadoop.hdfs.protocol.DatanodeID;
 import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.Util;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NodeType;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.StartupOption;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.namenode.JournalStream.JournalType;
+import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.conf.Configuration;
 
 //import org.apache.hadoop.hdfs.server.common.Storage.StorageDirType;
 
 
 public class NNStorage extends Storage implements Iterable<StorageDirectory> {
+  
   public static class LoadDirectory {
     private StorageDirectory directory;
     private boolean needToSave;
@@ -63,8 +68,11 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     }
   };
   
+  protected List<StorageDirectory> removedStorageDirs = new ArrayList<StorageDirectory>();
+  
   protected long checkpointTime = -1L;  // The age of the image
 
+  
   public interface StorageErrorListener {
     public void errorOccurred(StorageDirectory sd);
   }
@@ -122,6 +130,9 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     for (StorageErrorListener listener : errorlisteners) {
       listener.errorOccurred(sd);
     }
+    
+    this.removedStorageDirs.add(sd);
+
   }
   
   
@@ -421,15 +432,16 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   }
 
   
+  public File getImageFile(StorageDirectory sd, NameNodeFile type) {
+    return new File(sd.getCurrentDir(), type.getName());
+    //return null;
+  }
   
 
   ///////////////////////////////////////////////////////////////////////
   // PRIVATE methods
   ///////////////////////////////////////////////////////////////////////
-  static protected File getImageFile(StorageDirectory sd, NameNodeFile type) {
-    return new File(sd.getCurrentDir(), type.getName());
-    //return null;
-  }
+
 
   /**
    * In esence, it does the same as 
@@ -517,6 +529,21 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       }
     
   }
+  
+  
+  /**
+   * flag that controls if we try to restore failed storages
+   */
+  private boolean restoreFailedStorage = false;
+  
+  public void setRestoreFailedStorage(boolean val) {
+    LOG.info("set restore failed storage to " + val);
+    restoreFailedStorage=val;
+  }
+  
+  public boolean getRestoreFailedStorage() {
+    return restoreFailedStorage;
+  }
 
   /**
    * See if any of removed storages iw "writable" again, and can be returned 
@@ -524,7 +551,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
    */
   // TODO
   synchronized void attemptRestoreRemovedStorage() {
-      /*
+    
     // if directory is "alive" - copy the images there...
     if (!restoreFailedStorage || removedStorageDirs.size() == 0)
       return; // nothing to restore
@@ -543,10 +570,10 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
         if (root.exists() && root.canWrite()) {
           format(sd);
           LOG.info("restoring dir " + sd.getRoot().getAbsolutePath());
-          if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
+          /*if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
             File eFile = getEditFile(sd);
             editLog.addNewEditLogStream(eFile);
-          }
+          }*/
           this.addStorageDir(sd); // restore
           it.remove();
           }
@@ -554,7 +581,8 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
           LOG.warn("failed to restore " + sd.getRoot().getAbsolutePath(),
               e);
         }
-        }*/
+    }
+
   }
   
   @Override
@@ -581,7 +609,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     return dirIterator();
   }
   
-  /*
+  
   public Iterable<StorageDirectory> iterable(final NameNodeDirType type) {
     return new Iterable() {
         public Iterator<StorageDirectory> iterator() {
@@ -589,7 +617,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
 	}
     };
   }
-  */
+  
   /**
    * Analyze storage directories.
    * Recover from previous transitions if required. 
@@ -741,5 +769,8 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     return needToSave;
   }
 
+
+  
+  
   
 }

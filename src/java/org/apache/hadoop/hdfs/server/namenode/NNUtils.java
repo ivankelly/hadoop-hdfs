@@ -1,6 +1,8 @@
 package org.apache.hadoop.hdfs.server.namenode;
 
+import java.io.DataInput;
 import java.io.DataInputStream;
+import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -8,7 +10,9 @@ import java.net.URI;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.DFSUtil;
 import org.apache.hadoop.hdfs.DeprecatedUTF8;
+import org.apache.hadoop.hdfs.protocol.DatanodeID;
 import org.apache.hadoop.hdfs.server.namenode.JournalStream.JournalType;
+import org.apache.hadoop.io.Writable;
 
 
 /**
@@ -19,7 +23,8 @@ import org.apache.hadoop.hdfs.server.namenode.JournalStream.JournalType;
 public class NNUtils {
 
   static private final DeprecatedUTF8 U_STR = new DeprecatedUTF8();
-
+  //static DatanodeDescriptor node = new DatanodeDescriptor();
+    
   /**
    * 
    * @param u
@@ -85,6 +90,53 @@ public class NNUtils {
     U_STR.set(str);
     U_STR.write(out);
   }
+  
+  
+
+  /**
+   * DatanodeImage is used to store persistent information
+   * about datanodes into the fsImage.
+   */
+  static class DatanodeImage implements Writable {
+    DatanodeDescriptor node = new DatanodeDescriptor();
+
+    /////////////////////////////////////////////////
+    // Writable
+    /////////////////////////////////////////////////
+    /**
+     * Public method that serializes the information about a
+     * Datanode to be stored in the fsImage.
+     */
+    public void write(DataOutput out) throws IOException {
+      new DatanodeID(node).write(out);
+      out.writeLong(node.getCapacity());
+      out.writeLong(node.getRemaining());
+      out.writeLong(node.getLastUpdate());
+      out.writeInt(node.getXceiverCount());
+    }
+
+    /**
+     * Public method that reads a serialized Datanode
+     * from the fsImage.
+     */
+    public void readFields(DataInput in) throws IOException {
+      DatanodeID id = new DatanodeID();
+      id.readFields(in);
+      long capacity = in.readLong();
+      long remaining = in.readLong();
+      long lastUpdate = in.readLong();
+      int xceiverCount = in.readInt();
+
+      // update the DatanodeDescriptor with the data we read in
+      node.updateRegInfo(id);
+      node.setStorageID(id.getStorageID());
+      node.setCapacity(capacity);
+      node.setRemaining(remaining);
+      node.setLastUpdate(lastUpdate);
+      node.setXceiverCount(xceiverCount);
+    }
+  }
+  
   
   
   

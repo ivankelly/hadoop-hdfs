@@ -2097,6 +2097,8 @@ public class FSImage extends Storage
     return list.toArray(new File[list.size()]);
   }
 
+  // TO DELETE
+  // Moved to NNUtils
   /**
    * DatanodeImage is used to store persistent information
    * about datanodes into the fsImage.
