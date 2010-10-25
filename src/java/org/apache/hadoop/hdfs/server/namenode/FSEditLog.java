@@ -391,8 +391,8 @@ public class FSEditLog {
       StorageDirectory storageDir;
       if(eStream.getType() == JournalType.FILE && //find SD
           (storageDir =  getStorage(eStream)) != null) {
-          LOG.info("about to remove corresponding storage:" 
-                  + storageDir.getRoot().getAbsolutePath());
+          //LOG.info("about to remove corresponding storage:" 
+          //        + storageDir.getRoot().getAbsolutePath());
           // remove corresponding storage dir
           storage.errorDirectory(getStorage(eStream));
       }

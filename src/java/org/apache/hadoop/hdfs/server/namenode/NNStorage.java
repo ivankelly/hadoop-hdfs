@@ -17,6 +17,9 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
+import static org.apache.hadoop.hdfs.server.common.Util.now;
+
+import java.io.BufferedOutputStream;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
@@ -26,22 +29,31 @@ import java.io.IOException;
 import java.io.DataInputStream;
 import java.io.FileInputStream;
 import java.net.URI;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Random;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.fs.permission.PermissionStatus;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
+import org.apache.hadoop.hdfs.DFSUtil;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
+import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.DatanodeID;
+import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.Util;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NodeType;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.StartupOption;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.namenode.JournalStream.JournalType;
+import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.conf.Configuration;
 
@@ -78,10 +90,14 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   }
 
   private Configuration conf;
+  private FSNamesystem namesystem;
   private List<StorageErrorListener> errorlisteners;
 
   private static final Log LOG = LogFactory.getLog(NameNode.class.getName());
   
+  static private final FsPermission FILE_PERM = new FsPermission((short)0);
+  static private final byte[] PATH_SEPARATOR = DFSUtil.string2Bytes(Path.SEPARATOR);
+
 
   // 
   // The filenames used for storing the images
@@ -131,12 +147,24 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       listener.errorOccurred(sd);
     }
     
+    LOG.info("about to remove corresponding storage:" 
+        + sd.getRoot().getAbsolutePath());
     this.removedStorageDirs.add(sd);
 
   }
   
   
-    
+  
+  // FIXME
+  // to delete. Only temporary change
+  protected FSNamesystem getFSNamesystem() {
+    return namesystem;
+  }
+  public void setFSNamesystem(FSNamesystem ns){
+    this.namesystem = ns;
+  }
+  
+  
   ///////////////////////////////////////////////////////////////////////
   // PUBLIC API
   ///////////////////////////////////////////////////////////////////////
@@ -152,22 +180,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
        
   }
 
-  /**
-   * Format a device.
-   * @param sd
-   * @throws IOException
-   */
-  public void format(StorageDirectory sd) throws IOException {
-    sd.clearDirectory(); // create currrent dir
-    sd.lock();
-    try {
-      saveCurrent(sd);
-    } finally {
-      sd.unlock();
-    }
-    LOG.info("Storage directory " + sd.getRoot()
-    + " has been successfully formatted.");
-  }
   
   // CHECKPOINTING 
   /**
@@ -236,7 +248,40 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     }
   }
   
+  
+  /**
+   * Generate new namespaceID.
+   * 
+   * namespaceID is a persistent attribute of the namespace.
+   * It is generated when the namenode is formatted and remains the same
+   * during the life cycle of the namenode.
+   * When a datanodes register they receive it as the registrationID,
+   * which is checked every time the datanode is communicating with the 
+   * namenode. Datanodes that do not 'know' the namespaceID are rejected.
+   * 
+   * @return new namespaceID
+   */
+  public int newNamespaceID() {
+    Random r = new Random();
+    r.setSeed(now());
+    int newID = 0;
+    while(newID == 0)
+      newID = r.nextInt(0x7FFFFFFF);  // use 31 bits only
+    return newID;
+  }
+  
+  void setLayoutVersion(int lv){
+    this.layoutVersion = lv;
+  }
+  
+  void setNamespaceId(int nid){
+    this.namespaceID = nid;
+  }
 
+  void setCTime(long t){
+    this.cTime = t;
+  }
+  
     /**
    * Determine the checkpoint time of the specified StorageDirectory
    * 
@@ -369,10 +414,28 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   
   
   /**
+   * Format a device.
+   * @param sd
+   * @throws IOException
+   */
+  public void format(StorageDirectory sd) throws IOException {
+    sd.clearDirectory(); // create currrent dir
+    sd.lock();
+    try {
+      saveCurrent(sd);
+    } finally {
+      sd.unlock();
+    }
+    LOG.info("Storage directory " + sd.getRoot()
+    + " has been successfully formatted.");
+  }
+  
+  /**
    * Save current image and empty journal into {@code current} directory.
    */
   public void saveCurrent(StorageDirectory sd) throws IOException {
-/*    File curDir = sd.getCurrentDir();
+   /*
+    File curDir = sd.getCurrentDir();
     NameNodeDirType dirType = (NameNodeDirType)sd.getStorageDirType();
     // save new image or new edits
     if (!curDir.exists() && !curDir.mkdir())
@@ -380,12 +443,14 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     if (dirType.isOfType(NameNodeDirType.IMAGE))
       saveFSImage(getImageFile(sd, NameNodeFile.IMAGE));
     if (dirType.isOfType(NameNodeDirType.EDITS))
-      editLog.createEditLogFile(getImageFile(sd, NameNodeFile.EDITS));
+      editlog.createEditLogFile(getImageFile(sd, NameNodeFile.EDITS));
     // write version and time files
     sd.write();
     */
   }
+ 
 
+  
 
   /**
    * Move {@code current} to {@code lastcheckpoint.tmp} and
@@ -436,6 +501,8 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     return new File(sd.getCurrentDir(), type.getName());
     //return null;
   }
+  
+  
   
 
   ///////////////////////////////////////////////////////////////////////
