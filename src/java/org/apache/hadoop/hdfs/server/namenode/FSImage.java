@@ -836,9 +836,9 @@ public class FSImage extends Storage
   }
 
   
-  public FSEditLog getEditLog() {
+  /*  public FSEditLog getEditLog() {
     return editLog;
-  }
+    }*/
   
   // TODELETE
   public boolean isConversionNeeded(StorageDirectory sd) throws IOException {
@@ -926,7 +926,7 @@ public class FSImage extends Storage
    * @throws IOException
    */
   // TODELETE
-  public boolean loadFSImage() throws IOException {
+  /*  public boolean DELETETHISMETHODloadFSImage() throws IOException {
     long latestNameCheckpointTime = Long.MIN_VALUE;
     long latestEditsCheckpointTime = Long.MIN_VALUE;
     boolean needToSave = false;
@@ -1041,7 +1041,7 @@ public class FSImage extends Storage
       needToSave |= (loadFSEdits(latestEditsSD) > 0);
     
     return needToSave;
-  }
+    }*/
 
   /**
    * Choose latest image from one of the directories,
@@ -1182,7 +1182,7 @@ public class FSImage extends Storage
         long blockSize = 0;
         pathComponents = readPathComponents(in);
         replication = in.readShort();
-        replication = editLog.adjustReplication(replication);
+        replication = storage.adjustReplication(replication);
         modificationTime = in.readLong();
         if (imgVersion <= -17) {
           atime = in.readLong();
@@ -1320,7 +1320,8 @@ public class FSImage extends Storage
    * @throws IOException
    */
   
-  int loadFSEdits(StorageDirectory sd) throws IOException {
+  /*  DELETEME
+int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     int numEdits = 0;
     EditLogFileInputStream edits = 
       new EditLogFileInputStream(getImageFile(sd, NameNodeFile.EDITS));
@@ -1339,7 +1340,7 @@ public class FSImage extends Storage
     getFSNamesystem().dir.updateCountForINodeWithQuota();    
     
     return numEdits;
-  }
+    }*/
 
   /**
    * Save the contents of the FS image to the file.
@@ -2083,11 +2084,11 @@ public class FSImage extends Storage
       }
     }    
   }
-  */
+ 
   public File getFsEditName() throws IOException {
     return getEditLog().getFsEditName();
   }
-
+ */
   File getFsTimeName() {
     StorageDirectory sd = null;
     // NameNodeFile.TIME shoul be same on all directories

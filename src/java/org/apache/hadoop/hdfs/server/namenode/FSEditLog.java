@@ -560,7 +560,7 @@ public class FSEditLog {
                                     length + ". ");
           }
           path = NNUtils.readString(in);
-          short replication = adjustReplication(readShort(in));
+          short replication = storage.adjustReplication(readShort(in));
           mtime = readLong(in);
           if (logVersion <= -17) {
             atime = readLong(in);
@@ -643,7 +643,7 @@ public class FSEditLog {
         case OP_SET_REPLICATION: {
           numOpSetRepl++;
           path = NNUtils.readString(in);
-          short replication = adjustReplication(readShort(in));
+          short replication = storage.adjustReplication(readShort(in));
           fsDir.unprotectedSetReplication(path, replication, null);
           break;
         } 
@@ -928,7 +928,8 @@ public class FSEditLog {
     }
   }
   
-  short adjustReplication(short replication) {
+  /* DELETEME
+    short adjustReplication(short replication) {
     FSNamesystem fsNamesys = getFSNamesystem();
     short minReplication = fsNamesys.getMinReplication();
     if (replication<minReplication) {
@@ -940,6 +941,7 @@ public class FSEditLog {
     }
     return replication;
   }
+  */
 
   /**
    * Write an operation to the edit log. 

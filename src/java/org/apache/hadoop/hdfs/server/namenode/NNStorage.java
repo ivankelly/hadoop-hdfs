@@ -678,7 +678,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   
   
   public Iterable<StorageDirectory> iterable(final NameNodeDirType type) {
-    return new Iterable() {
+    return new Iterable<StorageDirectory>() {
         public Iterator<StorageDirectory> iterator() {
 	  return dirIterator(type);
 	}
@@ -836,8 +836,16 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     return needToSave;
   }
 
-
-  
-  
-  
+  public short adjustReplication(short replication) {
+    FSNamesystem fsNamesys = getFSNamesystem();
+    short minReplication = fsNamesys.getMinReplication();
+    if (replication<minReplication) {
+      replication = minReplication;
+    }
+    short maxReplication = fsNamesys.getMaxReplication();
+    if (replication>maxReplication) {
+      replication = maxReplication;
+    }
+    return replication;
+  }
 }
