@@ -101,8 +101,8 @@ public interface NamenodeProtocol extends VersionedProtocol {
    * @deprecated 
    *    See {@link org.apache.hadoop.hdfs.server.namenode.SecondaryNameNode}
    */
-  @Deprecated
-  public CheckpointSignature rollEditLog() throws IOException;
+  //DELETEME@Deprecated
+  //public CheckpointSignature rollEditLog() throws IOException;
 
   /**
    * Rolls the fsImage log. It removes the old fsImage, copies the
@@ -112,8 +112,8 @@ public interface NamenodeProtocol extends VersionedProtocol {
    * @deprecated 
    *    See {@link org.apache.hadoop.hdfs.server.namenode.SecondaryNameNode}
    */
-  @Deprecated
-  public void rollFsImage() throws IOException;
+  //DELETEME@Deprecated
+  //public void rollFsImage() throws IOException;
 
   /**
    * Request name-node version and storage information.

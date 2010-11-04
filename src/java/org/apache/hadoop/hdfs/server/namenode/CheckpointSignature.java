@@ -33,8 +33,8 @@ import org.apache.hadoop.io.WritableComparable;
 public class CheckpointSignature extends StorageInfo 
                       implements WritableComparable<CheckpointSignature> {
   private static final String FIELD_SEPARATOR = ":";
-  long editsTime = -1L;
-  long checkpointTime = -1L;
+  public long editsTime = -1L;
+  public long checkpointTime = -1L;
 
   public CheckpointSignature() {}
 

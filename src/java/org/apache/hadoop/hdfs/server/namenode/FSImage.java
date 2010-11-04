@@ -88,9 +88,6 @@ import org.apache.hadoop.hdfs.server.namenode.NNStorage.StorageErrorListener;
 public class FSImage extends Storage
  implements StorageErrorListener{
 
-  private static final SimpleDateFormat DATE_FORM =
-    new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-
   // DELETEME
   // The filenames used for storing the images
   //
@@ -106,8 +103,6 @@ public class FSImage extends Storage
     String getName() {return fileName;}
   }
 
-  // checkpoint states
-  enum CheckpointStates{START, ROLLED_EDITS, UPLOAD_START, UPLOAD_DONE; }
   /**
    * Implementation of StorageDirType specific to namenode storage
    * A Storage directory could be of type IMAGE which stores only fsimage,
@@ -153,11 +148,6 @@ public class FSImage extends Storage
    */
   private Collection<URI> checkpointDirs;
   private Collection<URI> checkpointEditsDirs;
-
-  /**
-   * Can fs-image be rolled?
-   */
-  volatile protected CheckpointStates ckptState = FSImage.CheckpointStates.START; 
 
   /**
    * Used for saving the image to disk
@@ -406,7 +396,8 @@ public class FSImage extends Storage
    * @throws IOException
    * @return true if the image needs to be saved or false otherwise
    */
-  public boolean recoverTransitionRead(Collection<URI> dataDirs,
+  /* TODELETE
+    public boolean recoverTransitionRead(Collection<URI> dataDirs,
                                 Collection<URI> editsDirs,
                                 StartupOption startOpt)
       throws IOException {
@@ -523,15 +514,17 @@ public class FSImage extends Storage
     
     boolean needToSave = loadFSImage();
     
-    /* TODELETE
+  
     assert editLog != null : "editLog must be initialized";
     if(!editLog.isOpen())
       editLog.open();
-    */
+  
     return needToSave;
-  }
+  }*/
 
   public void doUpgrade() throws IOException {
+    /* Move somewhere else
+
     if(getDistributedUpgradeState()) {
       // only distributed upgrade need to continue
       // don't do version upgrade
@@ -585,9 +578,11 @@ public class FSImage extends Storage
     }
     initializeDistributedUpgrade();
     //editLog.open();
+    */
   }
 
   public void doRollback() throws IOException {
+    /* Move somewhere else
     // Rollback is allowed only if there is 
     // a previous fs states in at least one of the storage directories.
     // Directories that don't have previous state do not rollback
@@ -640,9 +635,11 @@ public class FSImage extends Storage
     isUpgradeFinalized = true;
     // check whether name-node can start in regular mode
     verifyDistributedUpgradeProgress(StartupOption.REGULAR);
+    */
   }
 
   private void doFinalize(StorageDirectory sd) throws IOException {
+    /* move somewhere else
     File prevDir = sd.getPreviousDir();
     if (!prevDir.exists()) { // already discarded
       LOG.info("Directory " + prevDir + " does not exist.");
@@ -661,32 +658,7 @@ public class FSImage extends Storage
     deleteDir(tmpDir);
     isUpgradeFinalized = true;
     LOG.info("Finalize upgrade for " + sd.getRoot()+ " is complete.");
-  }
-
-  /**
-   * Load image from a checkpoint directory and save it into the current one.
-   * @throws IOException
-   */
-  public void doImportCheckpoint() throws IOException {
-    FSNamesystem fsNamesys = getFSNamesystem();
-    FSImage ckptImage = new FSImage(fsNamesys);
-    // replace real image with the checkpoint image
-    FSImage realImage = fsNamesys.getFSImage();
-    assert realImage == this;
-    fsNamesys.dir.fsImage = ckptImage;
-    // load from the checkpoint dirs
-    try {
-      ckptImage.recoverTransitionRead(checkpointDirs, checkpointEditsDirs,
-                                              StartupOption.REGULAR);
-    } finally {
-      ckptImage.close();
-    }
-    // return back the real image
-    realImage.setStorageInfo(ckptImage);
-    checkpointTime = ckptImage.checkpointTime;
-    fsNamesys.dir.fsImage = realImage;
-    // and save it but keep the same checkpointTime
-    saveNamespace(false);
+    */
   }
 
   void finalizeUpgrade() throws IOException {
@@ -698,130 +670,6 @@ public class FSImage extends Storage
 
   boolean isUpgradeFinalized() {
     return isUpgradeFinalized;
-  }
-
-  protected void getFields(Properties props, 
-                           StorageDirectory sd 
-                           ) throws IOException {
-    super.getFields(props, sd);
-    if (layoutVersion == 0)
-      throw new IOException("NameNode directory " 
-                            + sd.getRoot() + " is not formatted.");
-    String sDUS, sDUV;
-    sDUS = props.getProperty("distributedUpgradeState"); 
-    sDUV = props.getProperty("distributedUpgradeVersion");
-    setDistributedUpgradeState(
-        sDUS == null? false : Boolean.parseBoolean(sDUS),
-        sDUV == null? getLayoutVersion() : Integer.parseInt(sDUV));
-    this.checkpointTime = readCheckpointTime(sd);
-  }
-
-
-  // TODELETE
-  /**
-   * Determine the checkpoint time of the specified StorageDirectory
-   * 
-   * @param sd StorageDirectory to check
-   * @return If file exists and can be read, last checkpoint time. If not, 0L.
-   * @throws IOException On errors processing file pointed to by sd
-   */
-  long readCheckpointTime(StorageDirectory sd) throws IOException {
-    File timeFile = getImageFile(sd, NameNodeFile.TIME);
-    long timeStamp = 0L;
-    if (timeFile.exists() && timeFile.canRead()) {
-      DataInputStream in = new DataInputStream(new FileInputStream(timeFile));
-      try {
-        timeStamp = in.readLong();
-      } finally {
-        in.close();
-      }
-    }
-    return timeStamp;
-  }
-
-  /**
-   * Write last checkpoint time and version file into the storage directory.
-   * 
-   * The version file should always be written last.
-   * Missing or corrupted version file indicates that 
-   * the checkpoint is not valid.
-   * 
-   * @param sd storage directory
-   * @throws IOException
-   */
-  protected void setFields(Properties props, 
-                           StorageDirectory sd 
-                           ) throws IOException {
-    super.setFields(props, sd);
-    boolean uState = getDistributedUpgradeState();
-    int uVersion = getDistributedUpgradeVersion();
-    if(uState && uVersion != getLayoutVersion()) {
-      props.setProperty("distributedUpgradeState", Boolean.toString(uState));
-      props.setProperty("distributedUpgradeVersion", Integer.toString(uVersion)); 
-    }
-    writeCheckpointTime(sd);
-  }
-
-  /**
-   * Write last checkpoint time into a separate file.
-   * 
-   * @param sd
-   * @throws IOException
-   */
-  // TO DELETE
-  void writeCheckpointTime(StorageDirectory sd) throws IOException {
-    if (checkpointTime < 0L)
-      return; // do not write negative time
-    File timeFile = getImageFile(sd, NameNodeFile.TIME);
-    if (timeFile.exists() && ! timeFile.delete()) {
-        LOG.error("Cannot delete chekpoint time file: "
-                  + timeFile.getCanonicalPath());
-    }
-    FileOutputStream fos = new FileOutputStream(timeFile);
-    DataOutputStream out = new DataOutputStream(fos);
-    try {
-      out.writeLong(checkpointTime);
-      out.flush();
-      fos.getChannel().force(true);
-    } finally {
-      out.close();
-    }
-  }
-
-  /**
-   * Record new checkpoint time in order to
-   * distinguish healthy directories from the removed ones.
-   * If there is an error writing new checkpoint time, the corresponding
-   * storage directory is removed from the list.
-   */
-  void incrementCheckpointTime() {
-    setCheckpointTime(checkpointTime + 1);
-  }
-
-    // TODELETE
-  /**
-   * The age of the namespace state.<p>
-   * Reflects the latest time the image was saved.
-   * Modified with every save or a checkpoint.
-   * Persisted in VERSION file.
-   */
-  long getCheckpointTime() {
-    return checkpointTime;
-  }
-
-  void setCheckpointTime(long newCpT) {
-    checkpointTime = newCpT;
-    // Write new checkpoint time in all storage directories
-    for(Iterator<StorageDirectory> it =
-                          storage.dirIterator(); it.hasNext();) {
-      StorageDirectory sd = it.next();
-      try {
-        writeCheckpointTime(sd);
-      } catch(IOException e) {
-        // Close any edits stream associated with this dir and remove directory
-        LOG.warn("incrementCheckpointTime failed on " + sd.getRoot().getPath() + ";type="+sd.getStorageDirType());
-      }
-    }
   }
 
   /**
@@ -1089,7 +937,7 @@ public class FSImage extends Storage
         imageDirs.add(sd.getRoot().getCanonicalPath());
       }
       
-      checkpointTime = readCheckpointTime(sd);
+      checkpointTime = storage.readCheckpointTime(sd);
 
       checkpointTimes.add(checkpointTime);
       
@@ -1411,7 +1259,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
       try {
-        moveCurrent(sd);
+        storage.moveCurrent(sd);
       } catch(IOException ie) {
         LOG.error("Unable to move current for " + sd.getRoot(), ie);
         errorSDs.add(sd);
@@ -1423,7 +1271,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
                                                               it.hasNext();) {
       StorageDirectory sd = it.next();
       try {
-        saveCurrent(sd);
+        storage.saveCurrent(sd);
       } catch(IOException ie) {
         LOG.error("Unable to save image for " + sd.getRoot(), ie);
         errorSDs.add(sd);
@@ -1455,7 +1303,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
       try {
-        moveLastCheckpoint(sd);
+        storage.moveLastCheckpoint(sd);
       } catch(IOException ie) {
         LOG.error("Unable to move last checkpoint for " + sd.getRoot(), ie);
         errorSDs.add(sd);
@@ -1465,71 +1313,6 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     /* TODELETE
     if(!editLog.isOpen()) editLog.open();
     */
-    ckptState = CheckpointStates.UPLOAD_DONE;
-  }
-
-  /**
-   * Save current image and empty journal into {@code current} directory.
-   */
-  //TODELETE
-  protected void saveCurrent(StorageDirectory sd) throws IOException {
-    
-    File curDir = sd.getCurrentDir();
-    NameNodeDirType dirType = (NameNodeDirType)sd.getStorageDirType();
-    // save new image or new edits
-    if (!curDir.exists() && !curDir.mkdir())
-      throw new IOException("Cannot create directory " + curDir);
-    if (dirType.isOfType(NameNodeDirType.IMAGE))
-      saveFSImage(getImageFile(sd, NameNodeFile.IMAGE));
-    if (dirType.isOfType(NameNodeDirType.EDITS))
-      editLog.createEditLogFile(getImageFile(sd, NameNodeFile.EDITS));
-    // write version and time files
-    sd.write();
-  }
-
-  /**
-   * Move {@code current} to {@code lastcheckpoint.tmp} and
-   * recreate empty {@code current}.
-   * {@code current} is moved only if it is well formatted,
-   * that is contains VERSION file.
-   * 
-   * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getLastCheckpointTmp()
-   * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getPreviousCheckpoint()
-   */
-  // TODELETE
-  protected void moveCurrent(StorageDirectory sd)
-  throws IOException {
-    File curDir = sd.getCurrentDir();
-    File tmpCkptDir = sd.getLastCheckpointTmp();
-    // mv current -> lastcheckpoint.tmp
-    // only if current is formatted - has VERSION file
-    if(sd.getVersionFile().exists()) {
-      assert curDir.exists() : curDir + " directory must exist.";
-      assert !tmpCkptDir.exists() : tmpCkptDir + " directory must not exist.";
-      rename(curDir, tmpCkptDir);
-    }
-    // recreate current
-    if(!curDir.exists() && !curDir.mkdir())
-      throw new IOException("Cannot create directory " + curDir);
-  }
-
-  /**
-   * Move {@code lastcheckpoint.tmp} to {@code previous.checkpoint}
-   * 
-   * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getPreviousCheckpoint()
-   * @see org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory#getLastCheckpointTmp()
-   */
-  // TODELETE
-  protected void moveLastCheckpoint(StorageDirectory sd)
-  throws IOException {
-    File tmpCkptDir = sd.getLastCheckpointTmp();
-    File prevCkptDir = sd.getPreviousCheckpoint();
-    // remove previous.checkpoint
-    if (prevCkptDir.exists())
-      deleteDir(prevCkptDir);
-    // mv lastcheckpoint.tmp -> previous.checkpoint
-    if(tmpCkptDir.exists())
-      rename(tmpCkptDir, prevCkptDir);
   }
 
   /**
@@ -1796,239 +1579,16 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     out.writeInt(0); //  do not store locations of last block
   }
 
-  /**
+  /** DELETEME
    * Moves fsimage.ckpt to fsImage and edits.new to edits
    * Reopens the new edits file.
-   */
+   *
   void rollFSImage() throws IOException {
     rollFSImage(true);
-  }
+    }*/
 
-  void rollFSImage(boolean renewCheckpointTime) throws IOException {
-    if (ckptState != CheckpointStates.UPLOAD_DONE
-      && !(ckptState == CheckpointStates.ROLLED_EDITS
-      && getNumStorageDirs(NameNodeDirType.IMAGE) == 0)) {
-      throw new IOException("Cannot roll fsImage before rolling edits log.");
-    }
+  
 
-    for (Iterator<StorageDirectory> it = 
-                       storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
-      StorageDirectory sd = it.next();
-      File ckpt = getImageFile(sd, NameNodeFile.IMAGE_NEW);
-      if (!ckpt.exists()) {
-        throw new IOException("Checkpoint file " + ckpt +
-                              " does not exist");
-      }
-    }
-    editLog.purgeEditLog(); // renamed edits.new to edits
-    if(LOG.isDebugEnabled()) {
-      LOG.debug("rollFSImage after purgeEditLog: storageList=" + storage.listStorageDirectories());
-    }
-    //
-    // Renames new image
-    //
-    renameCheckpoint();
-    resetVersion(renewCheckpointTime);
-  }
-
-  /**
-   * Renames new image
-   */
-  void renameCheckpoint() {
-    ArrayList<StorageDirectory> al = null;
-    for (Iterator<StorageDirectory> it = 
-      storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
-      StorageDirectory sd = it.next();
-      File ckpt = getImageFile(sd, NameNodeFile.IMAGE_NEW);
-      File curFile = getImageFile(sd, NameNodeFile.IMAGE);
-      // renameTo fails on Windows if the destination file 
-      // already exists.
-      if(LOG.isDebugEnabled()) {
-        LOG.debug("renaming  " + ckpt.getAbsolutePath() + " to "  + curFile.getAbsolutePath());
-      }
-      if (!ckpt.renameTo(curFile)) {
-        if (!curFile.delete() || !ckpt.renameTo(curFile)) {
-          LOG.warn("renaming  " + ckpt.getAbsolutePath() + " to "  + 
-              curFile.getAbsolutePath() + " FAILED");
-
-          if(al == null) al = new ArrayList<StorageDirectory> (1);
-          al.add(sd);
-        }
-      }
-    }
-    if(al != null) processIOError(al);
-  }
-
-  /**
-   * Updates version and fstime files in all directories (fsimage and edits).
-   */
-  void resetVersion(boolean renewCheckpointTime) throws IOException {
-    this.layoutVersion = FSConstants.LAYOUT_VERSION;
-    if(renewCheckpointTime)
-      this.checkpointTime = now();
-    
-    ArrayList<StorageDirectory> al = null;
-    for (Iterator<StorageDirectory> it = 
-                           storage.dirIterator(); it.hasNext();) {
-      StorageDirectory sd = it.next();
-      // delete old edits if sd is the image only the directory
-      if (!sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-        File editsFile = getImageFile(sd, NameNodeFile.EDITS);
-        if(editsFile.exists() && !editsFile.delete())
-          throw new IOException("Cannot delete edits file " 
-                                + editsFile.getCanonicalPath());
-      }
-      // delete old fsimage if sd is the edits only the directory
-      if (!sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
-        File imageFile = getImageFile(sd, NameNodeFile.IMAGE);
-        if(imageFile.exists() && !imageFile.delete())
-          throw new IOException("Cannot delete image file " 
-                                + imageFile.getCanonicalPath());
-      }
-      try {
-        sd.write();
-      } catch (IOException e) {
-        LOG.error("Cannot write file " + sd.getRoot(), e);
-        
-        if(al == null) al = new ArrayList<StorageDirectory> (1);
-        al.add(sd);       
-      }
-    }
-    if(al != null) processIOError(al);
-    ckptState = FSImage.CheckpointStates.START;
-  }
-
-  CheckpointSignature rollEditLog() throws IOException {
-    getEditLog().rollEditLog();
-    ckptState = CheckpointStates.ROLLED_EDITS;
-    // If checkpoint fails this should be the most recent image, therefore
-    incrementCheckpointTime();
-    //return new CheckpointSignature(null); //FIXME should pass NNStorage
-    return null;
-  }
-
-  /**
-   * This is called just before a new checkpoint is uploaded to the
-   * namenode.
-   */
-  void validateCheckpointUpload(CheckpointSignature sig) throws IOException {
-    if (ckptState != CheckpointStates.ROLLED_EDITS) {
-      throw new IOException("Namenode is not expecting an new image " +
-                             ckptState);
-    } 
-    // verify token
-    long modtime = getEditLog().getFsEditTime();
-    if (sig.editsTime != modtime) {
-      throw new IOException("Namenode has an edit log with timestamp of " +
-                            DATE_FORM.format(new Date(modtime)) +
-                            " but new checkpoint was created using editlog " +
-                            " with timestamp " + 
-                            DATE_FORM.format(new Date(sig.editsTime)) + 
-                            ". Checkpoint Aborted.");
-    }
-    // FIXME sig.validateStorageInfo(this);
-    ckptState = FSImage.CheckpointStates.UPLOAD_START;
-  }
-
-  /**
-   * Start checkpoint.
-   * <p>
-   * If backup storage contains image that is newer than or incompatible with 
-   * what the active name-node has, then the backup node should shutdown.<br>
-   * If the backup image is older than the active one then it should 
-   * be discarded and downloaded from the active node.<br>
-   * If the images are the same then the backup image will be used as current.
-   * 
-   * @param bnReg the backup node registration.
-   * @param nnReg this (active) name-node registration.
-   * @return {@link NamenodeCommand} if backup node should shutdown or
-   * {@link CheckpointCommand} prescribing what backup node should 
-   *         do with its image.
-   * @throws IOException
-   */
-  NamenodeCommand startCheckpoint(NamenodeRegistration bnReg, // backup node
-                                  NamenodeRegistration nnReg) // active name-node
-  throws IOException {
-    String msg = null;
-    // Verify that checkpoint is allowed
-    if(bnReg.getNamespaceID() != this.getNamespaceID())
-      msg = "Name node " + bnReg.getAddress()
-            + " has incompatible namespace id: " + bnReg.getNamespaceID()
-            + " expected: " + getNamespaceID();
-    else if(bnReg.isRole(NamenodeRole.ACTIVE))
-      msg = "Name node " + bnReg.getAddress()
-            + " role " + bnReg.getRole() + ": checkpoint is not allowed.";
-    else if(bnReg.getLayoutVersion() < this.getLayoutVersion()
-        || (bnReg.getLayoutVersion() == this.getLayoutVersion()
-            && bnReg.getCTime() > this.getCTime())
-        || (bnReg.getLayoutVersion() == this.getLayoutVersion()
-            && bnReg.getCTime() == this.getCTime()
-            && bnReg.getCheckpointTime() > this.checkpointTime))
-      // remote node has newer image age
-      msg = "Name node " + bnReg.getAddress()
-            + " has newer image layout version: LV = " +bnReg.getLayoutVersion()
-            + " cTime = " + bnReg.getCTime()
-            + " checkpointTime = " + bnReg.getCheckpointTime()
-            + ". Current version: LV = " + getLayoutVersion()
-            + " cTime = " + getCTime()
-            + " checkpointTime = " + checkpointTime;
-    if(msg != null) {
-      LOG.error(msg);
-      return new NamenodeCommand(NamenodeProtocol.ACT_SHUTDOWN);
-    }
-    boolean isImgObsolete = true;
-    if(bnReg.getLayoutVersion() == this.getLayoutVersion()
-        && bnReg.getCTime() == this.getCTime()
-        && bnReg.getCheckpointTime() == this.checkpointTime)
-      isImgObsolete = false;
-    boolean needToReturnImg = true;
-    if(getNumStorageDirs(NameNodeDirType.IMAGE) == 0)
-      // do not return image if there are no image directories
-      needToReturnImg = false;
-    CheckpointSignature sig = rollEditLog();
-    getEditLog().logJSpoolStart(bnReg, nnReg);
-    return new CheckpointCommand(sig, isImgObsolete, needToReturnImg);
-  }
-
-  /**
-   * End checkpoint.
-   * <p>
-   * Rename uploaded checkpoint to the new image;
-   * purge old edits file;
-   * rename edits.new to edits;
-   * redirect edit log streams to the new edits;
-   * update checkpoint time if the remote node is a checkpoint only node.
-   * 
-   * @param sig
-   * @param remoteNNRole
-   * @throws IOException
-   */
-  void endCheckpoint(CheckpointSignature sig, 
-                     NamenodeRole remoteNNRole) throws IOException {
-      // FIXME sig.validateStorageInfo(this);
-    // Renew checkpoint time for the active if the other is a checkpoint-node.
-    // The checkpoint-node should have older image for the next checkpoint 
-    // to take effect.
-    // The backup-node always has up-to-date image and will have the same
-    // checkpoint time as the active node.
-    boolean renewCheckpointTime = remoteNNRole.equals(NamenodeRole.CHECKPOINT);
-    rollFSImage(renewCheckpointTime);
-  }
-
-  CheckpointStates getCheckpointState() {
-    return ckptState;
-  }
-
-  void setCheckpointState(CheckpointStates cs) {
-    ckptState = cs;
-  }
-
-  /**
-   * This is called when a checkpoint upload finishes successfully.
-   */
-  synchronized void checkpointUploadDone() {
-    ckptState = CheckpointStates.UPLOAD_DONE;
-  }
 
   public synchronized void close() throws IOException {
     //getEditLog().close();

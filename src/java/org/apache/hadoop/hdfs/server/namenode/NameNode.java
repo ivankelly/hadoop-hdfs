@@ -330,11 +330,15 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   }
 
   NamenodeRegistration setRegistration() {
-    nodeRegistration = new NamenodeRegistration(
+    /* FIXME when you have a persistentmanager in this file
+       nodeRegistration = new NamenodeRegistration(
         getHostPortString(rpcAddress),
         getHostPortString(httpAddress),
         getFSImage(), getRole(), getFSImage().getCheckpointTime());
+
     return nodeRegistration;
+    */
+    return null;
   }
 
   /**
@@ -1092,18 +1096,19 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   /**
    * Roll the edit log.
    */
-  @Deprecated
-  public CheckpointSignature rollEditLog() throws IOException {
-    return namesystem.rollEditLog();
-  }
+  //@Deprecated
+  //public CheckpointSignature radfadsfollEditLog() throws IOException {
+  //  return namesystem.rollEditLasdfasdfog();
+  //}
 
   /**
    * Roll the image 
    */
-  @Deprecated
-  public void rollFsImage() throws IOException {
-    namesystem.rollFSImage();
-  }
+  //  @Deprecated
+  // DELETEME
+  //public void rasdfsadsadfollFsImage() throws IOException {
+  //  namesystem.rollFSImageasfasdfas();
+  // }
     
   public void finalizeUpgrade() throws IOException {
     namesystem.finalizeUpgrade();

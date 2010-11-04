@@ -1436,7 +1436,7 @@ public class FSEditLog {
   /**
    * Closes the current edit log and opens edits.new. 
    */
-  synchronized void rollEditLog() throws IOException {
+  public synchronized void rollEditLog() throws IOException {
     waitForSyncToFinish();
     Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS);
     if(!it.hasNext()) 
@@ -1508,7 +1508,7 @@ public class FSEditLog {
    * Removes the old edit log and renames edits.new to edits.
    * Reopens the edits file.
    */
-  synchronized void purgeEditLog() throws IOException {
+  public synchronized void purgeEditLog() throws IOException {
     waitForSyncToFinish();
     revertFileStreams(
         Storage.STORAGE_DIR_CURRENT + "/" + NameNodeFile.EDITS_NEW.getName());
@@ -1600,7 +1600,7 @@ public class FSEditLog {
   /**
    * Returns the timestamp of the edit log
    */
-  synchronized long getFsEditTime() {
+  public synchronized long getFsEditTime() {
     Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS);
     if(it.hasNext())
       return getEditFile(it.next()).lastModified();
@@ -1706,7 +1706,7 @@ public class FSEditLog {
    * @param nnReg this (active) name-node registration.
    * @throws IOException
    */
-  synchronized void logJSpoolStart(NamenodeRegistration bnReg, // backup node
+  public synchronized void logJSpoolStart(NamenodeRegistration bnReg, // backup node
                       NamenodeRegistration nnReg) // active name-node
   throws IOException {
     if(bnReg.isRole(NamenodeRole.CHECKPOINT))
@@ -1819,7 +1819,7 @@ public class FSEditLog {
     eStream.close();
   }
 
-  void incrementCheckpointTime() {
+  public void incrementCheckpointTime() {
     storage.incrementCheckpointTime();
     Writable[] args = {new LongWritable(storage.getCheckpointTime())};
     logEdit(OP_CHECKPOINT_TIME, args);

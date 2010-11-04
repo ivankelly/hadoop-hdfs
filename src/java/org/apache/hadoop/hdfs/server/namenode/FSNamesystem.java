@@ -303,8 +303,9 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     if(fsImage == null) {
       this.dir = new FSDirectory(this, conf);
       StartupOption startOpt = NameNode.getStartupOption(conf);
-      this.dir.loadFSImage(getNamespaceDirs(conf),
-                           getNamespaceEditsDirs(conf), startOpt);
+
+      // TODO persistanceManager.load();
+
       long timeTakenToLoadFSImage = now() - systemStart;
       LOG.info("Finished loading FSImage in " + timeTakenToLoadFSImage + " msecs");
       NameNode.getNameNodeMetrics().fsImageLoadTime.set(
@@ -2956,11 +2957,13 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
   }
 
   FSImage getFSImage() {
-    return dir.fsImage;
+    // FIXME return dir.fsImage;
+    return null;
   }
 
   FSEditLog getEditLog() {
-    return getFSImage().getEditLog();
+    //  FIXME return getFSImage().getEditLog();
+    return null;
   }
 
   /**
@@ -4164,8 +4167,8 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
   long getEditLogSize() throws IOException {
     return getEditLog().getEditLogSize();
   }
-
-  CheckpointSignature rollEditLog() throws IOException {
+  /*
+  CheckpointSignature rollEditsssLog() throws IOException {
     writeLock();
     try {
     if (isInSafeMode()) {
@@ -4179,7 +4182,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     }
   }
 
-  void rollFSImage() throws IOException {
+  void rollFSImagddde() throws IOException {
     writeLock();
     try {
     if (isInSafeMode()) {
@@ -4191,7 +4194,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     } finally {
       writeUnlock();
     }
-  }
+    }*/
 
   NamenodeCommand startCheckpoint(
                                 NamenodeRegistration bnReg, // backup node
@@ -4200,9 +4203,10 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     writeLock();
     try {
     LOG.info("Start checkpoint for " + bnReg.getAddress());
-    NamenodeCommand cmd = getFSImage().startCheckpoint(bnReg, nnReg);
+    // FIXME get the persistence manager    NamenodeCommand cmd = .startCheckpoint(bnReg, nnReg);
     getEditLog().logSync();
-    return cmd;
+    // return cmd;
+    return null; // FIXME
     } finally {
       writeUnlock();
     }
@@ -4213,7 +4217,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     writeLock();
     try {
     LOG.info("End checkpoint for " + registration.getAddress());
-    getFSImage().endCheckpoint(sig, registration.getRole());
+    // FIXME get the persistence manager getFSImage().endCheckpoint(sig, registration.getRole());
     } finally {
       writeUnlock();
     }

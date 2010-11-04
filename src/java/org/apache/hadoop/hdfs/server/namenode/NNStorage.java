@@ -35,6 +35,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
+import java.util.Properties;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -181,7 +182,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   }
 
   
-  // CHECKPOINTING 
+  // CHECKPOINT TIME
   /**
    * The age of the namespace state.<p>
    * Reflects the latest time the image was saved.
@@ -198,7 +199,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
    * If there is an error writing new checkpoint time, the corresponding
    * storage directory is removed from the list.
    */
-  void incrementCheckpointTime() {
+  public void incrementCheckpointTime() {
     setCheckpointTime(checkpointTime + 1);
   }
   
@@ -848,4 +849,49 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     }
     return replication;
   }
+
+  protected void getFields(Properties props, 
+                           StorageDirectory sd 
+                           ) throws IOException {
+    /* FIXME how to deal with distributed upgrade
+
+    super.getFields(props, sd);
+    if (layoutVersion == 0)
+      throw new IOException("NameNode directory " 
+                            + sd.getRoot() + " is not formatted.");
+    String sDUS, sDUV;
+    sDUS = props.getProperty("distributedUpgradeState"); 
+    sDUV = props.getProperty("distributedUpgradeVersion");
+    setDistributedUpgradeState(
+        sDUS == null? false : Boolean.parseBoolean(sDUS),
+        sDUV == null? getLayoutVersion() : Integer.parseInt(sDUV));
+    this.checkpointTime = readCheckpointTime(sd);
+    */
+  }
+
+  /**
+   * Write last checkpoint time and version file into the storage directory.
+   * 
+   * The version file should always be written last.
+   * Missing or corrupted version file indicates that 
+   * the checkpoint is not valid.
+   * 
+   * @param sd storage directory
+   * @throws IOException
+   */
+  protected void setFields(Properties props, 
+                           StorageDirectory sd 
+                           ) throws IOException {
+    /* FIXME how to deal with distributed upgrade
+    super.setFields(props, sd);
+    boolean uState = getDistributedUpgradeState();
+    int uVersion = getDistributedUpgradeVersion();
+    if(uState && uVersion != getLayoutVersion()) {
+      props.setProperty("distributedUpgradeState", Boolean.toString(uState));
+      props.setProperty("distributedUpgradeVersion", Integer.toString(uVersion)); 
+    }
+    writeCheckpointTime(sd);
+    */
+  }
+
 }
