@@ -37,7 +37,7 @@ import org.apache.hadoop.hdfs.server.protocol.UpgradeCommand;
  * After that the name-nodes processes upgrade commands from data-nodes
  * and updates its status.
  */
-class UpgradeManagerNamenode extends UpgradeManager {
+public class UpgradeManagerNamenode extends UpgradeManager {
   public HdfsConstants.NodeType getType() {
     return HdfsConstants.NodeType.NAME_NODE;
   }

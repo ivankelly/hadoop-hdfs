@@ -289,6 +289,11 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     }
   }
 
+  public UpgradeManagerNamenode getUpgradeManager(){
+    return this.upgradeManager;     
+  }
+  
+  
   /**
    * Initialize FSNamesystem.
    */
@@ -4250,7 +4255,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     return upgradeManager.getBroadcastCommand();
   }
 
-  boolean getDistributedUpgradeState() {
+  public boolean getDistributedUpgradeState() {
     return upgradeManager.getUpgradeState();
   }
 

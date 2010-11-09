@@ -297,10 +297,13 @@ public class FSImage extends Storage
     }
   };
   */
+  
+  //FIXME: think on a better way to handle that.
+  // setCheckpointDirectories is called from FSDirectory constructor
+  // and from persistenceManager.load()
   public void setCheckpointDirectories(Collection<URI> dirs,
                                 Collection<URI> editsDirs) {
-    checkpointDirs = dirs;
-    checkpointEditsDirs = editsDirs;
+   storage.setCheckpointDirectories(dirs, editsDirs);
   }
   
   static File getImageFile(StorageDirectory sd, NameNodeFile type) {
@@ -523,7 +526,8 @@ public class FSImage extends Storage
   }*/
 
   public void doUpgrade() throws IOException {
-    /* Move somewhere else
+       
+   /* 
 
     if(getDistributedUpgradeState()) {
       // only distributed upgrade need to continue
@@ -546,6 +550,9 @@ public class FSImage extends Storage
     // load the latest image
     this.loadFSImage();
 
+    
+    storage.doUpgrade();
+    
     // Do upgrade for each directory
     long oldCTime = this.getCTime();
     this.cTime = now();  // generate new cTime for the state
@@ -574,11 +581,15 @@ public class FSImage extends Storage
       // rename tmp to previous
       rename(tmpDir, prevDir);
       isUpgradeFinalized = false;
-      LOG.info("Upgrade of " + sd.getRoot() + " is complete.");
+      LOG.info("Upgrade of " + sd.getRoot(upgrade) + " is complete.");
     }
     initializeDistributedUpgrade();
     //editLog.open();
     */
+    
+    
+    
+    
   }
 
   public void doRollback() throws IOException {
@@ -1750,7 +1761,10 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
   private void setDistributedUpgradeState(boolean uState, int uVersion) {
     getFSNamesystem().upgradeManager.setUpgradeState(uState, uVersion);
   }
-
+  
+  
+  //TODELETE
+  /*
   private void verifyDistributedUpgradeProgress(StartupOption startOpt
                                                 ) throws IOException {
     if(startOpt == StartupOption.ROLLBACK || startOpt == StartupOption.IMPORT)
@@ -1768,7 +1782,8 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
           + " is required.\n   Please restart NameNode with -upgrade option.");
     }
   }
-
+  */
+  
   private void initializeDistributedUpgrade() throws IOException {
     UpgradeManagerNamenode um = getFSNamesystem().upgradeManager;
     if(! um.initializeUpgrade())
@@ -1788,6 +1803,8 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
    * @return a Collection of URIs representing the values in 
    * fs.checkpoint.dir configuration property
    */
+  //TODELETE
+  /*
   static Collection<URI> getCheckpointDirs(Configuration conf,
       String defaultValue) {
     Collection<String> dirNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_DIR_KEY);
@@ -1796,7 +1813,10 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     }
     return Util.stringCollectionAsURIs(dirNames);
   }
-
+  */
+  
+  //TODELETE
+  /*
   static Collection<URI> getCheckpointEditsDirs(Configuration conf,
       String defaultName) {
     Collection<String> dirNames = 
@@ -1806,7 +1826,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     }
     return Util.stringCollectionAsURIs(dirNames);
   }
-
+  */
   static private final DeprecatedUTF8 U_STR = new DeprecatedUTF8();
   // This should be reverted to package private once the ImageLoader
   // code is moved into this package. This method should not be called

@@ -112,8 +112,8 @@ class FSDirectory implements Closeable {
       fsImage.setRestoreFailedStorage(true);
     }
     
-    fsImage.setCheckpointDirectories(FSImage.getCheckpointDirs(conf, null),
-                                FSImage.getCheckpointEditsDirs(conf, null));
+    fsImage.setCheckpointDirectories(NNUtils.getCheckpointDirs(conf, null),
+                          NNUtils.getCheckpointEditsDirs(conf, null));
   }
 
   FSDirectory(FSImage fsImage, FSNamesystem ns, Configuration conf) {

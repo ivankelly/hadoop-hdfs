@@ -162,9 +162,9 @@ public class SecondaryNameNode implements Runnable {
 
     // initialize checkpoint directories
     fsName = getInfoServer();
-    checkpointDirs = FSImage.getCheckpointDirs(conf,
+    checkpointDirs = NNUtils.getCheckpointDirs(conf,
                                   "/tmp/hadoop/dfs/namesecondary");
-    checkpointEditsDirs = FSImage.getCheckpointEditsDirs(conf, 
+    checkpointEditsDirs = NNUtils.getCheckpointEditsDirs(conf, 
                                   "/tmp/hadoop/dfs/namesecondary");    
     checkpointImage = new CheckpointStorage();
     checkpointImage.recoverCreate(checkpointDirs, checkpointEditsDirs);

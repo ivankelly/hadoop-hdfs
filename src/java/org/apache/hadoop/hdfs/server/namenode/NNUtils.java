@@ -6,11 +6,15 @@ import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.URI;
+import java.util.Collection;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DFSUtil;
 import org.apache.hadoop.hdfs.DeprecatedUTF8;
 import org.apache.hadoop.hdfs.protocol.DatanodeID;
+import org.apache.hadoop.hdfs.server.common.Util;
 import org.apache.hadoop.hdfs.server.namenode.JournalStream.JournalType;
 import org.apache.hadoop.io.Writable;
 
@@ -138,6 +142,32 @@ public class NNUtils {
   }
   
   
+  /**
+   * Retrieve checkpoint dirs from configuration.
+   *  
+   * @param conf the Configuration
+   * @param defaultValue a default value for the attribute, if null
+   * @return a Collection of URIs representing the values in 
+   * fs.checkpoint.dir configuration property
+   */
+  static Collection<URI> getCheckpointDirs(Configuration conf,
+      String defaultValue) {
+    Collection<String> dirNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_DIR_KEY);
+    if (dirNames.size() == 0 && defaultValue != null) {
+      dirNames.add(defaultValue);
+    }
+    return Util.stringCollectionAsURIs(dirNames);
+  }
+
+  static Collection<URI> getCheckpointEditsDirs(Configuration conf,
+      String defaultName) {
+    Collection<String> dirNames = 
+      conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_EDITS_DIR_KEY);
+    if (dirNames.size() == 0 && defaultName != null) {
+      dirNames.add(defaultName);
+    }
+    return Util.stringCollectionAsURIs(dirNames);
+  }
   
   
 }

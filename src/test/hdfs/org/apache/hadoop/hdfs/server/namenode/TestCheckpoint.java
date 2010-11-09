@@ -566,7 +566,7 @@ public class TestCheckpoint extends TestCase {
     // recover failed checkpoint
     nn = startNameNode(conf, primaryDirs, primaryEditsDirs,
                         StartupOption.REGULAR);
-    Collection<URI> secondaryDirs = FSImage.getCheckpointDirs(conf, null);
+    Collection<URI> secondaryDirs = NNUtils.getCheckpointDirs(conf, null);
     for(URI uri : secondaryDirs) {
       File dir = new File(uri.getPath());
       Storage.rename(new File(dir, "current"), 

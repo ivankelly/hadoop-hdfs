@@ -32,8 +32,10 @@ import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Properties;
 
@@ -49,10 +51,12 @@ import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.DatanodeID;
 import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.server.common.Storage;
+import org.apache.hadoop.hdfs.server.common.UpgradeManager;
 import org.apache.hadoop.hdfs.server.common.Util;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NodeType;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.StartupOption;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
+import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
 import org.apache.hadoop.hdfs.server.namenode.JournalStream.JournalType;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
@@ -99,7 +103,12 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   static private final FsPermission FILE_PERM = new FsPermission((short)0);
   static private final byte[] PATH_SEPARATOR = DFSUtil.string2Bytes(Path.SEPARATOR);
 
-
+  private Collection<URI> checkpointDirs;
+  private Collection<URI> checkpointEditsDirs;
+  
+  
+  private boolean isUpgradeFinalized = false;
+  
   // 
   // The filenames used for storing the images
   //
@@ -513,7 +522,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
 
   /**
    * In esence, it does the same as 
-   * FSNamesystem.getStorageDirs + FSImage.setstoragedirs
+   * FSNamesystem.getStorageDirs + FSImage.setStorageDirs
    */
   private void loadStorages(Configuration conf) throws IOException{
     
@@ -686,6 +695,13 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     };
   }
   
+  
+  public void setCheckpointDirectories(Collection<URI> dirs,
+      Collection<URI> editsDirs) {
+    checkpointDirs = dirs;
+    checkpointEditsDirs = editsDirs;
+  }
+  
   /**
    * Analyze storage directories.
    * Recover from previous transitions if required. 
@@ -696,7 +712,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
    * @return true if the image needs to be saved or false otherwise
    */
   public void initializeDirectories(StartupOption startOpt) throws IOException {
-    /*
+    
     assert startOpt != StartupOption.FORMAT : 
       "NameNode formatting should be performed before reading the image";
     
@@ -790,9 +806,27 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       default:
         break;
       }
-      }*/
+      }
   }
 
+  private void verifyDistributedUpgradeProgress(StartupOption startOpt
+  ) throws IOException {
+    if(startOpt == StartupOption.ROLLBACK || startOpt == StartupOption.IMPORT)
+      return;
+    UpgradeManager um = getFSNamesystem().upgradeManager;
+    assert um != null : "FSNameSystem.upgradeManager is null.";
+    if(startOpt != StartupOption.UPGRADE) {
+      if(um.getUpgradeState())
+        throw new IOException(
+            "\n   Previous distributed upgrade was not completed. "
+            + "\n   Please restart NameNode with -upgrade option.");
+      if(um.getDistributedUpgrades() != null)
+        throw new IOException("\n   Distributed upgrade for NameNode version " 
+            + um.getUpgradeVersion() + " to current LV " + FSConstants.LAYOUT_VERSION
+            + " is required.\n   Please restart NameNode with -upgrade option.");
+    }
+  }
+  
   public boolean recoverInterruptedCheckpoint(StorageDirectory nameSD,
 					      StorageDirectory editsSD) 
     throws IOException {
@@ -894,4 +928,44 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     */
   }
 
+  boolean isUpgradeFinalized() {
+    return isUpgradeFinalized;
+  }
+  
+  public void doUpgrade() throws IOException {
+    
+    
+    // Do upgrade for each directory
+    long oldCTime = this.getCTime();
+    this.cTime = now();  // generate new cTime for the state
+    int oldLV = this.getLayoutVersion();
+    this.layoutVersion = FSConstants.LAYOUT_VERSION;
+    this.checkpointTime = now();
+    for (Iterator<StorageDirectory> it = 
+                           dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
+      LOG.info("Upgrading image directory " + sd.getRoot()
+               + ".\n   old LV = " + oldLV
+               + "; old CTime = " + oldCTime
+               + ".\n   new LV = " + this.getLayoutVersion()
+               + "; new CTime = " + this.getCTime());
+      File curDir = sd.getCurrentDir();
+      File prevDir = sd.getPreviousDir();
+      File tmpDir = sd.getPreviousTmp();
+      assert curDir.exists() : "Current directory must exist.";
+      assert !prevDir.exists() : "prvious directory must not exist.";
+      assert !tmpDir.exists() : "prvious.tmp directory must not exist.";
+      //assert !editLog.isOpen() : "Edits log must not be open.";
+      // rename current to tmp
+      rename(curDir, tmpDir);
+      // save new image
+      saveCurrent(sd);
+      // rename tmp to previous
+      rename(tmpDir, prevDir);
+      isUpgradeFinalized = false;
+      LOG.info("Upgrade of " + sd.getRoot() + " is complete.");
+    }
+    //initializeDistributedUpgrade();
+    //editLog.open();
+  }
 }

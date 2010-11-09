@@ -23,9 +23,11 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.server.namenode.FSImage;
 import org.apache.hadoop.hdfs.server.namenode.FSNamesystem;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLog;
+import org.apache.hadoop.hdfs.server.namenode.NameNode;
+import org.apache.hadoop.hdfs.server.namenode.UpgradeManagerNamenode;
 
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.StartupOption;
-import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;;
+import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 
 import org.apache.hadoop.hdfs.server.namenode.CheckpointSignature;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage;
@@ -35,6 +37,7 @@ import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 
+import java.util.Iterator;
 import java.util.Map;
 import java.util.HashMap;
 import java.text.SimpleDateFormat;
@@ -85,6 +88,12 @@ public class PersistenceManager {
     //		storage = new NNStorage(conf);
     //fsi = new FSImage(conf,null);//storage);
   }
+  
+  
+  private boolean getDistributedUpgradeState() {
+    return namesystem == null ? false : namesystem.getDistributedUpgradeState();
+  }
+  
   
   /**
    * Start checkpoint.
@@ -348,8 +357,44 @@ public class PersistenceManager {
   public void upgrade() throws IOException {
     storage.initializeDirectories( getStartupOption() );
 
-    image.doUpgrade();
+    if(getDistributedUpgradeState()) {
+      // only distributed upgrade need to continue
+      // don't do version upgrade
+      this.load();
+      initializeDistributedUpgrade();
+      return;
+    }
+
+
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
+      if (sd.getPreviousDir().exists())
+        throw new InconsistentFSStateException(sd.getRoot(),
+                           "previous fs state should not exist during upgrade. "
+                           + "Finalize or rollback first.");
+    }
+    
+    this.load();
+    storage.doUpgrade();
+    initializeDistributedUpgrade();
+    
   }
+  
+  
+
+  private void initializeDistributedUpgrade() throws IOException {
+    
+    UpgradeManagerNamenode um = namesystem.getUpgradeManager();
+    if(! um.initializeUpgrade())
+      return;
+    // write new upgrade state into disk
+    storage.writeAll();
+    NameNode.LOG.info("\n   Distributed upgrade for NameNode version " 
+        + um.getUpgradeVersion() + " to current LV " 
+        + FSConstants.LAYOUT_VERSION + " is initialized.");
+  }
+
+  
 
   public void rollback() throws IOException {
     storage.initializeDirectories( getStartupOption() );
