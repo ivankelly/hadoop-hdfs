@@ -39,7 +39,8 @@ import org.apache.hadoop.hdfs.server.common.HdfsConstants;
 import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
 import org.apache.hadoop.hdfs.server.common.JspHelper;
 import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
+//import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DFSUtil;
@@ -56,6 +57,8 @@ import org.apache.hadoop.security.authorize.AccessControlList;
 
 import org.apache.hadoop.util.Daemon;
 import org.apache.hadoop.util.StringUtils;
+
+import org.apache.hadoop.hdfs.server.common.Storage;
 
 /**********************************************************
  * The Secondary NameNode is a helper to the primary NameNode.
@@ -100,6 +103,8 @@ public class SecondaryNameNode implements Runnable {
   private Collection<URI> checkpointEditsDirs;
   private long checkpointPeriod;    // in seconds
   private long checkpointSize;    // size (in MB) of current Edit Log
+  
+  NNStorage storage;
 
   /** {@inheritDoc} */
   public String toString() {
@@ -123,6 +128,7 @@ public class SecondaryNameNode implements Runnable {
   public SecondaryNameNode(Configuration conf)  throws IOException {
     try {
       initialize(conf);
+      storage = new NNStorage(conf);
     } catch(IOException e) {
       shutdown();
       throw e;
@@ -165,8 +171,10 @@ public class SecondaryNameNode implements Runnable {
     checkpointDirs = NNUtils.getCheckpointDirs(conf,
                                   "/tmp/hadoop/dfs/namesecondary");
     checkpointEditsDirs = NNUtils.getCheckpointEditsDirs(conf, 
-                                  "/tmp/hadoop/dfs/namesecondary");    
-    checkpointImage = new CheckpointStorage();
+                                  "/tmp/hadoop/dfs/namesecondary");  
+    
+    NNStorage storage = new NNStorage(conf);
+    checkpointImage = new CheckpointStorage(conf, storage);
     checkpointImage.recoverCreate(checkpointDirs, checkpointEditsDirs);
 
     // Initialize other scheduling parameters from the configuration
@@ -333,8 +341,8 @@ public class SecondaryNameNode implements Runnable {
   
           @Override
           public Void run() throws Exception {
-            checkpointImage.cTime = sig.cTime;
-            checkpointImage.checkpointTime = sig.checkpointTime;
+            checkpointImage.storage.cTime = sig.cTime;
+            checkpointImage.storage.checkpointTime = sig.checkpointTime;
         
             // get fsimage
             String fileid = "getimage=1";
@@ -581,8 +589,8 @@ public class SecondaryNameNode implements Runnable {
   static class CheckpointStorage extends FSImage {
     /**
      */
-    CheckpointStorage() throws IOException {
-      super();
+    CheckpointStorage(Configuration conf, NNStorage storage) throws IOException {
+      super(conf,storage);
     }
 
     @Override
@@ -605,7 +613,7 @@ public class SecondaryNameNode implements Runnable {
       Collection<URI> tempDataDirs = new ArrayList<URI>(dataDirs);
       Collection<URI> tempEditsDirs = new ArrayList<URI>(editsDirs);
       this.storageDirs = new ArrayList<StorageDirectory>();
-      setStorageDirectories(tempDataDirs, tempEditsDirs);
+      storage.setStorageDirectories(tempDataDirs, tempEditsDirs);
       for (Iterator<StorageDirectory> it = 
                    dirIterator(); it.hasNext();) {
         StorageDirectory sd = it.next();

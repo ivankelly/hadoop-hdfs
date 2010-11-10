@@ -33,6 +33,7 @@ import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.namenode.CheckpointSignature;
 import org.apache.hadoop.hdfs.server.namenode.FSImage.CheckpointStates;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.ipc.RPC;
 import org.apache.hadoop.conf.Configuration;
@@ -124,7 +125,8 @@ public class BackupNode extends NameNode {
 
   @Override // NameNode
   protected void loadNamesystem(Configuration conf) throws IOException {
-    BackupStorage bnImage = new BackupStorage();
+    NNStorage storage = new NNStorage(conf);
+    BackupStorage bnImage = new BackupStorage(conf,storage);
     this.namesystem = new FSNamesystem(conf, bnImage);
     bnImage.recoverCreateRead(FSNamesystem.getNamespaceDirs(conf),
                               FSNamesystem.getNamespaceEditsDirs(conf));

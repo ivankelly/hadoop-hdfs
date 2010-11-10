@@ -60,6 +60,7 @@ import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.server.common.GenerationStamp;
 import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
 import org.apache.hadoop.hdfs.server.common.Storage;
+import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirType;
 import org.apache.hadoop.hdfs.server.common.StorageInfo;
 import org.apache.hadoop.hdfs.server.common.UpgradeManager;
@@ -78,6 +79,7 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.StorageErrorListener;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 
 /**
  * FSImage handles checkpointing and logging of the namespace edits.
@@ -85,13 +87,15 @@ import org.apache.hadoop.hdfs.server.namenode.NNStorage.StorageErrorListener;
  */
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
-public class FSImage extends Storage
+public class FSImage 
+ //extends Storage
  implements StorageErrorListener{
 
   // DELETEME
   // The filenames used for storing the images
   //
-  enum NameNodeFile {
+/*
+   enum NameNodeFile {
     IMAGE     ("fsimage"),
     TIME      ("fstime"),
     EDITS     ("edits"),
@@ -102,7 +106,7 @@ public class FSImage extends Storage
     private NameNodeFile(String name) {this.fileName = name;}
     String getName() {return fileName;}
   }
-
+*/
   /**
    * Implementation of StorageDirType specific to namenode storage
    * A Storage directory could be of type IMAGE which stores only fsimage,
@@ -127,8 +131,8 @@ public class FSImage extends Storage
   }
 
   protected FSNamesystem namesystem = null;
-    // TODELETE
-  protected long checkpointTime = -1L;  // The age of the image
+  // TODELETE
+  //protected long checkpointTime = -1L;  // The age of the image
   //protected FSEditLog editLog = null;
   private boolean isUpgradeFinalized = false;
 
@@ -140,14 +144,16 @@ public class FSImage extends Storage
   /**
    * list of failed (and thus removed) storages
    */
-  protected List<StorageDirectory> removedStorageDirs = new ArrayList<StorageDirectory>();
+  //TODELETE
+  //protected List<StorageDirectory> removedStorageDirs = new ArrayList<StorageDirectory>();
     
   /**
    * URIs for importing an image from a checkpoint. In the default case,
    * URIs will represent directories. 
    */
-  private Collection<URI> checkpointDirs;
-  private Collection<URI> checkpointEditsDirs;
+  //TODELETE
+  //private Collection<URI> checkpointDirs;
+  //private Collection<URI> checkpointEditsDirs;
 
   /**
    * Used for saving the image to disk
@@ -155,49 +161,62 @@ public class FSImage extends Storage
   static private final FsPermission FILE_PERM = new FsPermission((short)0);
   static private final byte[] PATH_SEPARATOR = DFSUtil.string2Bytes(Path.SEPARATOR);
 
-  private static final Log LOG = LogFactory.getLog(NameNode.class.getName());
+  protected static final Log LOG = LogFactory.getLog(NameNode.class.getName());
     
-  private Configuration conf;
-  private NNStorage storage;
+  protected Configuration conf;
+  protected NNStorage storage;
   
   FSImage(Configuration conf, NNStorage storage){
     // temp, just for compiling-testing purposes
     // FSImage should no longer extends Storage.
-    super(NodeType.NAME_NODE);
+    // super(NodeType.NAME_NODE);
 
+    //FIXME: assert to avoid null?
     this.conf = conf;
     this.storage = storage;
   }
 
   /**
    */
+  //TODELETE
+  /*
   FSImage() {
     this((FSNamesystem)null);
   }
-
+  */
+  
+  //TODELETE
+  /*
   FSImage(FSNamesystem ns) {
     super(NodeType.NAME_NODE);
     //this.editLog = new FSEditLog(this);
     setFSNamesystem(ns);
-  }
+  }*/
 
   /**
    * @throws IOException 
    */
+  //TODELETE
+  /*
   FSImage(Collection<URI> fsDirs, Collection<URI> fsEditsDirs) 
       throws IOException {
     this();
     setStorageDirectories(fsDirs, fsEditsDirs);
-  }
+  }*/
 
+  //TODELETE
+  /*
   public FSImage(StorageInfo storageInfo) {
     super(NodeType.NAME_NODE, storageInfo);
-  }
+  }*/
+  
 
   /**
    * Represents an Image (image and edit file).
    * @throws IOException 
    */
+  //TODELETE
+  /*
   FSImage(URI imageDir) throws IOException {
     this();
     ArrayList<URI> dirs = new ArrayList<URI>(1);
@@ -206,9 +225,11 @@ public class FSImage extends Storage
     editsDirs.add(imageDir);
     setStorageDirectories(dirs, editsDirs);
   }
+  */
   
   @Override
   public void errorOccurred(StorageDirectory sd) {
+    
     
     
   }
@@ -218,7 +239,7 @@ public class FSImage extends Storage
     return namesystem;
   }
 
-  void setFSNamesystem(FSNamesystem ns) {
+  public void setFSNamesystem(FSNamesystem ns) {
     namesystem = ns;
   }
 
@@ -232,9 +253,12 @@ public class FSImage extends Storage
   }
   
   
+  //TODELETE
+  /*
   void setStorageDirectories(Collection<URI> fsNameDirs,
                              Collection<URI> fsEditsDirs) throws IOException {
-    /*
+    
+
     this.storageDirs = new ArrayList<StorageDirectory>();
     this.removedStorageDirs = new ArrayList<StorageDirectory>();
     
@@ -272,8 +296,8 @@ public class FSImage extends Storage
                     NameNodeDirType.EDITS));
                     
     }
-    */
-  }
+    
+  }*/
 
   /* 
    * Checks the consistency of a URI, in particular if the scheme 
@@ -306,6 +330,8 @@ public class FSImage extends Storage
    storage.setCheckpointDirectories(dirs, editsDirs);
   }
   
+  
+  
   static File getImageFile(StorageDirectory sd, NameNodeFile type) {
     return new File(sd.getCurrentDir(), type.getName());
   }
@@ -328,6 +354,8 @@ public class FSImage extends Storage
   }*/
 
   
+  
+  // Used by checkpointStorage
   Collection<File> getFiles(NameNodeFile type, NameNodeDirType dirType) {
     ArrayList<File> list = new ArrayList<File>();
     Iterator<StorageDirectory> it = (dirType == null) ? storage.dirIterator() :
@@ -337,6 +365,7 @@ public class FSImage extends Storage
     }
     return list;
   }
+  
 
   Collection<URI> getDirectories(NameNodeDirType dirType) 
       throws IOException {
@@ -378,15 +407,17 @@ public class FSImage extends Storage
    * @param dirType directory type
    * @return number of storage directories of type dirType
    */
+  //TODELETE
+  /*
   int getNumStorageDirs(NameNodeDirType dirType) {
     if(dirType == null)
-      return getNumStorageDirs();
+      return storage.getNumStorageDirs();
     Iterator<StorageDirectory> it = storage.dirIterator(dirType);
     int numDirs = 0;
     for(; it.hasNext(); it.next())
       numDirs++;
     return numDirs;
-  }
+  }*/
 
   /**
    * Analyze storage directories.
@@ -592,7 +623,11 @@ public class FSImage extends Storage
     
   }
 
+  
   public void doRollback() throws IOException {
+    
+    storage.doRollback();
+    
     /* Move somewhere else
     // Rollback is allowed only if there is 
     // a previous fs states in at least one of the storage directories.
@@ -647,10 +682,13 @@ public class FSImage extends Storage
     // check whether name-node can start in regular mode
     verifyDistributedUpgradeProgress(StartupOption.REGULAR);
     */
+
   }
 
+  //TODELETE
+  /*
   private void doFinalize(StorageDirectory sd) throws IOException {
-    /* move somewhere else
+    // move somewhere else
     File prevDir = sd.getPreviousDir();
     if (!prevDir.exists()) { // already discarded
       LOG.info("Directory " + prevDir + " does not exist.");
@@ -669,13 +707,13 @@ public class FSImage extends Storage
     deleteDir(tmpDir);
     isUpgradeFinalized = true;
     LOG.info("Finalize upgrade for " + sd.getRoot()+ " is complete.");
-    */
-  }
+   
+  } */
 
   void finalizeUpgrade() throws IOException {
     for (Iterator<StorageDirectory> it = 
                           storage.dirIterator(); it.hasNext();) {
-      doFinalize(it.next());
+      storage.doFinalize(it.next());
     }
   }
 
@@ -700,6 +738,8 @@ public class FSImage extends Storage
     }*/
   
   // TODELETE
+  //TODO:check if really no one is calling this method and delete it
+  //FIXME: is called from somewhere on an extended class
   public boolean isConversionNeeded(StorageDirectory sd) throws IOException {
     File oldImageDir = new File(sd.getRoot(), "image");
     if (!oldImageDir.exists()) {
@@ -714,7 +754,7 @@ public class FSImage extends Storage
     try {
       oldFile.seek(0);
       int odlVersion = oldFile.readInt();
-      if (odlVersion < LAST_PRE_UPGRADE_LAYOUT_VERSION)
+      if (odlVersion < Storage.LAST_UPGRADABLE_LAYOUT_VERSION)
         return false;
     } finally {
       oldFile.close();
@@ -725,6 +765,8 @@ public class FSImage extends Storage
   // TODELETE
   // Atomic move sequence, to recover from interrupted checkpoint
   //
+  //TODELETE
+  /*
   boolean recoverInterruptedCheckpoint(StorageDirectory nameSD,
                                        StorageDirectory editsSD) 
                                        throws IOException {
@@ -767,7 +809,7 @@ public class FSImage extends Storage
       }
     }
     return needToSave;
-  }
+  }*/
 
   /**
    * Choose latest image from one of the directories,
@@ -948,18 +990,18 @@ public class FSImage extends Storage
         imageDirs.add(sd.getRoot().getCanonicalPath());
       }
       
-      checkpointTime = storage.readCheckpointTime(sd);
+      storage.checkpointTime = storage.readCheckpointTime(sd);
 
-      checkpointTimes.add(checkpointTime);
+      checkpointTimes.add(storage.checkpointTime);
       
       if (sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE) && 
-         (latestNameCheckpointTime < checkpointTime) && imageExists) {
-        latestNameCheckpointTime = checkpointTime;
+         (latestNameCheckpointTime < storage.checkpointTime) && imageExists) {
+        latestNameCheckpointTime = storage.checkpointTime;
         latestNameSD = sd;
       }
       
       // check that we have a valid, non-default checkpointTime
-      if (checkpointTime <= 0L)
+      if (storage.checkpointTime <= 0L)
         needToSave |= true;
       
       // set finalized flag
@@ -982,7 +1024,7 @@ public class FSImage extends Storage
    * "re-save" and consolidate the edit-logs
    */
   public boolean loadFSImage(File curFile) throws IOException {
-    assert this.getLayoutVersion() < 0 : "Negative layout version is expected.";
+    assert storage.getLayoutVersion() < 0 : "Negative layout version is expected.";
     assert curFile != null : "curFile is null";
 
     FSNamesystem fsNamesys = getFSNamesystem();
@@ -1008,7 +1050,8 @@ public class FSImage extends Storage
       // read image version: first appeared in version -1
       int imgVersion = in.readInt();
       // read namespaceID: first appeared in version -2
-      this.namespaceID = in.readInt();
+      //this.namespaceID = in.readInt();
+      storage.setNamespaceId(in.readInt());
 
       // read number of files
       long numFiles;
@@ -1018,7 +1061,9 @@ public class FSImage extends Storage
         numFiles = in.readInt();
       }
 
-      this.layoutVersion = imgVersion;
+      //this.layoutVersion = imgVersion;
+      storage.setLayoutVersion(imgVersion);
+      
       // read in the last generation stamp.
       if (imgVersion <= -12) {
         long genstamp = in.readLong();
@@ -1140,9 +1185,11 @@ public class FSImage extends Storage
   /**
    * Return string representing the parent of the given path.
    */
+  //TODELETE
+  /*
   String getParent(String path) {
     return path.substring(0, path.lastIndexOf(Path.SEPARATOR));
-  }
+  }*/
   
   byte[][] getParent(byte[][] path) {
     byte[][] result = new byte[path.length - 1][];
@@ -1216,7 +1263,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
       new BufferedOutputStream(fos));
     try {
       out.writeInt(FSConstants.LAYOUT_VERSION);
-      out.writeInt(namespaceID);
+      out.writeInt(storage.getNamespaceID());
       out.writeLong(fsDir.rootDir.numItemsInTree());
       out.writeLong(fsNamesys.getGenerationStamp());
       byte[] byteStore = new byte[4*FSConstants.MAX_PATH_LENGTH];
@@ -1263,7 +1310,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     editLog.close();
     */
     if(renewCheckpointTime)
-      this.checkpointTime = now();
+      storage.checkpointTime = now();
     ArrayList<StorageDirectory> errorSDs = new ArrayList<StorageDirectory>();
 
     // mv current -> lastcheckpoint.tmp
@@ -1603,7 +1650,8 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
 
   public synchronized void close() throws IOException {
     //getEditLog().close();
-    unlockAll();
+    storage.unlockAll();
+    
   }
 
   /**
@@ -1660,6 +1708,9 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     return getEditLog().getFsEditName();
   }
  */
+
+  //TODELETE
+  /*
   File getFsTimeName() {
     StorageDirectory sd = null;
     // NameNodeFile.TIME shoul be same on all directories
@@ -1667,7 +1718,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
              storage.dirIterator(); it.hasNext();)
       sd = it.next();
     return getImageFile(sd, NameNodeFile.TIME);
-  }
+  }*/
 
   /**
    * Return the name of the image file that is uploaded by periodic
@@ -1729,6 +1780,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
   }
 
   // TODELETE
+  /*
   protected void corruptPreUpgradeStorage(File rootDir) throws IOException {
     File oldImageDir = new File(rootDir, "image");
     if (!oldImageDir.exists())
@@ -1747,21 +1799,23 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
       oldFile.close();
     }
   }
-
+   */
+  /*
+  //TODELETE
   private boolean getDistributedUpgradeState() {
     FSNamesystem ns = getFSNamesystem();
     return ns == null ? false : ns.getDistributedUpgradeState();
   }
-
+  //TODELETE
   private int getDistributedUpgradeVersion() {
     FSNamesystem ns = getFSNamesystem();
     return ns == null ? 0 : ns.getDistributedUpgradeVersion();
   }
-
+  //TODELETE
   private void setDistributedUpgradeState(boolean uState, int uVersion) {
     getFSNamesystem().upgradeManager.setUpgradeState(uState, uVersion);
   }
-  
+  */
   
   //TODELETE
   /*
@@ -1784,17 +1838,19 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
   }
   */
   
+  //TODELETE
+  /*
   private void initializeDistributedUpgrade() throws IOException {
     UpgradeManagerNamenode um = getFSNamesystem().upgradeManager;
     if(! um.initializeUpgrade())
       return;
     // write new upgrade state into disk
-    writeAll();
+    storage.writeAll();
     NameNode.LOG.info("\n   Distributed upgrade for NameNode version " 
         + um.getUpgradeVersion() + " to current LV " 
         + FSConstants.LAYOUT_VERSION + " is initialized.");
   }
-
+   */
   /**
    * Retrieve checkpoint dirs from configuration.
    *  

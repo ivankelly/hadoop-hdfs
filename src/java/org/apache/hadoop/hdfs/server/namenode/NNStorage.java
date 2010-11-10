@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Properties;
+import java.io.RandomAccessFile;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -174,6 +175,17 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     this.namesystem = ns;
   }
   
+  private void setDistributedUpgradeState(boolean uState, int uVersion) {
+   namesystem.upgradeManager.setUpgradeState(uState, uVersion);
+  }
+  
+  private int getDistributedUpgradeVersion() {
+    return namesystem == null ? 0 : namesystem.getDistributedUpgradeVersion();
+  }
+  
+  private boolean getDistributedUpgradeState() {
+    return namesystem == null ? false : namesystem.getDistributedUpgradeState();
+  }
   
   ///////////////////////////////////////////////////////////////////////
   // PUBLIC API
@@ -184,6 +196,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
    */
   
   public NNStorage(Configuration conf) throws IOException{
+    // FIXME: assert to avoid null values?
     super(NodeType.NAME_NODE);
     this.conf = conf;
     loadStorages(conf);
@@ -444,7 +457,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
    * Save current image and empty journal into {@code current} directory.
    */
   public void saveCurrent(StorageDirectory sd) throws IOException {
-   /*
+    /*
     File curDir = sd.getCurrentDir();
     NameNodeDirType dirType = (NameNodeDirType)sd.getStorageDirType();
     // save new image or new edits
@@ -473,7 +486,8 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
    */
   public void moveCurrent(StorageDirectory sd)
   throws IOException {
-    /*    File curDir = sd.getCurrentDir();
+        
+    File curDir = sd.getCurrentDir();
     File tmpCkptDir = sd.getLastCheckpointTmp();
     // mv current -> lastcheckpoint.tmp
     // only if current is formatted - has VERSION file
@@ -484,7 +498,8 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     }
     // recreate current
     if(!curDir.exists() && !curDir.mkdir())
-    throw new IOException("Cannot create directory " + curDir);*/
+    throw new IOException("Cannot create directory " + curDir);
+    
   }
 
   /**
@@ -514,11 +529,57 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   
   
   
+  /**
+   * This method remove all previous storages.
+   * Add the new ones passed as parameters
+   * @param fsNameDirs Colletion of URIs where to store fsimage 
+   * @param fsEditsDirs Collection of URIs where to store edit logs
+   * @throws IOException
+   */
+  public void setStorageDirectories(Collection<URI> fsNameDirs,
+                             Collection<URI> fsEditsDirs) throws IOException {
 
-  ///////////////////////////////////////////////////////////////////////
-  // PRIVATE methods
-  ///////////////////////////////////////////////////////////////////////
+    this.storageDirs = new ArrayList<StorageDirectory>();
+    this.removedStorageDirs = new ArrayList<StorageDirectory>();
 
+    // Add all name dirs with appropriate NameNodeDirType 
+    for (URI dirName : fsNameDirs) {
+      NNUtils.checkSchemeConsistency(dirName);
+      boolean isAlsoEdits = false;
+      for (URI editsDirName : fsEditsDirs) {
+        if (editsDirName.compareTo(dirName) == 0) {
+          isAlsoEdits = true;
+          fsEditsDirs.remove(editsDirName);
+          break;
+        }
+      }
+      NameNodeDirType dirType = (isAlsoEdits) ?
+          NameNodeDirType.IMAGE_AND_EDITS :
+            NameNodeDirType.IMAGE;
+      //  Add to the list of storage directories, only if the 
+      // URI is of type file://
+      if(dirName.getScheme().compareTo(JournalType.FILE.name().toLowerCase()) 
+          == 0){
+        //this.addStorageDir(new StorageDirectory(new File(dirName.getPath()), 
+        //   dirType));
+        storageDirs.add(new StorageDirectory(new File(dirName.getPath()), dirType));
+      }
+    }
+    
+    // Add edits dirs if they are different from name dirs
+    for (URI dirName : fsEditsDirs) {
+      NNUtils.checkSchemeConsistency(dirName);
+      //  Add to the list of storage directories, only if the 
+      // URI is of type file://
+      if(dirName.getScheme().compareTo(JournalType.FILE.name().toLowerCase())
+          == 0)
+        //this.addStorageDir(new StorageDirectory(new File(dirName.getPath()), 
+        //    NameNodeDirType.EDITS));
+        storageDirs.add(new StorageDirectory(new File(dirName.getPath()), NameNodeDirType.EDITS));
+      }
+  
+  }
+  
 
   /**
    * In esence, it does the same as 
@@ -591,6 +652,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
             == 0){
           this.addStorageDir(new StorageDirectory(new File(dirName.getPath()), 
               dirType));
+          
         }
       }
       
@@ -664,7 +726,8 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   
   @Override
   protected void corruptPreUpgradeStorage(File rootDir) throws IOException {
-    /*File oldImageDir = new File(rootDir, "image");
+    
+    File oldImageDir = new File(rootDir, "image");
     if (!oldImageDir.exists())
       if (!oldImageDir.mkdir())
         throw new IOException("Cannot create directory " + oldImageDir);
@@ -679,7 +742,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       writeCorruptedData(oldFile);
     } finally {
       oldFile.close();
-      }*/
+      }
   }
   
   public Iterator<StorageDirectory> iterator() {
@@ -887,7 +950,9 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   protected void getFields(Properties props, 
                            StorageDirectory sd 
                            ) throws IOException {
-    /* FIXME how to deal with distributed upgrade
+    
+    //FIXME how to deal with distributed upgrade.
+    // For the moment it is using local FSNamesystem. On next part we will handle that.
 
     super.getFields(props, sd);
     if (layoutVersion == 0)
@@ -900,7 +965,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
         sDUS == null? false : Boolean.parseBoolean(sDUS),
         sDUV == null? getLayoutVersion() : Integer.parseInt(sDUV));
     this.checkpointTime = readCheckpointTime(sd);
-    */
+   
   }
 
   /**
@@ -916,7 +981,10 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   protected void setFields(Properties props, 
                            StorageDirectory sd 
                            ) throws IOException {
-    /* FIXME how to deal with distributed upgrade
+     
+    //FIXME how to deal with distributed upgrade
+    // For the moment it is using local FSNamesystem. On next part we will handle that.
+    
     super.setFields(props, sd);
     boolean uState = getDistributedUpgradeState();
     int uVersion = getDistributedUpgradeVersion();
@@ -925,13 +993,19 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       props.setProperty("distributedUpgradeVersion", Integer.toString(uVersion)); 
     }
     writeCheckpointTime(sd);
-    */
-  }
 
+  }
+  
+  /*
+   * 
+   */
   boolean isUpgradeFinalized() {
     return isUpgradeFinalized;
   }
   
+  /*
+   * 
+   */
   public void doUpgrade() throws IOException {
     
     
@@ -968,4 +1042,90 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     //initializeDistributedUpgrade();
     //editLog.open();
   }
+  
+  public void doFinalize(StorageDirectory sd) throws IOException {
+    
+    File prevDir = sd.getPreviousDir();
+    if (!prevDir.exists()) { // already discarded
+      LOG.info("Directory " + prevDir + " does not exist.");
+      LOG.info("Finalize upgrade for " + sd.getRoot()+ " is not required.");
+      return;
+    }
+    LOG.info("Finalizing upgrade for storage directory " 
+             + sd.getRoot() + "."
+             + (getLayoutVersion()==0 ? "" :
+                   "\n   cur LV = " + this.getLayoutVersion()
+                   + "; cur CTime = " + this.getCTime()));
+    assert sd.getCurrentDir().exists() : "Current directory must exist.";
+    final File tmpDir = sd.getFinalizedTmp();
+    // rename previous to tmp and remove
+    rename(prevDir, tmpDir);
+    deleteDir(tmpDir);
+    isUpgradeFinalized = true;
+    LOG.info("Finalize upgrade for " + sd.getRoot()+ " is complete.");
+ 
+  }
+  
+
+  public void doRollback() throws IOException {
+    //FIXME
+    
+    //Move somewhere else
+    // Rollback is allowed only if there is 
+    // a previous fs states in at least one of the storage directories.
+    // Directories that don't have previous state do not rollback
+    /*
+    boolean canRollback = false;
+    FSImage prevState = new FSImage(getFSNamesystem());
+    prevState.layoutVersion = FSConstants.LAYOUT_VERSION;
+    for (Iterator<StorageDirectory> it = 
+                       dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
+      File prevDir = sd.getPreviousDir();
+      if (!prevDir.exists()) {  // use current directory then
+        LOG.info("Storage directory " + sd.getRoot()
+                 + " does not contain previous fs state.");
+        sd.read(); // read and verify consistency with other directories
+        continue;
+      }
+      StorageDirectory sdPrev = prevState.new StorageDirectory(sd.getRoot());
+      sdPrev.read(sdPrev.getPreviousVersionFile());  // read and verify consistency of the prev dir
+      canRollback = true;
+    }
+    if (!canRollback)
+      throw new IOException("Cannot rollback. " 
+                            + "None of the storage directories contain previous fs state.");
+
+    // Now that we know all directories are going to be consistent
+    // Do rollback for each directory containing previous state
+    for (Iterator<StorageDirectory> it = 
+                          dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
+      File prevDir = sd.getPreviousDir();
+      if (!prevDir.exists())
+        continue;
+
+      LOG.info("Rolling back storage directory " + sd.getRoot()
+               + ".\n   new LV = " + prevState.getLayoutVersion()
+               + "; new CTime = " + prevState.getCTime());
+      File tmpDir = sd.getRemovedTmp();
+      assert !tmpDir.exists() : "removed.tmp directory must not exist.";
+      // rename current to tmp
+      File curDir = sd.getCurrentDir();
+      assert curDir.exists() : "Current directory must exist.";
+      rename(curDir, tmpDir);
+      // rename previous to current
+      rename(prevDir, curDir);
+
+      // delete tmp dir
+      deleteDir(tmpDir);
+      LOG.info("Rollback of " + sd.getRoot()+ " is complete.");
+    }
+    isUpgradeFinalized = true;
+    // check whether name-node can start in regular mode
+    verifyDistributedUpgradeProgress(StartupOption.REGULAR);
+    */
+  }
+  
+  
 }

@@ -27,12 +27,20 @@ import java.util.Iterator;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants;
 import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
+import org.apache.hadoop.hdfs.server.common.Storage.StorageState;
+
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.namenode.FSImage;
 import org.apache.hadoop.hdfs.server.namenode.EditLogFileInputStream;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.io.LongWritable;
+
+import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
+import org.apache.hadoop.conf.Configuration;
+
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.StorageErrorListener;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 
 @InterfaceAudience.Private
 public class BackupStorage extends FSImage {
@@ -54,8 +62,8 @@ public class BackupStorage extends FSImage {
 
   /**
    */
-  BackupStorage() {
-    super();
+  BackupStorage(Configuration conf, NNStorage storage) {
+    super(conf,storage);
     jsState = JSpoolState.OFF;
   }
 
@@ -76,9 +84,9 @@ public class BackupStorage extends FSImage {
    */
   void recoverCreateRead(Collection<URI> imageDirs,
                          Collection<URI> editsDirs) throws IOException {
-    setStorageDirectories(imageDirs, editsDirs);
-    this.checkpointTime = 0L;
-    for(Iterator<StorageDirectory> it = dirIterator(); it.hasNext();) {
+    storage.setStorageDirectories(imageDirs, editsDirs);
+    storage.checkpointTime = 0L;
+    for(Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
       StorageState curState;
       try {
@@ -124,7 +132,7 @@ public class BackupStorage extends FSImage {
     fsDir.reset();
 
     // unlock, close and rename storage directories
-    unlockAll();
+    storage.unlockAll();
     // recover from unsuccessful checkpoint if necessary
     recoverCreateRead(getImageDirectories(), getEditsDirectories());
     // rename and recreate
@@ -147,8 +155,8 @@ public class BackupStorage extends FSImage {
 
     FSDirectory fsDir = getFSNamesystem().dir;
     if(fsDir.isEmpty()) {
-      Iterator<StorageDirectory> itImage = dirIterator(NameNodeDirType.IMAGE);
-      Iterator<StorageDirectory> itEdits = dirIterator(NameNodeDirType.EDITS);
+      Iterator<StorageDirectory> itImage = storage.dirIterator(NameNodeDirType.IMAGE);
+      Iterator<StorageDirectory> itEdits = storage.dirIterator(NameNodeDirType.EDITS);
       if(!itImage.hasNext() || ! itEdits.hasNext())
         throw new IOException("Could not locate checkpoint directories");
       StorageDirectory sdName = itImage.next();
@@ -164,7 +172,7 @@ public class BackupStorage extends FSImage {
 
     // set storage fields
     setStorageInfo(sig);
-    checkpointTime = sig.checkpointTime;
+    storage.checkpointTime = sig.checkpointTime;
   }
 
   /**
@@ -214,7 +222,7 @@ public class BackupStorage extends FSImage {
           waitSpoolEnd();
           // update NameSpace in memory
           backupInputStream.setBytes(data);
-          editLog.loadEditRecords(getLayoutVersion(),
+          editLog.loadEditRecords(storage.getLayoutVersion(),
                     backupInputStream.getDataInputStream(), true);
           getFSNamesystem().dir.updateCountForINodeWithQuota(); // inefficient!
           break;
@@ -262,7 +270,7 @@ public class BackupStorage extends FSImage {
 
     // create journal spool directories
     for(Iterator<StorageDirectory> it = 
-                          dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
+                      storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
       StorageDirectory sd = it.next();
       File jsDir = getJSpoolDir(sd);
       if (!jsDir.exists() && !jsDir.mkdirs()) {
@@ -282,7 +290,7 @@ public class BackupStorage extends FSImage {
     // create streams pointing to the journal spool files
     // subsequent journal records will go directly to the spool
     editLog.divertFileStreams(STORAGE_JSPOOL_DIR + "/" + STORAGE_JSPOOL_FILE);
-    setCheckpointState(CheckpointStates.ROLLED_EDITS);
+    storage.setCheckpointState(CheckpointStates.ROLLED_EDITS);
 
     // set up spooling
     if(backupInputStream == null)
@@ -301,7 +309,7 @@ public class BackupStorage extends FSImage {
       assert op == NamenodeProtocol.JA_CHECKPOINT_TIME;
       LongWritable lw = new LongWritable();
       lw.readFields(in);
-      setCheckpointTime(lw.get());
+      storage.setCheckpointTime(lw.get());
     } finally {
       backupInputStream.clear();
     }
@@ -323,7 +331,7 @@ public class BackupStorage extends FSImage {
    * and writing them into edits file(s).
    */
   void convergeJournalSpool() throws IOException {
-    Iterator<StorageDirectory> itEdits = dirIterator(NameNodeDirType.EDITS);
+    Iterator<StorageDirectory> itEdits = storage.dirIterator(NameNodeDirType.EDITS);
     if(! itEdits.hasNext())
       throw new IOException("Could not locate checkpoint directories");
     StorageDirectory sdEdits = itEdits.next();
@@ -338,7 +346,7 @@ public class BackupStorage extends FSImage {
   
       // first time reached the end of spool
       jsState = JSpoolState.WAIT;
-      numEdits += editLog.loadEditRecords(getLayoutVersion(), in, true);
+      numEdits += editLog.loadEditRecords(storage.getLayoutVersion(), in, true);
       getFSNamesystem().dir.updateCountForINodeWithQuota();
       edits.close();
     }

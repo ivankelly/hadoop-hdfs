@@ -1390,8 +1390,16 @@ public class NameNode implements NamenodeProtocols, FSConstants {
       }
     }
 
-    FSNamesystem nsys = new FSNamesystem(new FSImage(dirsToFormat,
-                                         editDirsToFormat), conf);
+    //FSNamesystem nsys = new FSNamesystem(new FSImage(dirsToFormat,
+    //                                     editDirsToFormat), conf);
+    
+    NNStorage storage = new NNStorage(conf);
+    storage.setStorageDirectories(dirsToFormat, editDirsToFormat);
+    
+    FSImage image = new FSImage(conf,storage);
+    
+    FSNamesystem nsys = new FSNamesystem(image, conf);
+    
     nsys.dir.fsImage.format();
     return false;
   }
@@ -1402,8 +1410,19 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     Collection<URI> dirsToFormat = FSNamesystem.getNamespaceDirs(conf);
     Collection<URI> editDirsToFormat = 
                                FSNamesystem.getNamespaceEditsDirs(conf);
-    FSNamesystem nsys = new FSNamesystem(new FSImage(dirsToFormat,
-                                         editDirsToFormat), conf);
+    
+    
+    //FSNamesystem nsys = new FSNamesystem(new FSImage(dirsToFormat,
+    //                                     editDirsToFormat), conf);
+    
+    NNStorage storage = new NNStorage(conf);
+    storage.setStorageDirectories(dirsToFormat, editDirsToFormat);
+    
+    FSImage image = new FSImage(conf,storage);
+    
+    FSNamesystem nsys = new FSNamesystem(image, conf);
+    
+    
     System.err.print(
         "\"finalize\" will remove the previous state of the files system.\n"
         + "Recent upgrade will become permanent.\n"

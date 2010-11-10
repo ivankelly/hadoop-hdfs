@@ -20,8 +20,10 @@ package org.apache.hadoop.hdfs.server.namenode;
 import java.io.File;
 import java.io.IOException;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.fs.permission.PermissionStatus;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.server.common.GenerationStamp;
 import org.apache.hadoop.hdfs.server.common.Storage;
@@ -189,11 +191,17 @@ public class CreateEditsLog {
       }
     }
     
-    FSImage fsImage = new FSImage(editsLogDir.getAbsoluteFile().toURI());
+    //FSImage fsImage = new FSImage(editsLogDir.getAbsoluteFile().toURI());
     FileNameGenerator nameGenerator = new FileNameGenerator(BASE_PATH, 100);
-
-    FSEditLog editLog = fsImage.getEditLog();
-    editLog.createEditLogFile(fsImage.getFsEditName());
+    
+    Configuration conf = new HdfsConfiguration();
+    NNStorage storage = new NNStorage(conf);
+    
+    
+    //FSEditLog editLog = fsImage.getEditLog();
+    FSEditLog editLog = new FSEditLog(conf,storage);
+    
+    editLog.createEditLogFile(editLog.getFsEditName());
     editLog.open();
     addFiles(editLog, numFiles, replication, numBlocksPerFile, startingBlockId,
              nameGenerator);

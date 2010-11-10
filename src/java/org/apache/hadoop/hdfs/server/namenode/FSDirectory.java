@@ -52,6 +52,7 @@ import org.apache.hadoop.hdfs.util.ByteArray;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage;
 
 /*************************************************
  * FSDirectory stores the filesystem directory state.
@@ -104,8 +105,10 @@ class FSDirectory implements Closeable {
   private final NameCache<ByteArray> nameCache;
 
   /** Access an existing dfs name directory. */
-  FSDirectory(FSNamesystem ns, Configuration conf) {
-    this(new FSImage(), ns, conf);
+  FSDirectory(FSNamesystem ns, Configuration conf) throws IOException {
+    //this(new FSImage(), ns, conf);
+    this(new FSImage(conf,new NNStorage(conf)), ns, conf);
+    
     if(conf.getBoolean(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_KEY, 
                        DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_DEFAULT)) {
       NameNode.LOG.info("set FSImage.restoreFailedStorage");
