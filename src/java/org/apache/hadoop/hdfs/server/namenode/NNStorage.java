@@ -677,8 +677,8 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     
     //  Add to the list of storage directories, only if the 
     // URI is of type file://
-    if(dirName.getScheme().compareTo(JournalType.FILE.name().toLowerCase()) == 0) {
-      storageDirs.add(new StorageDirectory(new File(dirName.getPath()), type));
+    if(dir.getScheme().compareTo(JournalType.FILE.name().toLowerCase()) == 0) {
+      storageDirs.add(new StorageDirectory(new File(dir.getPath()), type));
     }
   
   }
@@ -755,9 +755,9 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
         "of the file system meta-data.");
       }
       
-      
-    } else if (dirNames.isEmpty())
+    } else if (dirNames.isEmpty()) {
       dirNames.add("file:///tmp/hadoop/dfs/name");
+    }
     
     
     Collection<URI> fsNameDirs = Util.stringCollectionAsURIs(dirNames);

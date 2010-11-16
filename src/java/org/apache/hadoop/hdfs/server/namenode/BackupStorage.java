@@ -44,155 +44,18 @@ import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 
 @InterfaceAudience.Private
 public class BackupStorage extends FSImage {
-  // Names of the journal spool directory and the spool file
-  private static final String STORAGE_JSPOOL_DIR = "jspool";
-  private static final String STORAGE_JSPOOL_FILE = 
-                                              NameNodeFile.EDITS_NEW.getName();
-
-  /** Backup input stream for loading edits into memory */
-  private EditLogBackupInputStream backupInputStream;
-  /** Is journal spooling in progress */
-  volatile JSpoolState jsState;
-
-  static enum JSpoolState {
-    OFF,
-    INPROGRESS,
-    WAIT;
-  }
 
   /**
    */
   BackupStorage(Configuration conf, NNStorage storage) {
     super(conf,storage);
-    jsState = JSpoolState.OFF;
   }
 
-  @Override
-  public boolean isConversionNeeded(StorageDirectory sd) {
-    return false;
-  }
 
-  /**
-   * Analyze backup storage directories for consistency.<br>
-   * Recover from incomplete checkpoints if required.<br>
-   * Read VERSION and fstime files if exist.<br>
-   * Do not load image or edits.
-   * 
-   * @param imageDirs list of image directories as URI.
-   * @param editsDirs list of edits directories URI.
-   * @throws IOException if the node should shutdown.
-   */
-  void recoverCreateRead(Collection<URI> imageDirs,
-                         Collection<URI> editsDirs) throws IOException {
-    storage.setStorageDirectories(imageDirs, editsDirs);
-    storage.checkpointTime = 0L;
-    for(Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
-      StorageDirectory sd = it.next();
-      StorageState curState;
-      try {
-        curState = sd.analyzeStorage(HdfsConstants.StartupOption.REGULAR);
-        // sd is locked but not opened
-        switch(curState) {
-        case NON_EXISTENT:
-          // fail if any of the configured storage dirs are inaccessible 
-          throw new InconsistentFSStateException(sd.getRoot(),
-                "checkpoint directory does not exist or is not accessible.");
-        case NOT_FORMATTED:
-          // for backup node all directories may be unformatted initially
-          LOG.info("Storage directory " + sd.getRoot() + " is not formatted.");
-          LOG.info("Formatting ...");
-          sd.clearDirectory(); // create empty current
-          break;
-        case NORMAL:
-          break;
-        default:  // recovery is possible
-          sd.doRecover(curState);
-        }
-        if(curState != StorageState.NOT_FORMATTED) {
-          sd.read(); // read and verify consistency with other directories
-        }
-      } catch(IOException ioe) {
-        sd.unlock();
-        throw ioe;
-      }
-    }
-  }
 
-  /**
-   * Reset storage directories.
-   * <p>
-   * Unlock the storage.
-   * Rename <code>current</code> to <code>lastcheckpoint.tmp</code>
-   * and recreate empty <code>current</code>.
-   * @throws IOException
-   */
-  synchronized void reset() throws IOException {
-    // reset NameSpace tree
-    FSDirectory fsDir = getFSNamesystem().dir;
-    fsDir.reset();
-
-    // unlock, close and rename storage directories
-    storage.unlockAll();
-    // recover from unsuccessful checkpoint if necessary
-    recoverCreateRead(getImageDirectories(), getEditsDirectories());
-    // rename and recreate
-    for(StorageDirectory sd : storageDirs) {
-      // rename current to lastcheckpoint.tmp
-      moveCurrent(sd);
-    }
-  }
-
-  /**
-   * Load checkpoint from local files only if the memory state is empty.<br>
-   * Set new checkpoint time received from the name-node.<br>
-   * Move <code>lastcheckpoint.tmp</code> to <code>previous.checkpoint</code>.
-   * @throws IOException
-   */
-  void loadCheckpoint(CheckpointSignature sig) throws IOException {
-    // load current image and journal if it is not in memory already
-    if(!editLog.isOpen())
-      editLog.open();
-
-    FSDirectory fsDir = getFSNamesystem().dir;
-    if(fsDir.isEmpty()) {
-      Iterator<StorageDirectory> itImage = storage.dirIterator(NameNodeDirType.IMAGE);
-      Iterator<StorageDirectory> itEdits = storage.dirIterator(NameNodeDirType.EDITS);
-      if(!itImage.hasNext() || ! itEdits.hasNext())
-        throw new IOException("Could not locate checkpoint directories");
-      StorageDirectory sdName = itImage.next();
-      StorageDirectory sdEdits = itEdits.next();
-      getFSDirectoryRootLock().writeLock();
-      try { // load image under rootDir lock
-        loadFSImage(FSImage.getImageFile(sdName, NameNodeFile.IMAGE));
-      } finally {
-        getFSDirectoryRootLock().writeUnlock();
-      }
-      loadFSEdits(sdEdits);
-    }
-
-    // set storage fields
-    setStorageInfo(sig);
-    storage.checkpointTime = sig.checkpointTime;
-  }
-
-  /**
-   * Save meta-data into fsimage files.
-   * and create empty edits.
-   */
-  void saveCheckpoint() throws IOException {
-    saveNamespace(false);
-  }
 
   private FSDirectory getFSDirectoryRootLock() {
     return getFSNamesystem().dir;
-  }
-
-  static File getJSpoolDir(StorageDirectory sd) {
-    return new File(sd.getRoot(), STORAGE_JSPOOL_DIR);
-  }
-
-  static File getJSpoolFile(StorageDirectory sd) {
-    return new File(getJSpoolDir(sd), STORAGE_JSPOOL_FILE);
   }
 
   /**

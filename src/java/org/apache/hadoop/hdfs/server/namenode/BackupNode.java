@@ -32,7 +32,6 @@ import org.apache.hadoop.hdfs.server.protocol.NamespaceInfo;
 import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.namenode.CheckpointSignature;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.CheckpointStates;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.ipc.RPC;
@@ -125,11 +124,15 @@ public class BackupNode extends NameNode {
 
   @Override // NameNode
   protected void loadNamesystem(Configuration conf) throws IOException {
+    /* FIXME Who creates who?
     NNStorage storage = new NNStorage(conf);
-    BackupStorage bnImage = new BackupStorage(conf,storage);
+    BackupNodePersistenceManager pm = new BackupNodePersistenceManager(conf);;
     this.namesystem = new FSNamesystem(conf, bnImage);
-    bnImage.recoverCreateRead(FSNamesystem.getNamespaceDirs(conf),
-                              FSNamesystem.getNamespaceEditsDirs(conf));
+    
+    pm.recoverCreateRead();
+    // bnImage.recoverCreateRead(FSNamesystem.getNamespaceDirs(conf),
+    //                          FSNamesystem.getNamespaceEditsDirs(conf));
+    */
   }
 
   @Override // NameNode
@@ -289,13 +292,13 @@ public class BackupNode extends NameNode {
     checkpointManager.doCheckpoint();
   }
 
-  CheckpointStates getCheckpointState() {
+  /*  CheckpointStates getCheckpointState() {
     return getFSImage().getCheckpointState();
   }
 
   void setCheckpointState(CheckpointStates cs) {
     getFSImage().setCheckpointState(cs);
-  }
+    }*/
 
   /**
    * Register this backup node with the active name-node.
