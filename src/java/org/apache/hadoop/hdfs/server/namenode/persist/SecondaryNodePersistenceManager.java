@@ -20,6 +20,8 @@ package org.apache.hadoop.hdfs.server.namenode.persist;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.ArrayList;
+
 import java.net.URI;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
@@ -32,6 +34,7 @@ import org.apache.hadoop.hdfs.server.common.HdfsConstants;
 
 import org.apache.hadoop.hdfs.server.namenode.CheckpointSignature;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 
 public class SecondaryNodePersistenceManager extends PersistenceManager {
   private String DEFAULT_NAMENODE_CHECKPOINT_DIR = "/tmp/hadoop/dfs/namesecondary";
@@ -48,26 +51,25 @@ public class SecondaryNodePersistenceManager extends PersistenceManager {
   public SecondaryNodePersistenceManager(Configuration conf) throws IOException {
     super(conf);
 
-    setupDirectories(conf);
+    setupDirectories();
   }
 
-  private void setupDirectories(Configuration conf) throws IOException {
+  private void setupDirectories() throws IOException {
     Collection<String> dirNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_DIR_KEY);
     if (dirNames.size() == 0) {
-      //storage.addStorageDir(DEFAULT_NAMENODE_CHECKPOINT_DIR, NNStorage.NameNodeDirType.IMAGE); TODO
+      storage.addStorageDirectory(new URI(DEFAULT_NAMENODE_CHECKPOINT_DIR), NNStorage.NameNodeDirType.IMAGE);
     } else {
       for (String s : dirNames) {
-        //storage.addStorageDir(s, NNStorage.NameNodeDirType.IMAGE));
+        storage.addStorageDirectory(new URI(s), NNStorage.NameNodeDirType.IMAGE);
       }
     }
     
     dirNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_EDITS_DIR_KEY);
     if (dirNames.size() == 0) {
-      //storage.addStorageDir(storage.new StorageDirectory(new File(DEFAULT_NAMENODE_CHECKPOINT_DIR), 
-      //NNStorage.NameNodeDirType.EDITS));
+      storage.addStorageDirectory(new URI(DEFAULT_NAMENODE_CHECKPOINT_DIR), NNStorage.NameNodeDirType.EDITS);
     } else {
       for (String s : dirNames) {
-        //  storage.addStorageDir(storage.new StorageDirectory(new File(s), NNStorage.NameNodeDirType.EDITS));
+	storage.addStorageDirectory(new URI(s), NNStorage.NameNodeDirType.EDITS);
       }
     }
     
@@ -115,6 +117,10 @@ public class SecondaryNodePersistenceManager extends PersistenceManager {
    */
   @Override
   public void startCheckpoint() throws IOException {
+    storage.unlockAll();
+    editlog.close();
+    setupDirectories();
+
     for(StorageDirectory sd : storage) {
       storage.moveCurrent(sd);
     }
@@ -125,6 +131,11 @@ public class SecondaryNodePersistenceManager extends PersistenceManager {
     for(StorageDirectory sd : storage) {
       storage.moveLastCheckpoint(sd);
     }
+  }
+
+  @Override
+  public boolean isConversionNeeded(StorageDirectory sd) {
+    return false;
   }
 
   /**
@@ -139,6 +150,46 @@ public class SecondaryNodePersistenceManager extends PersistenceManager {
     sig.validateStorageInfo(storage);
 
     save();
+  }
+
+  /**
+     @return the size of the checkpoint on disk
+  */
+  public long getCheckpointSize() {
+    return image.getFsImageName().length();
+  }
+
+  /**
+     Update the storage directory to reflect the checkpoint and ctime
+     of the image stored in it
+  */
+  public void updateStorageTimes(long cTime, long checkpointTime) {
+    storage.setCTime(cTime);
+    storage.setCheckpointTime(checkpointTime);
+  }
+
+  /**
+     Get a list of the configured image files on the server
+  */
+  public Collection<File> getImageFilenames() {
+    ArrayList<File> list = new ArrayList<File>();
+
+    for ( StorageDirectory sd : storage.iterable(NameNodeDirType.IMAGE) ) {
+      list.add(storage.getImageFile(sd));
+    }
+    return list;
+  }
+
+  /**
+    Get a list of the configured edit log files on the server
+  */
+  public Collection<File> getEditLogFilenames() {
+    ArrayList<File> list = new ArrayList<File>();
+
+    for ( StorageDirectory sd : storage.iterable(NameNodeDirType.IMAGE) ) {
+      list.add(storage.getEditFile(sd));
+    }
+    return list;
   }
 }
 

@@ -55,6 +55,7 @@ public class GetImageServlet extends HttpServlet {
     Map<String,String[]> pmap = request.getParameterMap();
     try {
       ServletContext context = getServletContext();
+      // FIXME persistence manager goes here
       final FSImage nnImage = (FSImage)context.getAttribute("name.system.image");
       final TransferFsImage ff = new TransferFsImage(pmap, request, response);
       final Configuration conf = 

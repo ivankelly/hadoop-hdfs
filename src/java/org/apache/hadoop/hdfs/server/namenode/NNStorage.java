@@ -239,14 +239,14 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     checkpointTime = newCpT;
     // Write new checkpoint time in all storage directories
     for(Iterator<StorageDirectory> it =
-    dirIterator(); it.hasNext();) {
-    StorageDirectory sd = it.next();
-    try {
-    writeCheckpointTime(sd);
-    } catch(IOException e) {
-    // Close any edits stream associated with this dir and remove directory
-    LOG.warn("incrementCheckpointTime failed on " + sd.getRoot().getPath() + ";type="+sd.getStorageDirType());
-    }
+	  dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
+      try {
+	writeCheckpointTime(sd);
+      } catch(IOException e) {
+	// Close any edits stream associated with this dir and remove directory
+	LOG.warn("incrementCheckpointTime failed on " + sd.getRoot().getPath() + ";type="+sd.getStorageDirType());
+      }
     }
   }
   
@@ -305,7 +305,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     this.namespaceID = nid;
   }
 
-  void setCTime(long t){
+  public void setCTime(long t){
     this.cTime = t;
   }
   
@@ -378,7 +378,10 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     //return null;
   }
   
-  
+  public File getImageFile(StorageDirectory sd) {
+    return getImageFile(sd, NameNodeFile.IMAGE);
+  }
+
   public File getEditFile(StorageDirectory sd) {
     return getImageFile(sd, NameNodeFile.EDITS);
     //return null;
@@ -664,7 +667,22 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   }
   
   
+  public void clearStorageDirectories() throws IOException {
+    this.storageDirs = new ArrayList<StorageDirectory>();
+    this.removedStorageDirs = new ArrayList<StorageDirectory>();
+  }
+
+  public void addStorageDirectory(URI dir, NameNodeDirType type) {
+    NNUtils.checkSchemeConsistency(dir);
+    
+    //  Add to the list of storage directories, only if the 
+    // URI is of type file://
+    if(dirName.getScheme().compareTo(JournalType.FILE.name().toLowerCase()) == 0) {
+      storageDirs.add(new StorageDirectory(new File(dirName.getPath()), type));
+    }
   
+  }
+
   /**
    * This method remove all previous storages.
    * Add the new ones passed as parameters
@@ -673,14 +691,13 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
    * @throws IOException
    */
   public void setStorageDirectories(Collection<URI> fsNameDirs,
-                             Collection<URI> fsEditsDirs) throws IOException {
+				    Collection<URI> fsEditsDirs) throws IOException {
 
     this.storageDirs = new ArrayList<StorageDirectory>();
     this.removedStorageDirs = new ArrayList<StorageDirectory>();
 
     // Add all name dirs with appropriate NameNodeDirType 
     for (URI dirName : fsNameDirs) {
-      NNUtils.checkSchemeConsistency(dirName);
       boolean isAlsoEdits = false;
       for (URI editsDirName : fsEditsDirs) {
         if (editsDirName.compareTo(dirName) == 0) {
@@ -689,31 +706,13 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
           break;
         }
       }
-      NameNodeDirType dirType = (isAlsoEdits) ?
-          NameNodeDirType.IMAGE_AND_EDITS :
-            NameNodeDirType.IMAGE;
-      //  Add to the list of storage directories, only if the 
-      // URI is of type file://
-      if(dirName.getScheme().compareTo(JournalType.FILE.name().toLowerCase()) 
-          == 0){
-        //this.addStorageDir(new StorageDirectory(new File(dirName.getPath()), 
-        //   dirType));
-        storageDirs.add(new StorageDirectory(new File(dirName.getPath()), dirType));
-      }
+      addStorageDirectory(dirName, (isAlsoEdits) ? NameNodeDirType.IMAGE_AND_EDITS : NameNodeDirType.IMAGE);
     }
     
     // Add edits dirs if they are different from name dirs
     for (URI dirName : fsEditsDirs) {
-      NNUtils.checkSchemeConsistency(dirName);
-      //  Add to the list of storage directories, only if the 
-      // URI is of type file://
-      if(dirName.getScheme().compareTo(JournalType.FILE.name().toLowerCase())
-          == 0)
-        //this.addStorageDir(new StorageDirectory(new File(dirName.getPath()), 
-        //    NameNodeDirType.EDITS));
-        storageDirs.add(new StorageDirectory(new File(dirName.getPath()), NameNodeDirType.EDITS));
-      }
-  
+      addStorageDirectory(dirName, NameNodeDirType.EDITS);
+    }
   }
   
 
@@ -896,7 +895,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   
   
   public void setCheckpointDirectories(Collection<URI> dirs,
-      Collection<URI> editsDirs) {
+				       Collection<URI> editsDirs) {
     checkpointDirs = dirs;
     checkpointEditsDirs = editsDirs;
   }

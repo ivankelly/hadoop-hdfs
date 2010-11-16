@@ -46,6 +46,7 @@ import java.util.ArrayList;
 
 import java.io.IOException;
 import java.io.File;
+import java.io.Closeable;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -61,7 +62,7 @@ import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.hdfs.server.protocol.CheckpointCommand;
 import org.apache.hadoop.hdfs.protocol.FSConstants;
 
-public class PersistenceManager {
+public class PersistenceManager implements Closeable {
   public static final Log LOG = LogFactory.getLog(Storage.class.getName());
    private static final SimpleDateFormat DATE_FORM = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
@@ -279,7 +280,7 @@ public class PersistenceManager {
   /**
    * This is called when a checkpoint upload finishes successfully.
    */
-  synchronized void checkpointUploadDone() {
+  public synchronized void checkpointUploadDone() {
     ckptState = CheckpointStates.UPLOAD_DONE;
   }
 
@@ -417,8 +418,6 @@ public class PersistenceManager {
 
     image.format();
     editlog.createEditLogFiles();
-    
-    
   }
 
   /**
@@ -525,6 +524,12 @@ public class PersistenceManager {
   
   public FSEditLog getLog() {
     return editlog;
+  }
+
+  @Override
+  public void close() {
+    image.close();
+    editlog.close();
   }
 
   /**

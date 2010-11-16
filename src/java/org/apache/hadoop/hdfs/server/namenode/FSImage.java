@@ -358,13 +358,6 @@ public class FSImage
   
   // Used by checkpointStorage
   Collection<File> getFiles(NameNodeFile type, NameNodeDirType dirType) {
-    ArrayList<File> list = new ArrayList<File>();
-    Iterator<StorageDirectory> it = (dirType == null) ? storage.dirIterator() :
-                                    storage.dirIterator(dirType);
-    for ( ;it.hasNext(); ) {
-      list.add(getImageFile(it.next(), type));
-    }
-    return list;
   }
   
 
@@ -1704,7 +1697,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
   /**
    * Return the name of the image file.
    */
-  File getFsImageName() {
+  public File getFsImageName() {
     StorageDirectory sd = null;
     for (Iterator<StorageDirectory> it = 
       storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
