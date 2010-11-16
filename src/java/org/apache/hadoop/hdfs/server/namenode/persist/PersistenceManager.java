@@ -376,6 +376,11 @@ public class PersistenceManager {
     
     this.load();
     storage.doUpgrade();
+    editlog.createEditLogFiles();
+    
+    //image.doUpgrade();
+    //editlog.doUpgrade();
+    
     initializeDistributedUpgrade();
     
   }
@@ -399,14 +404,21 @@ public class PersistenceManager {
   public void rollback() throws IOException {
     storage.initializeDirectories( getStartupOption() );
     
-    image.doRollback();
-  }
-
-  public static void finalizeUpgrade() {
+    storage.doRollback();
     
   }
 
-  public static void format() {
+  public  void finalizeUpgrade() throws IOException  {
+    
+  }
+
+  public void format() throws IOException { 
+    storage.initializeDirectories( getStartupOption() );
+
+    image.format();
+    editlog.createEditLogFiles();
+    
+    
   }
 
   /**
@@ -418,10 +430,12 @@ public class PersistenceManager {
     editlog.close();
 
     image.saveNamespace(true);
+    editlog.createEditLogFiles();
     
     if(!editlog.isOpen()) {
       editlog.open();
     }
+    
     ckptState = CheckpointStates.UPLOAD_DONE;
   }
 

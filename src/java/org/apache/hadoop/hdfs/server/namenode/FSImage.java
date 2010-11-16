@@ -78,6 +78,7 @@ import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.StorageErrorListener;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 
@@ -557,8 +558,49 @@ public class FSImage
   }*/
 
   public void doUpgrade() throws IOException {
+    
+    
+    // Do upgrade for each directory
+    long oldCTime = storage.getCTime();
+    storage.cTime = now();  // generate new cTime for the state
+    int oldLV = storage.getLayoutVersion();
+    storage.layoutVersion = FSConstants.LAYOUT_VERSION;
+    storage.checkpointTime = now();
+    for (Iterator<StorageDirectory> it = 
+                           storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
+      StorageDirectory sd = it.next();
+      LOG.info("Upgrading image directory " + sd.getRoot()
+               + ".\n   old LV = " + oldLV
+               + "; old CTime = " + oldCTime
+               + ".\n   new LV = " + storage.getLayoutVersion()
+               + "; new CTime = " + storage.getCTime());
+      File curDir = sd.getCurrentDir();
+      File prevDir = sd.getPreviousDir();
+      File tmpDir = sd.getPreviousTmp();
+      assert curDir.exists() : "Current directory must exist.";
+      assert !prevDir.exists() : "prvious directory must not exist.";
+      assert !tmpDir.exists() : "prvious.tmp directory must not exist.";
+      //assert !editLog.isOpen() : "Edits log must not be open.";
+      // rename current to tmp
+      NNStorage.rename(curDir, tmpDir);
+      // save new image
+      //storage.saveCurrent(sd);
+      storage.saveFSImage(getImageFile(sd, NameNodeFile.IMAGE));
+      
+      // rename tmp to previous
+      NNStorage.rename(tmpDir, prevDir);
+      
+      isUpgradeFinalized = false;
+      LOG.info("Upgrade of " + sd.getRoot() + " is complete.");
+    }
+    //initializeDistributedUpgrade();
+    //editLog.open();
+  }
+  
+  /*
+  public void doUpgrade() throws IOException {
        
-   /* 
+   
 
     if(getDistributedUpgradeState()) {
       // only distributed upgrade need to continue
@@ -616,13 +658,13 @@ public class FSImage
     }
     initializeDistributedUpgrade();
     //editLog.open();
-    */
+    
     
     
     
     
   }
-
+  */
   
   public void doRollback() throws IOException {
     
@@ -1251,6 +1293,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
   /**
    * Save the contents of the FS image to the file.
    */
+  /*
   void saveFSImage(File newFile) throws IOException {
     FSNamesystem fsNamesys = getFSNamesystem();
     FSDirectory fsDir = fsNamesys.dir;
@@ -1285,7 +1328,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     LOG.info("Image file of size " + newFile.length() + " saved in " 
         + (now() - startTime)/1000 + " seconds.");
     
-  }
+  }*/
 
   
   
@@ -1329,7 +1372,8 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
                                                               it.hasNext();) {
       StorageDirectory sd = it.next();
       try {
-        storage.saveCurrent(sd);
+        //storage.saveCurrent(sd);
+        storage.saveFSImage(storage.getImageFile(sd, NameNodeFile.IMAGE));
       } catch(IOException ie) {
         LOG.error("Unable to save image for " + sd.getRoot(), ie);
         errorSDs.add(sd);
@@ -1347,6 +1391,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     // checkpointTime is older than that of image directories.
 
     // recreate edits in current
+    /*
     for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS);
                                                               it.hasNext();) {
       StorageDirectory sd = it.next();
@@ -1356,7 +1401,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
         LOG.error("Unable to save edits for " + sd.getRoot(), ie);
         errorSDs.add(sd);
       }
-    }
+    }*/
     // mv lastcheckpoint.tmp -> previous.checkpoint
     for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
@@ -1431,7 +1476,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     storage.setNamespaceId(storage.newNamespaceID());
     storage.setCTime(0L);
     storage.setCheckpointTime(now());
-    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
         StorageDirectory sd = it.next();
         storage.format(sd);
     }
@@ -1442,6 +1487,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
   /*
    * Save one inode's attributes to the image.
    */
+  /*
   private static void saveINode2Image(ByteBuffer name,
                                       INode node,
                                       DataOutputStream out) throws IOException {
@@ -1486,13 +1532,14 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
                              fileINode.getGroupName(),
                              FILE_PERM);
     }
-  }
+  }*/
   
   /**
    * Save file tree image starting from the given root.
    * This is a recursive procedure, which first saves all children of
    * a current directory and then moves inside the sub-directories.
    */
+  /*
   private static void saveImage(ByteBuffer parentPrefix,
                                 int prefixLength,
                                 INodeDirectory current,
@@ -1515,7 +1562,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
       saveImage(parentPrefix, newPrefixLength, (INodeDirectory)child, out);
     }
     parentPrefix.position(prefixLength);
-  }
+  }*/
 
   void loadDatanodes(int version, DataInputStream in) throws IOException {
     if (version > -3) // pre datanode image version

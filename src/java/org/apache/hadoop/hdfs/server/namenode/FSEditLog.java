@@ -290,6 +290,7 @@ public class FSEditLog {
     editStreams.add(eStream);
   }
 
+  
   synchronized void createEditLogFile(File name) throws IOException {
     waitForSyncToFinish();
 
@@ -299,6 +300,20 @@ public class FSEditLog {
     eStream.close();
   }
 
+  
+  
+  synchronized public void createEditLogFiles() throws IOException {
+    
+
+    for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
+        StorageDirectory sd = it.next();
+        //waitForSyncToFinish();
+        createEditLogFile(storage.getImageFile(sd, NameNodeFile.EDITS));
+    } 
+    
+
+  }
+  
   /**
    * Shutdown the file store.
    */
@@ -1967,4 +1982,12 @@ public class FSEditLog {
     
     return numEdits;
   }
+  
+  
+  public void doUpgrade() throws IOException {
+    
+    this.createEditLogFiles();
+    this.open();
+  }
+  
 }
