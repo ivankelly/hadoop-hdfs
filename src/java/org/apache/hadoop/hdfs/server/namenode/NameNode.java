@@ -490,7 +490,7 @@ public class NameNode implements NamenodeProtocols, FSConstants {
           }
           httpServer.setAttribute("name.node", NameNode.this);
           httpServer.setAttribute("name.node.address", getNameNodeAddress());
-          httpServer.setAttribute("name.system.image", getFSImage());
+          httpServer.setAttribute("name.system.persistenceManager", persistenceManager);
           httpServer.setAttribute(JspHelper.CURRENT_CONF, conf);
           httpServer.addInternalServlet("getDelegationToken",
               GetDelegationTokenServlet.PATH_SPEC, 

@@ -26,11 +26,11 @@ import java.io.IOException;
  * An implementation of the abstract class {@link EditLogInputStream}, which
  * reads edits from a local file.
  */
-class EditLogFileInputStream extends EditLogInputStream {
+public class EditLogFileInputStream extends EditLogInputStream {
   private File file;
   private FileInputStream fStream;
 
-  EditLogFileInputStream(File name) throws IOException {
+  public EditLogFileInputStream(File name) throws IOException {
     file = name;
     fStream = new FileInputStream(name);
   }

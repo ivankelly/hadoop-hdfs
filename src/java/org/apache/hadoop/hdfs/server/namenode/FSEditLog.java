@@ -231,11 +231,11 @@ public class FSEditLog {
     return storage.getEditNewFile(sd);
   }
   
-  private int getNumEditsDirs() {
+  public int getNumEditsDirs() {
    return storage.getNumStorageDirs(NameNodeDirType.EDITS);
   }
 
-  synchronized int getNumEditStreams() {
+  public synchronized int getNumEditStreams() {
     return editStreams == null ? 0 : editStreams.size();
   }
 
@@ -291,7 +291,7 @@ public class FSEditLog {
   }
 
   
-  synchronized void createEditLogFile(File name) throws IOException {
+  public synchronized void createEditLogFile(File name) throws IOException {
     waitForSyncToFinish();
 
     EditLogOutputStream eStream = new EditLogFileOutputStream(name,
@@ -479,7 +479,7 @@ public class FSEditLog {
    * This is where we apply edits that we've been writing to disk all
    * along.
    */
-  int loadFSEdits(EditLogInputStream edits) throws IOException {
+  public int loadFSEdits(EditLogInputStream edits) throws IOException {
     DataInputStream in = edits.getDataInputStream();
     long startTime = now();
     int numEdits = loadFSEdits(in, true);
@@ -489,7 +489,7 @@ public class FSEditLog {
     return numEdits;
   }
 
-  int loadFSEdits(DataInputStream in, boolean closeOnExit) throws IOException {
+  public int loadFSEdits(DataInputStream in, boolean closeOnExit) throws IOException {
     int numEdits = 0;
     int logVersion = 0;
 
@@ -526,7 +526,7 @@ public class FSEditLog {
   }
 
   @SuppressWarnings("deprecation")
-  int loadEditRecords(int logVersion, DataInputStream in,
+  public int loadEditRecords(int logVersion, DataInputStream in,
       boolean closeOnExit) throws IOException {
     FSNamesystem fsNamesys = getFSNamesystem();
     FSDirectory fsDir = fsNamesys.dir;
@@ -1485,7 +1485,7 @@ public class FSEditLog {
    * @param dest new stream path relative to the storage directory root.
    * @throws IOException
    */
-  synchronized void divertFileStreams(String dest) throws IOException {
+  public synchronized void divertFileStreams(String dest) throws IOException {
     waitForSyncToFinish();
 
     assert getNumEditStreams() >= getNumEditsDirs() :
@@ -1551,7 +1551,7 @@ public class FSEditLog {
    * @param dest new stream path relative to the storage directory root.
    * @throws IOException
    */
-  synchronized void revertFileStreams(String source) throws IOException {
+  public synchronized void revertFileStreams(String source) throws IOException {
     waitForSyncToFinish();
 
     assert getNumEditStreams() >= getNumEditsDirs() :
@@ -1598,19 +1598,6 @@ public class FSEditLog {
     processIOError(errorStreams);
   }
 
-  /**
-   * Return the name of the edit file
-   */
-  synchronized File getFsEditName() {
-    StorageDirectory sd = null;   
-    for (Iterator<StorageDirectory> it = 
-      storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
-      sd = it.next();   
-      if(sd.getRoot().canRead())
-        return getEditFile(sd);
-    }
-    return null;
-  }
 
   /**
    * Returns the timestamp of the edit log
@@ -1746,7 +1733,7 @@ public class FSEditLog {
    * Write an operation to the edit log. Do not sync to persistent
    * store yet.
    */
-  synchronized void logEdit(int length, byte[] data) {
+  public synchronized void logEdit(int length, byte[] data) {
     if(getNumEditStreams() == 0)
       throw new java.lang.IllegalStateException(NO_JOURNAL_STREAMS_WARNING);
     ArrayList<EditLogOutputStream> errorStreams = null;

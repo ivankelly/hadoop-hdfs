@@ -358,6 +358,8 @@ public class FSImage
   
   // Used by checkpointStorage
   Collection<File> getFiles(NameNodeFile type, NameNodeDirType dirType) {
+    // FIXME 
+    return null;
   }
   
 
@@ -1694,7 +1696,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     
   }
 
-  /**
+  /** FIXME - delete
    * Return the name of the image file.
    */
   public File getFsImageName() {
@@ -1760,7 +1762,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     return getImageFile(sd, NameNodeFile.TIME);
   }*/
 
-  /**
+  /** FIXME - DELETE
    * Return the name of the image file that is uploaded by periodic
    * checkpointing.
    */

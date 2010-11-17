@@ -77,7 +77,7 @@ public class PersistenceManager implements Closeable {
    * Can fs-image be rolled?
    */
   // checkpoint states
-  enum CheckpointStates{START, ROLLED_EDITS, UPLOAD_START, UPLOAD_DONE; }
+  public enum CheckpointStates{START, ROLLED_EDITS, UPLOAD_START, UPLOAD_DONE; }
 
   volatile protected CheckpointStates ckptState = CheckpointStates.START; 
 
@@ -162,7 +162,7 @@ public class PersistenceManager implements Closeable {
    * This is called just before a new checkpoint is uploaded to the
    * namenode.
    */
-  void validateCheckpointUpload(CheckpointSignature sig) throws IOException {
+  public void validateCheckpointUpload(CheckpointSignature sig) throws IOException {
     if (ckptState != CheckpointStates.ROLLED_EDITS) {
       throw new IOException("Namenode is not expecting an new image " +
                              ckptState);
@@ -209,7 +209,7 @@ public class PersistenceManager implements Closeable {
   /**
    * Updates version and fstime files in all directories (fsimage and edits).
    */
-  private void resetVersion(boolean renewCheckpointTime) throws IOException {
+  protected void resetVersion(boolean renewCheckpointTime) throws IOException {
     storage.layoutVersion = FSConstants.LAYOUT_VERSION;
     if(renewCheckpointTime)
       storage.setCheckpointTime(now());
@@ -269,11 +269,11 @@ public class PersistenceManager implements Closeable {
     rollFSImage(renewCheckpointTime);
   }
 
-  CheckpointStates getCheckpointState() {
+  public CheckpointStates getCheckpointState() {
     return ckptState;
   }
 
-  void setCheckpointState(CheckpointStates cs) {
+  public void setCheckpointState(CheckpointStates cs) {
     ckptState = cs;
   }
 
@@ -527,7 +527,7 @@ public class PersistenceManager implements Closeable {
   }
 
   @Override
-  public void close() {
+  public void close() throws IOException {
     image.close();
     editlog.close();
   }
@@ -539,4 +539,44 @@ public class PersistenceManager implements Closeable {
     return StartupOption.valueOf(conf.get("dfs.namenode.startup",
 					  StartupOption.REGULAR.toString()));
   }
+
+  /**
+   * Return the name of the image file.
+   */
+  public File getFirstImageFile() {
+    for (StorageDirectory sd : storage.iterable(NameNodeDirType.IMAGE)) {
+      if(sd.getRoot().canRead()) {
+        return storage.getImageFile(sd, NameNodeFile.IMAGE); 
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Return the name of the image file that is uploaded by periodic
+   * checkpointing.
+   */
+  public File[] getCheckpointFiles() {
+    ArrayList<File> list = new ArrayList<File>();
+    for (StorageDirectory sd : storage.iterable(NameNodeDirType.IMAGE)) {
+      list.add(storage.getImageFile(sd, NameNodeFile.IMAGE_NEW));
+    }
+    return list.toArray(new File[list.size()]);
+  }
+
+  /**
+   * Return the name of the edit file
+   */
+  public File getFirstEditLogFile() {
+    synchronized (editlog) {
+      for (StorageDirectory sd : storage.iterable(NameNodeDirType.EDITS)) {
+	if(sd.getRoot().canRead()) {
+	  return storage.getEditFile(sd);
+	}
+    }    
+    return null;
+    }
+  }
+
+
 }

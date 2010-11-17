@@ -36,7 +36,7 @@ import org.apache.hadoop.hdfs.server.namenode.CheckpointSignature;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 
-public class SecondaryNodePersistenceManager extends PersistenceManager {
+public class SecondaryNodePersistenceManager extends CheckpointingPersistenceManager {
   private String DEFAULT_NAMENODE_CHECKPOINT_DIR = "/tmp/hadoop/dfs/namesecondary";
 
   /**
@@ -153,43 +153,12 @@ public class SecondaryNodePersistenceManager extends PersistenceManager {
   }
 
   /**
-     @return the size of the checkpoint on disk
-  */
-  public long getCheckpointSize() {
-    return image.getFsImageName().length();
-  }
-
-  /**
      Update the storage directory to reflect the checkpoint and ctime
      of the image stored in it
   */
   public void updateStorageTimes(long cTime, long checkpointTime) {
     storage.setCTime(cTime);
     storage.setCheckpointTime(checkpointTime);
-  }
-
-  /**
-     Get a list of the configured image files on the server
-  */
-  public Collection<File> getImageFilenames() {
-    ArrayList<File> list = new ArrayList<File>();
-
-    for ( StorageDirectory sd : storage.iterable(NameNodeDirType.IMAGE) ) {
-      list.add(storage.getImageFile(sd));
-    }
-    return list;
-  }
-
-  /**
-    Get a list of the configured edit log files on the server
-  */
-  public Collection<File> getEditLogFilenames() {
-    ArrayList<File> list = new ArrayList<File>();
-
-    for ( StorageDirectory sd : storage.iterable(NameNodeDirType.IMAGE) ) {
-      list.add(storage.getEditFile(sd));
-    }
-    return list;
   }
 }
 

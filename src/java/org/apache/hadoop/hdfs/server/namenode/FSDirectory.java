@@ -63,7 +63,7 @@ import org.apache.hadoop.hdfs.server.namenode.NNStorage;
  * and logged to disk.
  * 
  *************************************************/
-class FSDirectory implements Closeable {
+public class FSDirectory implements Closeable {
 
   INodeDirectoryWithQuota rootDir;
   FSImage fsImage;  
@@ -78,23 +78,23 @@ class FSDirectory implements Closeable {
   private FSEditLog editlog;
 
   // utility methods to acquire and release read lock and write lock
-  void readLock() {
+  public void readLock() {
     this.bLock.readLock().lock();
   }
 
-  void readUnlock() {
+  public void readUnlock() {
     this.bLock.readLock().unlock();
   }
 
-  void writeLock() {
+  public void writeLock() {
     this.bLock.writeLock().lock();
   }
 
-  void writeUnlock() {
+  public void writeUnlock() {
     this.bLock.writeLock().unlock();
   }
 
-  boolean hasWriteLock() {
+  public boolean hasWriteLock() {
     return this.bLock.isWriteLockedByCurrentThread();
   }
 
@@ -1022,7 +1022,7 @@ class FSDirectory implements Closeable {
     return dirNotEmpty;
   }
 
-  boolean isEmpty() {
+  public boolean isEmpty() {
     try {
       return isDirEmpty("/");
     } catch (UnresolvedLinkException e) {
@@ -1717,7 +1717,7 @@ class FSDirectory implements Closeable {
    * This is an update of existing state of the filesystem and does not
    * throw QuotaExceededException.
    */
-  void updateCountForINodeWithQuota() {
+  public void updateCountForINodeWithQuota() {
     updateCountForINodeWithQuota(rootDir, new INode.DirCounts(), 
                                  new ArrayList<INode>(50));
   }
@@ -1926,7 +1926,7 @@ class FSDirectory implements Closeable {
   /**
    * Reset the entire namespace tree.
    */
-  void reset() {
+  public void reset() {
     rootDir = new INodeDirectoryWithQuota(INodeDirectory.ROOT_NAME,
         getFSNamesystem().createFsOwnerPermissions(new FsPermission((short)0755)),
         Integer.MAX_VALUE, -1);

@@ -51,7 +51,7 @@ implements JournalStream {
   /**
    * Return DataInputStream based on this edit stream.
    */
-  DataInputStream getDataInputStream() {
+  public DataInputStream getDataInputStream() {
     return new DataInputStream(new BufferedInputStream(this));
   }
 }

@@ -29,7 +29,7 @@ import java.io.IOException;
  * (org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration,
  *  int, int, byte[])
  */
-class EditLogBackupInputStream extends EditLogInputStream {
+public class EditLogBackupInputStream extends EditLogInputStream {
   String address; // sender address 
   private ByteBufferInputStream inner;
   private DataInputStream in;
@@ -61,7 +61,7 @@ class EditLogBackupInputStream extends EditLogInputStream {
     }
   }
 
-  EditLogBackupInputStream(String name) throws IOException {
+  public EditLogBackupInputStream(String name) throws IOException {
     address = name;
     inner = new ByteBufferInputStream();
     in = new DataInputStream(inner);
@@ -98,21 +98,21 @@ class EditLogBackupInputStream extends EditLogInputStream {
   }
 
   @Override
-  long length() throws IOException {
+  public long length() throws IOException {
     // file size + size of both buffers
     return inner.length();
   }
 
-  DataInputStream getDataInputStream() {
+  public DataInputStream getDataInputStream() {
     return in;
   }
 
-  void setBytes(byte[] newBytes) throws IOException {
+  public void setBytes(byte[] newBytes) throws IOException {
     inner.setData(newBytes);
     in.reset();
   }
 
-  void clear() throws IOException {
+  public void clear() throws IOException {
     setBytes(null);
   }
 }

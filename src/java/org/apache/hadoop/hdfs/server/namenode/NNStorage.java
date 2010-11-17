@@ -126,7 +126,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     
     private String fileName = null;
     private NameNodeFile(String name) {this.fileName = name;}
-    String getName() {return fileName;}
+    public String getName() {return fileName;}
   }
 
 
@@ -229,6 +229,14 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     setCheckpointTime(checkpointTime + 1);
   }
   
+  /** 
+   * Set the checkpoint time but don't write it. 
+   * FIXME: This probably is not needed.
+   */
+  public void setCheckpointTimeNoWrite(long newCpt) {
+    checkpointTime = newCpt;
+  }
+
   /**
    * The age of the namespace state.<p>
    * Reflects the latest time the image was saved.
@@ -649,7 +657,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
    */
   public void moveLastCheckpoint(StorageDirectory sd)
   throws IOException {
-    /*
+    /* FIXME
     File tmpCkptDir = sd.getLastCheckpointTmp();
     File prevCkptDir = sd.getPreviousCheckpoint();
     // remove previous.checkpoint
@@ -672,7 +680,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     this.removedStorageDirs = new ArrayList<StorageDirectory>();
   }
 
-  public void addStorageDirectory(URI dir, NameNodeDirType type) {
+  public void addStorageDirectory(URI dir, NameNodeDirType type) throws IOException {
     NNUtils.checkSchemeConsistency(dir);
     
     //  Add to the list of storage directories, only if the 
