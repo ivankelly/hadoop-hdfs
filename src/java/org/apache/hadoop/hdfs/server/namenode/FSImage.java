@@ -338,9 +338,6 @@ public class FSImage
   }
   
   
-  List<StorageDirectory> getRemovedStorageDirs() {
-    return storage.removedStorageDirs;
-  }
   
   //TODELETE
   /*

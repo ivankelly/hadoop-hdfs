@@ -180,7 +180,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   }
   
   private void setDistributedUpgradeState(boolean uState, int uVersion) {
-   namesystem.upgradeManager.setUpgradeState(uState, uVersion);
+    namesystem.upgradeManager.setUpgradeState(uState, uVersion);
   }
   
   private int getDistributedUpgradeVersion() {
@@ -1274,5 +1274,8 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     
   }
   
+  public List<StorageDirectory> getRemovedStorageDirs() {
+    return removedStorageDirs;
+  }
   
 }

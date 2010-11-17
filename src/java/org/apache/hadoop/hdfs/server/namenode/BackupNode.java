@@ -126,7 +126,7 @@ public class BackupNode extends NameNode {
     conf.set(BN_HTTP_ADDRESS_NAME_KEY, getHostPortString(httpAddress));
   }
 
-  @Override // NameNode
+  //@Override // NameNode
   protected void loadNamesystem(Configuration conf) throws IOException {
     /* FIXME Who creates who?
     NNStorage storage = new NNStorage(conf);
@@ -225,7 +225,7 @@ public class BackupNode extends NameNode {
     if(!nnRpcAddress.equals(nnReg.getAddress()))
       throw new IOException("Journal request from unexpected name-node: "
           + nnReg.getAddress() + " expecting " + nnRpcAddress);
-    BackupStorage bnImage = (BackupStorage)getFSImage();
+    
     switch(jAction) {
       case (int)JA_IS_ALIVE:
         return;
@@ -245,7 +245,6 @@ public class BackupNode extends NameNode {
   }
 
   public boolean shouldCheckpointAtStartup() {
-    FSImage fsImage = getFSImage();
     if(isRole(NamenodeRole.CHECKPOINT)) {
       return persistenceManager.isStorageInitialized();
     }

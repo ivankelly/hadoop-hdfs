@@ -66,10 +66,11 @@ import org.apache.hadoop.hdfs.server.namenode.NNStorage;
 public class FSDirectory implements Closeable {
 
   INodeDirectoryWithQuota rootDir;
-  FSImage fsImage;  
+
   private volatile boolean ready = false;
   private static final long UNKNOWN_DISK_SPACE = -1;
   private final int lsLimit;  // max list limit
+  private FSNamesystem namesystem;
 
   // lock to protect BlockMap.
   private ReentrantReadWriteLock bLock;
@@ -104,29 +105,15 @@ public class FSDirectory implements Closeable {
    */
   private final NameCache<ByteArray> nameCache;
 
-  /** Access an existing dfs name directory. */
-  FSDirectory(FSNamesystem ns, Configuration conf) throws IOException {
-    //this(new FSImage(), ns, conf);
-    this(new FSImage(conf,new NNStorage(conf)), ns, conf);
-    
-    if(conf.getBoolean(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_KEY, 
-                       DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_DEFAULT)) {
-      NameNode.LOG.info("set FSImage.restoreFailedStorage");
-      fsImage.setRestoreFailedStorage(true);
-    }
-    
-    fsImage.setCheckpointDirectories(NNUtils.getCheckpointDirs(conf, null),
-                          NNUtils.getCheckpointEditsDirs(conf, null));
-  }
-
-  FSDirectory(FSImage fsImage, FSNamesystem ns, Configuration conf) {
+  FSDirectory(FSNamesystem ns, Configuration conf) {
     this.bLock = new ReentrantReadWriteLock(true); // fair
     this.cond = bLock.writeLock().newCondition();
-    fsImage.setFSNamesystem(ns);
+    this.namesystem = ns;
+
     rootDir = new INodeDirectoryWithQuota(INodeDirectory.ROOT_NAME,
         ns.createFsOwnerPermissions(new FsPermission((short)0755)),
         Integer.MAX_VALUE, UNKNOWN_DISK_SPACE);
-    this.fsImage = fsImage;
+    
     int configuredLimit = conf.getInt(
         DFSConfigKeys.DFS_LIST_LIMIT, DFSConfigKeys.DFS_LIST_LIMIT_DEFAULT);
     this.lsLimit = configuredLimit>0 ?
@@ -141,7 +128,7 @@ public class FSDirectory implements Closeable {
   }
     
   private FSNamesystem getFSNamesystem() {
-    return fsImage.getFSNamesystem();
+    return namesystem;
   }
 
   private BlockManager getBlockManager() {
@@ -157,7 +144,6 @@ public class FSDirectory implements Closeable {
    * Shutdown the filestore
    */
   public void close() throws IOException {
-    fsImage.close();
   }
 
   /**

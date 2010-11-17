@@ -79,6 +79,8 @@ import org.apache.hadoop.hdfs.server.protocol.UpgradeCommand;
 import org.apache.hadoop.hdfs.server.namenode.GetDelegationTokenServlet;
 import org.apache.hadoop.hdfs.server.namenode.CancelDelegationTokenServlet;
 import org.apache.hadoop.hdfs.server.namenode.RenewDelegationTokenServlet;
+import org.apache.hadoop.hdfs.server.namenode.persist.PersistenceManager;
+
 import org.apache.hadoop.http.HttpServer;
 import org.apache.hadoop.io.EnumSetWritable;
 import org.apache.hadoop.io.Text;
@@ -165,6 +167,8 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   public static final Log stateChangeLog = LogFactory.getLog("org.apache.hadoop.hdfs.StateChange");
 
   protected FSNamesystem namesystem; 
+  protected NNStorage storage;
+
   protected NamenodeRole role;
   /** RPC server. Package-protected for use in tests. */
   Server server;
@@ -321,10 +325,6 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     conf.set(DFSConfigKeys.DFS_NAMENODE_HTTP_ADDRESS_KEY, getHostPortString(httpAddress));
   }
 
-  protected void loadNamesystem(Configuration conf) throws IOException {
-    this.namesystem = new FSNamesystem(conf);
-  }
-
   NamenodeRegistration getRegistration() {
     return nodeRegistration;
   }
@@ -354,7 +354,10 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     int handlerCount = conf.getInt("dfs.namenode.handler.count", 10);
 
     NameNode.initMetrics(conf, this.getRole());
-    loadNamesystem(conf);
+
+    this.storage = new NNStorage(conf);
+    this.namesystem = new FSNamesystem(conf, storage);
+
     // create rpc server
     InetSocketAddress dnSocketAddr = getServiceRpcServerAddress(conf);
     if (dnSocketAddr != null) {
@@ -490,7 +493,7 @@ public class NameNode implements NamenodeProtocols, FSConstants {
           }
           httpServer.setAttribute("name.node", NameNode.this);
           httpServer.setAttribute("name.node.address", getNameNodeAddress());
-          httpServer.setAttribute("name.system.persistenceManager", persistenceManager);
+          httpServer.setAttribute("name.system.persistenceManager", namesystem.getPersistenceManager());
           httpServer.setAttribute(JspHelper.CURRENT_CONF, conf);
           httpServer.addInternalServlet("getDelegationToken",
               GetDelegationTokenServlet.PATH_SPEC, 
@@ -1096,19 +1099,18 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   /**
    * Roll the edit log.
    */
-  //@Deprecated
-  //public CheckpointSignature radfadsfollEditLog() throws IOException {
-  //  return namesystem.rollEditLasdfasdfog();
-  //}
+  @Deprecated
+  public CheckpointSignature rollEditLog() throws IOException {
+    return namesystem.rollEditLog();
+  }
 
   /**
    * Roll the image 
    */
-  //  @Deprecated
-  // DELETEME
-  //public void rasdfsadsadfollFsImage() throws IOException {
-  //  namesystem.rollFSImageasfasdfas();
-  // }
+  @Deprecated
+  public void rollFsImage() throws IOException {
+    namesystem.rollFSImage();
+  }
     
   public void finalizeUpgrade() throws IOException {
     namesystem.finalizeUpgrade();
@@ -1248,7 +1250,7 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     }
 
     namesystem.processReport(nodeReg, blist);
-    if (getFSImage().isUpgradeFinalized())
+    if (storage.isUpgradeFinalized())
       return DatanodeCommand.FINALIZE;
     return null;
   }
@@ -1322,21 +1324,22 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   /**
    * Returns the name of the fsImage file
    */
-  public File getFsImageName() throws IOException {
+  /*DELETEME
+public File getFsImageName() throws IOException {
     return getFSImage().getFsImageName();
   }
     
   public FSImage getFSImage() {
     return namesystem.dir.fsImage;
-  }
+    }
 
-  /**
+  /*
    * Returns the name of the fsImage file uploaded by periodic
    * checkpointing
-   */
+   *
   public File[] getFsImageNameCheckpoint() throws IOException {
     return getFSImage().getFsImageNameCheckpoint();
-  }
+  }*/
 
   /**
    * Returns the address on which the NameNodes is listening to.
@@ -1389,18 +1392,14 @@ public class NameNode implements NamenodeProtocols, FSConstants {
         while(System.in.read() != '\n'); // discard the enter-key
       }
     }
-
-    //FSNamesystem nsys = new FSNamesystem(new FSImage(dirsToFormat,
-    //                                     editDirsToFormat), conf);
     
     NNStorage storage = new NNStorage(conf);
-    storage.setStorageDirectories(dirsToFormat, editDirsToFormat);
+    PersistenceManager pm = new PersistenceManager(conf, storage);
     
-    FSImage image = new FSImage(conf,storage);
+    FSNamesystem nsys = new FSNamesystem(conf, storage, pm);
     
-    FSNamesystem nsys = new FSNamesystem(image, conf);
-    
-    nsys.dir.fsImage.format();
+    pm.format();
+
     return false;
   }
 
@@ -1411,18 +1410,11 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     Collection<URI> editDirsToFormat = 
                                FSNamesystem.getNamespaceEditsDirs(conf);
     
-    
-    //FSNamesystem nsys = new FSNamesystem(new FSImage(dirsToFormat,
-    //                                     editDirsToFormat), conf);
-    
     NNStorage storage = new NNStorage(conf);
-    storage.setStorageDirectories(dirsToFormat, editDirsToFormat);
+    PersistenceManager pm = new PersistenceManager(conf, storage);
     
-    FSImage image = new FSImage(conf,storage);
-    
-    FSNamesystem nsys = new FSNamesystem(image, conf);
-    
-    
+    FSNamesystem nsys = new FSNamesystem(conf, storage, pm);
+
     System.err.print(
         "\"finalize\" will remove the previous state of the files system.\n"
         + "Recent upgrade will become permanent.\n"
@@ -1435,7 +1427,7 @@ public class NameNode implements NamenodeProtocols, FSConstants {
       }
       while(System.in.read() != '\n'); // discard the enter-key
     }
-    nsys.dir.fsImage.finalizeUpgrade();
+    pm.finalizeUpgrade();
     return false;
   }
 
@@ -1463,6 +1455,10 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     LOG.info("Refreshing SuperUser proxy group mapping list ");
 
     ProxyUsers.refreshSuperUserGroupsConfiguration();
+  }
+
+  public NNStorage getStorage() {
+    return this.storage;
   }
 
   private static void printUsage() {

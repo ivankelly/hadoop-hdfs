@@ -31,10 +31,11 @@ import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 
 import org.apache.hadoop.hdfs.server.namenode.CheckpointSignature;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage;
+import org.apache.hadoop.hdfs.server.namenode.NNUtils;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile; 
 
-
+import org.apache.hadoop.hdfs.DFSConfigKeys;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 
 import java.util.Iterator;
@@ -63,8 +64,8 @@ import org.apache.hadoop.hdfs.server.protocol.CheckpointCommand;
 import org.apache.hadoop.hdfs.protocol.FSConstants;
 
 public class PersistenceManager implements Closeable {
-  public static final Log LOG = LogFactory.getLog(Storage.class.getName());
-   private static final SimpleDateFormat DATE_FORM = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+  public static final Log LOG = LogFactory.getLog(PersistenceManager.class.getName());
+  private static final SimpleDateFormat DATE_FORM = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
 
   protected Configuration conf;
@@ -83,13 +84,27 @@ public class PersistenceManager implements Closeable {
 
 
   /* Constructor */
-  public PersistenceManager(Configuration conf) {
+  public PersistenceManager(Configuration conf, NNStorage storage) {
     conf = conf;
+    namesystem = null;
     // TODO 
     //		storage = new NNStorage(conf);
     //fsi = new FSImage(conf,null);//storage);
+
+    if(conf.getBoolean(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_KEY, 
+                       DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_DEFAULT)) {
+      LOG.info("set FSImage.restoreFailedStorage");
+      image.setRestoreFailedStorage(true);
+    }
+    
+    image.setCheckpointDirectories(NNUtils.getCheckpointDirs(conf, null),
+				   NNUtils.getCheckpointEditsDirs(conf, null));
   }
-  
+
+  public void setNamesystem(FSNamesystem namesystem) {
+    this.namesystem = namesystem;
+    image.setFSNamesystem(namesystem);
+  }
   
   private boolean getDistributedUpgradeState() {
     return namesystem == null ? false : namesystem.getDistributedUpgradeState();
@@ -181,7 +196,7 @@ public class PersistenceManager implements Closeable {
     ckptState = CheckpointStates.UPLOAD_START;
   }
 
-  private void rollFSImage(boolean renewCheckpointTime) throws IOException {
+  public void rollFSImage(boolean renewCheckpointTime) throws IOException {
     if (ckptState != CheckpointStates.UPLOAD_DONE
 	&& !(ckptState == CheckpointStates.ROLLED_EDITS
 	     && storage.getNumStorageDirs(NameNodeDirType.IMAGE) == 0)) {
@@ -312,7 +327,7 @@ public class PersistenceManager implements Closeable {
   }
 
 
-  private CheckpointSignature rollEditLog() throws IOException {
+  public CheckpointSignature rollEditLog() throws IOException {
     editlog.rollEditLog();
     ckptState = CheckpointStates.ROLLED_EDITS;
     // If checkpoint fails this should be the most recent image, therefore
@@ -578,5 +593,7 @@ public class PersistenceManager implements Closeable {
     }
   }
 
-
+  public FSEditLog getEditLog() {
+    return editlog;
+  }  
 }

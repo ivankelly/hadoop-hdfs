@@ -23,6 +23,8 @@ import java.util.Collection;
 import java.util.ArrayList;
 
 import java.net.URI;
+import java.net.URISyntaxException;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 
@@ -36,7 +38,12 @@ import org.apache.hadoop.hdfs.server.namenode.CheckpointSignature;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
 public class SecondaryNodePersistenceManager extends CheckpointingPersistenceManager {
+  public static final Log LOG = LogFactory.getLog(SecondaryNodePersistenceManager.class.getName());
+
   private String DEFAULT_NAMENODE_CHECKPOINT_DIR = "/tmp/hadoop/dfs/namesecondary";
 
   /**
@@ -48,29 +55,37 @@ public class SecondaryNodePersistenceManager extends CheckpointingPersistenceMan
    * 
    * @throws IOException
    */
-  public SecondaryNodePersistenceManager(Configuration conf) throws IOException {
-    super(conf);
+  public SecondaryNodePersistenceManager(Configuration conf, NNStorage storage) throws IOException {
+    super(conf, storage);
 
     setupDirectories();
   }
 
   private void setupDirectories() throws IOException {
-    Collection<String> dirNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_DIR_KEY);
-    if (dirNames.size() == 0) {
-      storage.addStorageDirectory(new URI(DEFAULT_NAMENODE_CHECKPOINT_DIR), NNStorage.NameNodeDirType.IMAGE);
-    } else {
-      for (String s : dirNames) {
-        storage.addStorageDirectory(new URI(s), NNStorage.NameNodeDirType.IMAGE);
+    try {
+      Collection<String> dirNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_DIR_KEY);
+      if (dirNames.size() == 0) {
+	storage.addStorageDirectory(new URI(DEFAULT_NAMENODE_CHECKPOINT_DIR), NNStorage.NameNodeDirType.IMAGE);
+      } else {
+	for (String s : dirNames) {
+	  storage.addStorageDirectory(new URI(s), NNStorage.NameNodeDirType.IMAGE);
+	}
       }
-    }
-    
-    dirNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_EDITS_DIR_KEY);
-    if (dirNames.size() == 0) {
-      storage.addStorageDirectory(new URI(DEFAULT_NAMENODE_CHECKPOINT_DIR), NNStorage.NameNodeDirType.EDITS);
-    } else {
-      for (String s : dirNames) {
-	storage.addStorageDirectory(new URI(s), NNStorage.NameNodeDirType.EDITS);
+      
+      dirNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_EDITS_DIR_KEY);
+      if (dirNames.size() == 0) {
+	storage.addStorageDirectory(new URI(DEFAULT_NAMENODE_CHECKPOINT_DIR), NNStorage.NameNodeDirType.EDITS);
+      } else {
+	for (String s : dirNames) {
+	  storage.addStorageDirectory(new URI(s), NNStorage.NameNodeDirType.EDITS);
+	}
       }
+    } catch (URISyntaxException use) {
+      String msg = "Invalidly formed URIs for either " + 
+	DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_EDITS_DIR_KEY +
+	" or " + DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_DIR_KEY;
+      LOG.error(msg);
+      throw new IOException(msg, use);
     }
     
     for (StorageDirectory sd : storage ) {
@@ -115,7 +130,7 @@ public class SecondaryNodePersistenceManager extends CheckpointingPersistenceMan
    * and recreate <code>current</code>.
    * @throws IOException
    */
-  @Override
+  /*  @Override */
   public void startCheckpoint() throws IOException {
     storage.unlockAll();
     editlog.close();
@@ -126,14 +141,14 @@ public class SecondaryNodePersistenceManager extends CheckpointingPersistenceMan
     }
   }
   
-  @Override
+  /* @Override*/
   public void endCheckpoint() throws IOException {
     for(StorageDirectory sd : storage) {
       storage.moveLastCheckpoint(sd);
     }
   }
 
-  @Override
+  /* @Override*/
   public boolean isConversionNeeded(StorageDirectory sd) {
     return false;
   }

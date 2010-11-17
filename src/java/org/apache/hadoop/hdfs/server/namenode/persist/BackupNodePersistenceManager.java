@@ -70,8 +70,8 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
     WAIT;
   }
 
-  public BackupNodePersistenceManager(Configuration conf) throws IOException {
-    super(conf);
+  public BackupNodePersistenceManager(Configuration conf, NNStorage storage) throws IOException {
+    super(conf, storage);
     
     jsState = JSpoolState.OFF;
   }

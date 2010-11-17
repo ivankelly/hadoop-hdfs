@@ -150,8 +150,8 @@ public class NNUtils {
    * @return a Collection of URIs representing the values in 
    * fs.checkpoint.dir configuration property
    */
-  static Collection<URI> getCheckpointDirs(Configuration conf,
-      String defaultValue) {
+  public static Collection<URI> getCheckpointDirs(Configuration conf,
+						  String defaultValue) {
     Collection<String> dirNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_DIR_KEY);
     if (dirNames.size() == 0 && defaultValue != null) {
       dirNames.add(defaultValue);
@@ -159,8 +159,8 @@ public class NNUtils {
     return Util.stringCollectionAsURIs(dirNames);
   }
 
-  static Collection<URI> getCheckpointEditsDirs(Configuration conf,
-      String defaultName) {
+  public static Collection<URI> getCheckpointEditsDirs(Configuration conf,
+						       String defaultName) {
     Collection<String> dirNames = 
       conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_EDITS_DIR_KEY);
     if (dirNames.size() == 0 && defaultName != null) {

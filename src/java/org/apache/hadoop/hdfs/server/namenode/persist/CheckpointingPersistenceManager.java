@@ -24,11 +24,12 @@ import java.util.ArrayList;
 import java.io.File;
 import java.io.IOException;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory; 
+import org.apache.hadoop.hdfs.server.namenode.NNStorage;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 
 public class CheckpointingPersistenceManager extends PersistenceManager {
-  public CheckpointingPersistenceManager(Configuration conf) throws IOException {
-    super(conf);
+  public CheckpointingPersistenceManager(Configuration conf, NNStorage storage) throws IOException {
+    super(conf, storage);
   }
 
   /**

@@ -105,7 +105,7 @@ public class SecondaryNameNode implements Runnable {
   private long checkpointPeriod;    // in seconds
   private long checkpointSize;    // size (in MB) of current Edit Log
   
-  NNStorage storage;
+  private NNStorage storage;
 
   /** {@inheritDoc} */
   public String toString() {
@@ -169,8 +169,7 @@ public class SecondaryNameNode implements Runnable {
                                   "/tmp/hadoop/dfs/namesecondary");
     checkpointEditsDirs = NNUtils.getCheckpointEditsDirs(conf, 
                                   "/tmp/hadoop/dfs/namesecondary");  
-    
-    persistenceManager = new SecondaryNodePersistenceManager(conf);
+    persistenceManager = new SecondaryNodePersistenceManager(conf, storage);
 
     // Initialize other scheduling parameters from the configuration
     checkpointPeriod = conf.getLong(DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_PERIOD_KEY, 
