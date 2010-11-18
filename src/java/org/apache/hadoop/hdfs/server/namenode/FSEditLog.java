@@ -159,11 +159,11 @@ public class FSEditLog {
   private static final Log LOG = LogFactory.getLog(NameNode.class.getName());
   
   
-  //private Configuration conf;
+  private Configuration conf;
   private NNStorage storage;
   
-  FSEditLog(Configuration conf, NNStorage storage){
-    //this.conf = conf;
+  public FSEditLog(Configuration conf, NNStorage storage){
+    this.conf = conf;
     this.storage = storage;
   }
   

@@ -1465,6 +1465,9 @@ public File getFsImageName() throws IOException {
     ProxyUsers.refreshSuperUserGroupsConfiguration();
   }
 
+  /** 
+   * Used by testing to check for file existence
+   */
   public NNStorage getStorage() {
     return this.storage;
   }

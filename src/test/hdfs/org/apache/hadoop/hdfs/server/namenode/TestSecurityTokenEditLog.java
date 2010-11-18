@@ -29,8 +29,8 @@ import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenIdentifier;
 import org.apache.hadoop.hdfs.server.namenode.EditLogFileInputStream;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.token.Token;
@@ -63,7 +63,7 @@ public class TestSecurityTokenEditLog extends TestCase {
 
     // add a bunch of transactions.
     public void run() {
-      FSEditLog editLog = namesystem.getEditLog();
+      FSEditLog editLog = namesystem.getPersistenceManager().getEditLog();
 
       for (int i = 0; i < numTransactions; i++) {
         try {
@@ -102,8 +102,8 @@ public class TestSecurityTokenEditLog extends TestCase {
         System.out.println(dir);
       }
       
-      FSImage fsimage = namesystem.getFSImage();
-      FSEditLog editLog = fsimage.getEditLog();
+      NNStorage storage = cluster.getNameNode().getStorage();
+      FSEditLog editLog = namesystem.getPersistenceManager().getEditLog();
   
       // set small size of flush buffer
       editLog.setBufferCapacity(2048);
@@ -136,12 +136,10 @@ public class TestSecurityTokenEditLog extends TestCase {
       //
       namesystem.getDelegationTokenSecretManager().stopThreads();
       int numKeys = namesystem.getDelegationTokenSecretManager().getNumberOfKeys();
-      for (Iterator<StorageDirectory> it = 
-              fsimage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
-        File editFile = FSImage.getImageFile(it.next(), NameNodeFile.EDITS);
+      for (StorageDirectory sd : storage.iterable(NameNodeDirType.EDITS)) {
+        File editFile = storage.getImageFile(sd, NameNodeFile.EDITS);
         System.out.println("Verifying file: " + editFile);
-        int numEdits = namesystem.getEditLog().loadFSEdits(
-                                  new EditLogFileInputStream(editFile));
+        int numEdits = editLog.loadFSEdits(new EditLogFileInputStream(editFile));
         assertTrue("Verification for " + editFile + " failed. " +
                    "Expected " + (NUM_THREADS * opsPerTrans * NUM_TRANSACTIONS + numKeys) + " transactions. "+
                    "Found " + numEdits + " transactions.",

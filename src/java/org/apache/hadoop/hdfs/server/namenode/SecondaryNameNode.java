@@ -38,8 +38,7 @@ import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants;
 import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
 import org.apache.hadoop.hdfs.server.common.JspHelper;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
-//import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.namenode.persist.SecondaryNodePersistenceManager;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
@@ -131,7 +130,14 @@ public class SecondaryNameNode implements Runnable {
       throw e;
     }
   }
-  
+
+  /** 
+   * Used by testing to check for file existence
+   */
+  public NNStorage getStorage() {
+    return this.storage;
+  }
+
   public static InetSocketAddress getHttpAddress(Configuration conf) {
     return NetUtils.createSocketAddr(conf.get(
         DFSConfigKeys.DFS_NAMENODE_SECONDARY_HTTP_ADDRESS_KEY,

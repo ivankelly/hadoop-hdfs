@@ -191,17 +191,16 @@ public class CreateEditsLog {
       }
     }
     
-    //FSImage fsImage = new FSImage(editsLogDir.getAbsoluteFile().toURI());
     FileNameGenerator nameGenerator = new FileNameGenerator(BASE_PATH, 100);
     
     Configuration conf = new HdfsConfiguration();
+    
+    
     NNStorage storage = new NNStorage(conf);
+    storage.addStorageDirectory(editsLogDir.getAbsoluteFile().toURI(), NNStorage.NameNodeDirType.EDITS);
+    FSEditLog editLog = new FSEditLog(conf, storage);
     
-    
-    //FSEditLog editLog = fsImage.getEditLog();
-    FSEditLog editLog = new FSEditLog(conf,storage);
-    
-    editLog.createEditLogFile(editLog.getFsEditName());
+    editLog.createEditLogFile(storage.getFirstEditLogFile());
     editLog.open();
     addFiles(editLog, numFiles, replication, numBlocksPerFile, startingBlockId,
              nameGenerator);

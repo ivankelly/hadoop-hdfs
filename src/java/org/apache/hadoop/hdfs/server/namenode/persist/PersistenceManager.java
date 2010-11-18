@@ -87,9 +87,9 @@ public class PersistenceManager implements Closeable {
   public PersistenceManager(Configuration conf, NNStorage storage) {
     conf = conf;
     namesystem = null;
-    // TODO 
-    //		storage = new NNStorage(conf);
-    //fsi = new FSImage(conf,null);//storage);
+    
+    editlog = new FSEditLog(conf, storage);
+    image = new FSImage(conf,storage);
 
     if(conf.getBoolean(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_KEY, 
                        DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_DEFAULT)) {
@@ -555,45 +555,19 @@ public class PersistenceManager implements Closeable {
 					  StartupOption.REGULAR.toString()));
   }
 
-  /**
-   * Return the name of the image file.
-   */
-  public File getFirstImageFile() {
-    for (StorageDirectory sd : storage.iterable(NameNodeDirType.IMAGE)) {
-      if(sd.getRoot().canRead()) {
-        return storage.getImageFile(sd, NameNodeFile.IMAGE); 
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Return the name of the image file that is uploaded by periodic
-   * checkpointing.
-   */
-  public File[] getCheckpointFiles() {
-    ArrayList<File> list = new ArrayList<File>();
-    for (StorageDirectory sd : storage.iterable(NameNodeDirType.IMAGE)) {
-      list.add(storage.getImageFile(sd, NameNodeFile.IMAGE_NEW));
-    }
-    return list.toArray(new File[list.size()]);
-  }
-
-  /**
-   * Return the name of the edit file
-   */
-  public File getFirstEditLogFile() {
-    synchronized (editlog) {
-      for (StorageDirectory sd : storage.iterable(NameNodeDirType.EDITS)) {
-	if(sd.getRoot().canRead()) {
-	  return storage.getEditFile(sd);
-	}
-    }    
-    return null;
-    }
-  }
-
   public FSEditLog getEditLog() {
     return editlog;
   }  
+
+  /**
+     THIS IS ONLY HERE FOR TESTING!!!!
+     Do not use in real code!
+  */
+  public void setEditLog(FSEditLog editlog) {
+    this.editlog = editlog;
+  }
+  
+  public NNStorage getStorage() {
+    return storage;
+  }
 }

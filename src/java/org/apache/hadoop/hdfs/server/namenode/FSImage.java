@@ -114,7 +114,7 @@ public class FSImage
    * or of type EDITS which stores edits or of type IMAGE_AND_EDITS which 
    * stores both fsimage and edits.
    */
-  static enum NameNodeDirType implements StorageDirType {
+  /*  static enum NameNodeDirType implements StorageDirType {
     UNDEFINED,
     IMAGE,
     EDITS,
@@ -129,7 +129,7 @@ public class FSImage
         return true;
       return this == type;
     }
-  }
+    }*/
 
   protected FSNamesystem namesystem = null;
   // TODELETE
@@ -167,12 +167,9 @@ public class FSImage
   protected Configuration conf;
   protected NNStorage storage;
   
-  FSImage(Configuration conf, NNStorage storage){
-    // temp, just for compiling-testing purposes
-    // FSImage should no longer extends Storage.
-    // super(NodeType.NAME_NODE);
+  public FSImage(Configuration conf, NNStorage storage){
+    assert conf != null && storage != null;
 
-    //FIXME: assert to avoid null?
     this.conf = conf;
     this.storage = storage;
   }
@@ -577,7 +574,7 @@ public class FSImage
       NNStorage.rename(curDir, tmpDir);
       // save new image
       //storage.saveCurrent(sd);
-      storage.saveFSImage(getImageFile(sd, NameNodeFile.IMAGE));
+      saveFSImage(getImageFile(sd, NameNodeFile.IMAGE));
       
       // rename tmp to previous
       NNStorage.rename(tmpDir, prevDir);
@@ -770,31 +767,6 @@ public class FSImage
   /*  public FSEditLog getEditLog() {
     return editLog;
     }*/
-  
-  // TODELETE
-  //TODO:check if really no one is calling this method and delete it
-  //FIXME: is called from somewhere on an extended class
-  public boolean isConversionNeeded(StorageDirectory sd) throws IOException {
-    File oldImageDir = new File(sd.getRoot(), "image");
-    if (!oldImageDir.exists()) {
-      if(sd.getVersionFile().exists())
-        throw new InconsistentFSStateException(sd.getRoot(),
-            oldImageDir + " does not exist.");
-      return false;
-    }
-    // check the layout version inside the image file
-    File oldF = new File(oldImageDir, "fsimage");
-    RandomAccessFile oldFile = new RandomAccessFile(oldF, "rws");
-    try {
-      oldFile.seek(0);
-      int odlVersion = oldFile.readInt();
-      if (odlVersion < Storage.LAST_UPGRADABLE_LAYOUT_VERSION)
-        return false;
-    } finally {
-      oldFile.close();
-    }
-    return true;
-  }
   
   // TODELETE
   // Atomic move sequence, to recover from interrupted checkpoint
@@ -1364,8 +1336,8 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
                                                               it.hasNext();) {
       StorageDirectory sd = it.next();
       try {
-        //storage.saveCurrent(sd);
-        storage.saveFSImage(storage.getImageFile(sd, NameNodeFile.IMAGE));
+        saveCurrent(sd);
+        //saveFSImage(storage.getImageFile(sd, NameNodeFile.IMAGE));
       } catch(IOException ie) {
         LOG.error("Unable to save image for " + sd.getRoot(), ie);
         errorSDs.add(sd);
@@ -1470,7 +1442,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     storage.setCheckpointTime(now());
     for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
         StorageDirectory sd = it.next();
-        storage.format(sd);
+        format(sd);
     }
 
     
@@ -1816,6 +1788,162 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
       node.setLastUpdate(lastUpdate);
       node.setXceiverCount(xceiverCount);
     }
+  }
+
+  /**
+   * Save the contents of the FS image to the file.
+   */
+  void saveFSImage(File newFile) throws IOException {
+    FSNamesystem fsNamesys = getFSNamesystem();
+    FSDirectory fsDir = fsNamesys.dir;
+    long startTime = now();
+    //
+    // Write out data
+    //
+    FileOutputStream fos = new FileOutputStream(newFile);
+    DataOutputStream out = new DataOutputStream(
+      new BufferedOutputStream(fos));
+    try {
+      out.writeInt(FSConstants.LAYOUT_VERSION);
+      out.writeInt(storage.getNamespaceID());
+      out.writeLong(fsDir.rootDir.numItemsInTree());
+      out.writeLong(fsNamesys.getGenerationStamp());
+      byte[] byteStore = new byte[4*FSConstants.MAX_PATH_LENGTH];
+      ByteBuffer strbuf = ByteBuffer.wrap(byteStore);
+      // save the root
+      saveINode2Image(strbuf, fsDir.rootDir, out);
+      // save the rest of the nodes
+      saveImage(strbuf, 0, fsDir.rootDir, out);
+      fsNamesys.saveFilesUnderConstruction(out);
+      fsNamesys.saveSecretManagerState(out);
+      strbuf = null;
+
+      out.flush();
+      fos.getChannel().force(true);
+    } finally {
+      out.close();
+    }
+
+    LOG.info("Image file of size " + newFile.length() + " saved in " 
+        + (now() - startTime)/1000 + " seconds.");
+    
+  }
+  
+  
+  /**
+   * Save file tree image starting from the given root.
+   * This is a recursive procedure, which first saves all children of
+   * a current directory and then moves inside the sub-directories.
+   */
+  private static void saveImage(ByteBuffer parentPrefix,
+                                int prefixLength,
+                                INodeDirectory current,
+                                DataOutputStream out) throws IOException {
+    int newPrefixLength = prefixLength;
+    if (current.getChildrenRaw() == null)
+      return;
+    for(INode child : current.getChildren()) {
+      // print all children first
+      parentPrefix.position(prefixLength);
+      parentPrefix.put(PATH_SEPARATOR).put(child.getLocalNameBytes());
+      saveINode2Image(parentPrefix, child, out);
+    }
+    for(INode child : current.getChildren()) {
+      if(!child.isDirectory())
+        continue;
+      parentPrefix.position(prefixLength);
+      parentPrefix.put(PATH_SEPARATOR).put(child.getLocalNameBytes());
+      newPrefixLength = parentPrefix.position();
+      saveImage(parentPrefix, newPrefixLength, (INodeDirectory)child, out);
+    }
+    parentPrefix.position(prefixLength);
+  }
+  
+  
+  /*
+   * Save one inode's attributes to the image.
+   */
+  private static void saveINode2Image(ByteBuffer name,
+                                      INode node,
+                                      DataOutputStream out) throws IOException {
+    int nameLen = name.position();
+    out.writeShort(nameLen);
+    out.write(name.array(), name.arrayOffset(), nameLen);
+    if (node.isDirectory()) {
+      out.writeShort(0);  // replication
+      out.writeLong(node.getModificationTime());
+      out.writeLong(0);   // access time
+      out.writeLong(0);   // preferred block size
+      out.writeInt(-1);   // # of blocks
+      out.writeLong(node.getNsQuota());
+      out.writeLong(node.getDsQuota());
+      FILE_PERM.fromShort(node.getFsPermissionShort());
+      PermissionStatus.write(out, node.getUserName(),
+                             node.getGroupName(),
+                             FILE_PERM);
+    } else if (node.isLink()) {
+      out.writeShort(0);  // replication
+      out.writeLong(0);   // modification time
+      out.writeLong(0);   // access time
+      out.writeLong(0);   // preferred block size
+      out.writeInt(-2);   // # of blocks
+      Text.writeString(out, ((INodeSymlink)node).getLinkValue());
+      FILE_PERM.fromShort(node.getFsPermissionShort());
+      PermissionStatus.write(out, node.getUserName(),
+                             node.getGroupName(),
+                             FILE_PERM);      
+    } else {
+      INodeFile fileINode = (INodeFile)node;
+      out.writeShort(fileINode.getReplication());
+      out.writeLong(fileINode.getModificationTime());
+      out.writeLong(fileINode.getAccessTime());
+      out.writeLong(fileINode.getPreferredBlockSize());
+      Block[] blocks = fileINode.getBlocks();
+      out.writeInt(blocks.length);
+      for (Block blk : blocks)
+        blk.write(out);
+      FILE_PERM.fromShort(fileINode.getFsPermissionShort());
+      PermissionStatus.write(out, fileINode.getUserName(),
+                             fileINode.getGroupName(),
+                             FILE_PERM);
+    }
+  }
+  
+  
+  /**
+   * Save current image and empty journal into {@code current} directory.
+   */
+  public void saveCurrent(StorageDirectory sd) throws IOException {
+    File curDir = sd.getCurrentDir();
+    NameNodeDirType dirType = (NameNodeDirType)sd.getStorageDirType();
+    // save new image or new edits
+    if (!curDir.exists() && !curDir.mkdir())
+      throw new IOException("Cannot create directory " + curDir);
+    if (dirType.isOfType(NameNodeDirType.IMAGE))
+      saveFSImage(getImageFile(sd, NameNodeFile.IMAGE));
+    //if (dirType.isOfType(NameNodeDirType.EDITS))
+      //editlog.createEditLogFile(getImageFile(sd, NameNodeFile.EDITS));
+      //createEditLogFile(getImageFile(sd, NameNodeFile.EDITS));
+    // write version and time files
+    sd.write();
+  }
+
+  /**
+   * Format a device.
+   * @param sd
+   * @throws IOException
+   */
+  public void format(StorageDirectory sd) throws IOException {
+    sd.clearDirectory(); // create currrent dir
+    sd.lock();
+    try {
+      //saveCurrent(sd);
+      saveFSImage(getImageFile(sd, NameNodeFile.IMAGE));
+    } finally {
+      sd.unlock();
+    }
+    LOG.info("Storage directory " + sd.getRoot()
+    + " has been successfully formatted.");
   }
 
   // TODELETE
