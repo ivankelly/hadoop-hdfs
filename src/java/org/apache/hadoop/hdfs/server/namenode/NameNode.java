@@ -342,6 +342,14 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   }
 
   /**
+   * Other namenode types may wish to implement their own persistenceManager,
+   * therefore namesystem construction is broken out into a overloadable unit.
+   */
+  protected FSNamesystem createNamesystem(Configuration conf, NNStorage storage) throws IOException {
+    return new FSNamesystem(conf, storage);
+  }
+
+  /**
    * Initialize name-node.
    * 
    * @param conf the configuration
@@ -356,7 +364,7 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     NameNode.initMetrics(conf, this.getRole());
 
     this.storage = new NNStorage(conf);
-    this.namesystem = new FSNamesystem(conf, storage);
+    this.namesystem = createNamesystem(conf, this.storage);
 
     // create rpc server
     InetSocketAddress dnSocketAddr = getServiceRpcServerAddress(conf);

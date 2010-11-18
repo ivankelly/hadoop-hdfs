@@ -126,17 +126,14 @@ public class BackupNode extends NameNode {
     conf.set(BN_HTTP_ADDRESS_NAME_KEY, getHostPortString(httpAddress));
   }
 
-  //@Override // NameNode
-  protected void loadNamesystem(Configuration conf) throws IOException {
-    /* FIXME Who creates who?
-    NNStorage storage = new NNStorage(conf);
-    BackupNodePersistenceManager persistenceManager = new BackupNodePersistenceManager(conf);;
-    this.namesystem = new FSNamesystem(conf, bnImage);
+  @Override // NameNode
+  protected FSNamesystem createNamesystem(Configuration conf, NNStorage storage) throws IOException {
+    BackupNodePersistenceManager persistenceManager = new BackupNodePersistenceManager(conf, storage);;
+    FSNamesystem namesystem = new FSNamesystem(conf, storage, persistenceManager);
     
-    pm.recoverCreateRead();
-    // bnImage.recoverCreateRead(FSNamesystem.getNamespaceDirs(conf),
-    //                          FSNamesystem.getNamespaceEditsDirs(conf));
-    */
+    persistenceManager.recoverCreateRead();
+
+    return namesystem;
   }
 
   @Override // NameNode
