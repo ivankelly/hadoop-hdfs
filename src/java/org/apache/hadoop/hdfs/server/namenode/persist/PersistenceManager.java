@@ -85,7 +85,8 @@ public class PersistenceManager implements Closeable {
 
   /* Constructor */
   public PersistenceManager(Configuration conf, NNStorage storage) {
-    conf = conf;
+    this.conf = conf;
+    this.storage = storage;
     namesystem = null;
     
     editlog = new FSEditLog(conf, storage);
@@ -391,7 +392,7 @@ public class PersistenceManager implements Closeable {
     }
     
     this.load();
-    storage.doUpgrade();
+    //FIXMEstorage.doUpgrade();
     editlog.createEditLogFiles();
     
     //image.doUpgrade();
