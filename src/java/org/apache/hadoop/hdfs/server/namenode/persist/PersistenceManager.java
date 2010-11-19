@@ -431,9 +431,7 @@ public class PersistenceManager implements Closeable {
 
   public void format() throws IOException { 
     storage.initializeDirectories( getStartupOption() );
-
-    image.format();
-    editlog.createEditLogFiles();
+    storage.format();
   }
 
   /**

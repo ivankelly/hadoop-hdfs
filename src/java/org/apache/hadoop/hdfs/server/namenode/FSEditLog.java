@@ -65,6 +65,8 @@ import org.apache.hadoop.security.token.delegation.DelegationKey;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.StorageListener;
+
 import org.apache.hadoop.hdfs.server.namenode.NNUtils;
 
 /**
@@ -73,7 +75,9 @@ import org.apache.hadoop.hdfs.server.namenode.NNUtils;
  */
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
-public class FSEditLog {
+public class FSEditLog implements StorageListener {
+  protected static final Log LOG = LogFactory.getLog(FSEditLog.class.getName());
+
   public  static final byte OP_INVALID = -1;
   private static final byte OP_ADD = 0;
   private static final byte OP_RENAME_OLD = 1;  // rename
@@ -156,9 +160,6 @@ public class FSEditLog {
 
   //////////////////////////////////////////////////////////////////////////////
   
-  private static final Log LOG = LogFactory.getLog(NameNode.class.getName());
-  
-  
   private Configuration conf;
   private NNStorage storage;
   
@@ -179,39 +180,7 @@ public class FSEditLog {
   }
   public FSNamesystem getFSNamesystem(){
     return this.fsn;
-  }
-  
-  /**
-   * Error Handling on a storageDirectory
-   * 
-   */
-  public void errorOccurred(StorageDirectory sd){
-    
-    Iterator<EditLogOutputStream> ies = editStreams.iterator();
-      
-    StorageDirectory sdTmp;
-    while (ies.hasNext()) {
-      EditLogOutputStream elos = ies.next();
-      sdTmp = getStorage(elos);
-      if (sd == sdTmp) {  
-        try { elos.close(); } catch (IOException e) {
-          // nothing to do.
-          LOG.warn("Failed to close eStream " + elos.getName()
-              + " before removing it (might be ok)");
-        }
-        ies.remove();
-        break;
-      }
-    }
-  
-    if (editStreams == null || editStreams.size() <= 0) {
-      String msg = "Fatal Error: All storage directories are inaccessible.";
-      LOG.fatal(msg, new IOException(msg)); 
-      Runtime.getRuntime().exit(-1);
-    }
-    
-  }
-  
+  }  
   
   //////////////////////////////////////////////////////////////////////////////
   
@@ -363,73 +332,6 @@ public class FSEditLog {
    */
   synchronized void processIOError(
       ArrayList<EditLogOutputStream> errorStreams) {
-    
-    if (errorStreams == null || errorStreams.size() == 0) {
-      return;                       // nothing to do
-    }
-
-    String lsd = storage.listStorageDirectories();
-    FSNamesystem.LOG.info("current list of storage dirs:" + lsd);
-
-    //ArrayList<StorageDirectory> al = null;
-    /*
-    for (EditLogOutputStream eStream : errorStreams) {
-      FSNamesystem.LOG.error("Unable to log edits to " + eStream.getName()
-          + "; removing it");     
-
-      StorageDirectory storageDir;
-      if(eStream.getType() == JournalType.FILE && //find SD
-          (storageDir =  (eStream)) != null) {
-        FSNamesystem.LOG.info("about to remove corresponding storage:" 
-            + storageDir.getRoot().getAbsolutePath());
-        // remove corresponding storage dir
-        if(al == null) al = new ArrayList<StorageDirectory>(1);
-        al.add(storageDir);
-      }
-      Iterator<EditLogOutputStream> ies = editStreams.iterator();
-      while (ies.hasNext()) {
-        EditLogOutputStream es = ies.next();
-        if (es == eStream) {  
-          try { eStream.close(); } catch (IOException e) {
-            // nothing to do.
-            FSNamesystem.LOG.warn("Failed to close eStream " + eStream.getName()
-                + " before removing it (might be ok)");
-          }
-          ies.remove();
-          break;
-        }
-      }
-    }*/
-   
-    for (EditLogOutputStream eStream : errorStreams) {
-      LOG.error("Unable to log edits to " + eStream.getName() + "; removing it");
-      StorageDirectory storageDir;
-      if(eStream.getType() == JournalType.FILE && //find SD
-          (storageDir =  getStorage(eStream)) != null) {
-          //LOG.info("about to remove corresponding storage:" 
-          //        + storageDir.getRoot().getAbsolutePath());
-          // remove corresponding storage dir
-          storage.errorDirectory(getStorage(eStream));
-      }
-      
-    }
-    
-    /*
-    if (editStreams == null || editStreams.size() <= 0) {
-      String msg = "Fatal Error: All storage directories are inaccessible.";
-      FSNamesystem.LOG.fatal(msg, new IOException(msg)); 
-      Runtime.getRuntime().exit(-1);
-    }*/
-
-    // removed failed SDs
-    //if(propagate && al != null) fsimage.processIOError(al, false);
-    
-    //for the rest of the streams
-    //if(propagate) incrementCheckpointTime();
-    
-    
-    lsd = storage.listStorageDirectories();
-    FSNamesystem.LOG.info("at the end current list of storage dirs:" + lsd);
   }
 
 
@@ -438,13 +340,10 @@ public class FSEditLog {
    * @param es - stream to remove
    * @return the matching stream
    */
-  StorageDirectory getStorage(EditLogOutputStream es) {
-    String parentStorageDir = ((EditLogFileOutputStream)es).getFile()
-    .getParentFile().getParentFile().getAbsolutePath();
+  StorageDirectory getStorageDirectoryForStream(EditLogOutputStream es) {
+    String parentStorageDir = ((EditLogFileOutputStream)es).getFile().getParentFile().getParentFile().getAbsolutePath();
 
-    Iterator<StorageDirectory> it = storage.dirIterator(); 
-    while (it.hasNext()) {
-      StorageDirectory sd = it.next();
+    for (StorageDirectory sd : storage) {
       FSNamesystem.LOG.info("comparing: " + parentStorageDir + " and " + sd.getRoot().getAbsolutePath()); 
       if (parentStorageDir.equals(sd.getRoot().getAbsolutePath()))
         return sd;
@@ -1976,5 +1875,41 @@ public class FSEditLog {
     this.createEditLogFiles();
     this.open();
   }
-  
+
+  /**
+   * Error Handling on a storageDirectory
+   * 
+   */
+  // StorageListener Interface
+  @Override
+  public synchronized void errorOccurred(StorageDirectory sd) throws IOException {
+    for (EditLogOutputStream eStream : editStreams) {
+      LOG.error("Unable to log edits to " + eStream.getName()
+          + "; removing it");
+
+      StorageDirectory streamStorageDir = getStorageDirectoryForStream(eStream);
+      if (sd == streamStorageDir) {
+	try { eStream.close(); } catch (IOException e) {
+	  // nothing to do.
+	  LOG.warn("Failed to close eStream " + eStream.getName()
+		   + " before removing it (might be ok)");
+	}
+	editStreams.remove(eStream);
+      }
+    }
+    
+    if (editStreams == null || editStreams.size() <= 0) {
+      String msg = "Fatal Error: All storage directories are inaccessible.";
+      LOG.fatal(msg, new IOException(msg));
+      Runtime.getRuntime().exit(-1);
+    }
+  }
+
+  @Override
+  public synchronized void formatOccurred(StorageDirectory sd) throws IOException {
+    if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
+      createEditLogFile(storage.getImageFile(sd, NameNodeFile.EDITS));
+    }
+  };
+
 }

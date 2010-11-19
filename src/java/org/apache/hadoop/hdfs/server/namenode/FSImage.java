@@ -79,7 +79,7 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.NNStorage.StorageErrorListener;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.StorageListener;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 
 /**
@@ -88,9 +88,7 @@ import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
  */
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
-public class FSImage 
- //extends Storage
- implements StorageErrorListener{
+public class FSImage implements StorageListener {
 
   // DELETEME
   // The filenames used for storing the images
@@ -162,7 +160,7 @@ public class FSImage
   static private final FsPermission FILE_PERM = new FsPermission((short)0);
   static private final byte[] PATH_SEPARATOR = DFSUtil.string2Bytes(Path.SEPARATOR);
 
-  protected static final Log LOG = LogFactory.getLog(NameNode.class.getName());
+  protected static final Log LOG = LogFactory.getLog(FSImage.class.getName());
     
   protected Configuration conf;
   protected NNStorage storage;
@@ -172,6 +170,8 @@ public class FSImage
 
     this.conf = conf;
     this.storage = storage;
+    
+    this.storage.registerListener(this);
   }
 
   /**
@@ -226,12 +226,24 @@ public class FSImage
   */
   
   @Override
-  public void errorOccurred(StorageDirectory sd) {
-    
-    
-    
+  public void errorOccurred(StorageDirectory sd) throws IOException {
+    // do nothing,
   }
-  
+
+  @Override
+  public void formatOccurred(StorageDirectory sd) throws IOException {
+    if (sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
+      sd.clearDirectory(); // create currrent dir
+      sd.lock();
+      try {
+	saveCurrentImageToDirectory(sd);
+      } finally {
+	sd.unlock();
+      }
+      LOG.info("Storage directory " + sd.getRoot()
+	       + " has been successfully formatted.");
+    }
+  };
   
   protected FSNamesystem getFSNamesystem() {
     return namesystem;
@@ -757,7 +769,8 @@ public class FSImage
    * @param propagate - flag, if set - then call corresponding EditLog stream's 
    * processIOError function.
    */
-  void processIOError(ArrayList<StorageDirectory> sds) {
+  // FIXME : do we really still need this? why not error the directory directly
+  void processIOError(ArrayList<StorageDirectory> sds) throws IOException {
     for(StorageDirectory sd:sds) {
       storage.errorDirectory(sd);
     }
@@ -1336,7 +1349,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
                                                               it.hasNext();) {
       StorageDirectory sd = it.next();
       try {
-        saveCurrent(sd);
+        saveCurrentImageToDirectory(sd);
         //saveFSImage(storage.getImageFile(sd, NameNodeFile.IMAGE));
       } catch(IOException ie) {
         LOG.error("Unable to save image for " + sd.getRoot(), ie);
@@ -1424,7 +1437,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
   }
   */
 
-  public void format() throws IOException {
+  public void storageFormatted() throws IOException {
     /*
     this.layoutVersion = FSConstants.LAYOUT_VERSION;
     this.namespaceID = newNamespaceID();
@@ -1436,17 +1449,38 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
       format(sd);
     }
     */
-    storage.setLayoutVersion(FSConstants.LAYOUT_VERSION);
-    storage.setNamespaceId(storage.newNamespaceID());
-    storage.setCTime(0L);
-    storage.setCheckpointTime(now());
     for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
         StorageDirectory sd = it.next();
         format(sd);
     }
-
-    
   }
+
+  /**
+   * Format a device.
+   * @param sd
+   * @throws IOException
+   */
+  public void format(StorageDirectory sd) throws IOException {
+}
+
+  /**
+   * Save current image and empty journal into {@code current} directory.
+   */
+  public void saveCurrentImageToDirectory(StorageDirectory sd) throws IOException {
+    File curDir = sd.getCurrentDir();
+    NameNodeDirType dirType = (NameNodeDirType)sd.getStorageDirType();
+    // save new image or new edits
+    if (!curDir.exists() && !curDir.mkdir())
+      throw new IOException("Cannot create directory " + curDir);
+    if (dirType.isOfType(NameNodeDirType.IMAGE))
+      saveFSImage(getImageFile(sd, NameNodeFile.IMAGE));
+    //if (dirType.isOfType(NameNodeDirType.EDITS))
+      //editlog.createEditLogFile(getImageFile(sd, NameNodeFile.EDITS));
+      //createEditLogFile(getImageFile(sd, NameNodeFile.EDITS));
+    // write version and time files
+    sd.write();
+  }
+
 
   /*
    * Save one inode's attributes to the image.
@@ -1910,41 +1944,6 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
   }
   
   
-  /**
-   * Save current image and empty journal into {@code current} directory.
-   */
-  public void saveCurrent(StorageDirectory sd) throws IOException {
-    File curDir = sd.getCurrentDir();
-    NameNodeDirType dirType = (NameNodeDirType)sd.getStorageDirType();
-    // save new image or new edits
-    if (!curDir.exists() && !curDir.mkdir())
-      throw new IOException("Cannot create directory " + curDir);
-    if (dirType.isOfType(NameNodeDirType.IMAGE))
-      saveFSImage(getImageFile(sd, NameNodeFile.IMAGE));
-    //if (dirType.isOfType(NameNodeDirType.EDITS))
-      //editlog.createEditLogFile(getImageFile(sd, NameNodeFile.EDITS));
-      //createEditLogFile(getImageFile(sd, NameNodeFile.EDITS));
-    // write version and time files
-    sd.write();
-  }
-
-  /**
-   * Format a device.
-   * @param sd
-   * @throws IOException
-   */
-  public void format(StorageDirectory sd) throws IOException {
-    sd.clearDirectory(); // create currrent dir
-    sd.lock();
-    try {
-      //saveCurrent(sd);
-      saveFSImage(getImageFile(sd, NameNodeFile.IMAGE));
-    } finally {
-      sd.unlock();
-    }
-    LOG.info("Storage directory " + sd.getRoot()
-    + " has been successfully formatted.");
-  }
 
   // TODELETE
   /*

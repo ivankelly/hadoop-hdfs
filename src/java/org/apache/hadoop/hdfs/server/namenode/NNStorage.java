@@ -88,14 +88,14 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   
   protected long checkpointTime = -1L;  // The age of the image
 
-  
-  public interface StorageErrorListener {
-    public void errorOccurred(StorageDirectory sd);
+  public interface StorageListener {
+    public void errorOccurred(StorageDirectory sd) throws IOException;
+    public void formatOccurred(StorageDirectory sd) throws IOException;
   }
 
   private Configuration conf;
   private FSNamesystem namesystem;
-  private List<StorageErrorListener> errorlisteners;
+  private List<StorageListener> listeners;
 
   private static final Log LOG = LogFactory.getLog(NameNode.class.getName());
   
@@ -149,22 +149,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
  
   
   ////////////////////////////////////////////////////////////////////////  
-  public void registerErrorListener(StorageErrorListener sel) {
-    errorlisteners.add(sel);
-  }
-  
-  // TODO +
-  public void errorDirectory(StorageDirectory sd) {
-    for (StorageErrorListener listener : errorlisteners) {
-      listener.errorOccurred(sd);
-    }
-    
-    LOG.info("about to remove corresponding storage:" 
-        + sd.getRoot().getAbsolutePath());
-    this.removedStorageDirs.add(sd);
-  }
-  
-  
   
   // FIXME
   // to delete. Only temporary change
@@ -859,8 +843,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       }
   }
 
-  private void verifyDistributedUpgradeProgress(StartupOption startOpt
-  ) throws IOException {
+  private void verifyDistributedUpgradeProgress(StartupOption startOpt) throws IOException {
     if(startOpt == StartupOption.ROLLBACK || startOpt == StartupOption.IMPORT)
       return;
     UpgradeManager um = getFSNamesystem().upgradeManager;
@@ -1116,4 +1099,43 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     }    
     return null;
   }
+
+  public void registerListener(StorageListener sel) {
+    listeners.add(sel);
+  }
+  
+  public void format() throws IOException {
+    setLayoutVersion(FSConstants.LAYOUT_VERSION);
+    setNamespaceId(newNamespaceID());
+    setCTime(0L);
+    setCheckpointTime(now());
+    
+    for (StorageDirectory sd : this) {
+      for (StorageListener listener : listeners) {
+	listener.formatOccurred(sd);
+      }
+    }
+  }
+
+  
+  // TODO +
+  public synchronized void errorDirectory(StorageDirectory sd) throws IOException {
+    String lsd = listStorageDirectories();
+    LOG.info("current list of storage dirs:" + lsd);
+    
+    for (StorageListener listener : listeners) {
+      listener.errorOccurred(sd);
+    }
+    
+    LOG.info("about to remove corresponding storage:" 
+	     + sd.getRoot().getAbsolutePath());
+    this.removedStorageDirs.add(sd);
+    this.storageDirs.remove(sd);
+    
+    incrementCheckpointTime();
+    
+    lsd = listStorageDirectories();
+    LOG.info("at the end current list of storage dirs:" + lsd);
+  }
+
 }
