@@ -76,8 +76,6 @@ public class FSDirectory implements Closeable {
   private ReentrantReadWriteLock bLock;
   private Condition cond;
 
-  private FSEditLog editlog;
-
   // utility methods to acquire and release read lock and write lock
   public void readLock() {
     this.bLock.readLock().lock();
@@ -205,7 +203,7 @@ public class FSDirectory implements Closeable {
       return null;
     }
     // add create file record to log, record new generation stamp
-    editlog.logOpenFile(path, newNode);
+    this.namesystem.getEditLog().logOpenFile(path, newNode);
 
     if(NameNode.stateChangeLog.isDebugEnabled()) {
       NameNode.stateChangeLog.debug("DIR* FSDirectory.addFile: "
@@ -367,7 +365,7 @@ public class FSDirectory implements Closeable {
 
     writeLock();
     try {
-      editlog.logOpenFile(path, file);
+      this.namesystem.getEditLog().logOpenFile(path, file);
       if(NameNode.stateChangeLog.isDebugEnabled()) {
         NameNode.stateChangeLog.debug("DIR* FSDirectory.persistBlocks: "
             +path+" with "+ file.getBlocks().length 
@@ -388,7 +386,7 @@ public class FSDirectory implements Closeable {
     try {
       // file is closed
       file.setModificationTimeForce(now);
-      editlog.logCloseFile(path, file);
+      this.namesystem.getEditLog().logCloseFile(path, file);
       if (NameNode.stateChangeLog.isDebugEnabled()) {
         NameNode.stateChangeLog.debug("DIR* FSDirectory.closeFile: "
             +path+" with "+ file.getBlocks().length 
@@ -415,7 +413,7 @@ public class FSDirectory implements Closeable {
       getBlockManager().removeFromCorruptReplicasMap(block);
 
       // write modified block locations to log
-      editlog.logOpenFile(path, fileNode);
+      this.namesystem.getEditLog().logOpenFile(path, fileNode);
       if(NameNode.stateChangeLog.isDebugEnabled()) {
         NameNode.stateChangeLog.debug("DIR* FSDirectory.addFile: "
             +path+" with "+block
@@ -443,7 +441,7 @@ public class FSDirectory implements Closeable {
     long now = now();
     if (!unprotectedRenameTo(src, dst, now))
       return false;
-    editlog.logRename(src, dst, now);
+    this.namesystem.getEditLog().logRename(src, dst, now);
     return true;
   }
 
@@ -463,7 +461,7 @@ public class FSDirectory implements Closeable {
     if (unprotectedRenameTo(src, dst, now, options)) {
       incrDeletedFileCount(1);
     }
-    editlog.logRename(src, dst, now, options);
+    this.namesystem.getEditLog().logRename(src, dst, now, options);
   }
 
   /**
@@ -774,7 +772,7 @@ public class FSDirectory implements Closeable {
     waitForReady();
     Block[] fileBlocks = unprotectedSetReplication(src, replication, oldReplication);
     if (fileBlocks != null)  // log replication change
-      editlog.logSetReplication(src, replication);
+      this.namesystem.getEditLog().logSetReplication(src, replication);
     return fileBlocks;
   }
 
@@ -857,7 +855,7 @@ public class FSDirectory implements Closeable {
   void setPermission(String src, FsPermission permission
       ) throws FileNotFoundException, UnresolvedLinkException {
     unprotectedSetPermission(src, permission);
-    editlog.logSetPermissions(src, permission);
+    this.namesystem.getEditLog().logSetPermissions(src, permission);
   }
 
   void unprotectedSetPermission(String src, FsPermission permissions) 
@@ -877,7 +875,7 @@ public class FSDirectory implements Closeable {
   void setOwner(String src, String username, String groupname
       ) throws FileNotFoundException, UnresolvedLinkException {
     unprotectedSetOwner(src, username, groupname);
-    editlog.logSetOwner(src, username, groupname);
+    this.namesystem.getEditLog().logSetOwner(src, username, groupname);
   }
 
   void unprotectedSetOwner(String src, String username, String groupname) 
@@ -911,7 +909,7 @@ public class FSDirectory implements Closeable {
 
       unprotectedConcat(target, srcs);
       // do the commit
-      editlog.logConcat(target, srcs, now());
+      this.namesystem.getEditLog().logConcat(target, srcs, now());
     } finally {
       writeUnlock();
     }
@@ -985,7 +983,7 @@ public class FSDirectory implements Closeable {
     incrDeletedFileCount(filesRemoved);
     // Blocks will be deleted later by the caller of this method
     getFSNamesystem().removePathAndBlocks(src, null);
-    editlog.logDelete(src, now);
+    this.namesystem.getEditLog().logDelete(src, now);
     return true;
   }
   
@@ -1464,7 +1462,7 @@ public class FSDirectory implements Closeable {
         // to match count of FilesDeleted metric.
         if (getFSNamesystem() != null)
           NameNode.getNameNodeMetrics().numFilesCreated.inc();
-        editlog.logMkDir(cur, inodes[i]);
+        this.namesystem.getEditLog().logMkDir(cur, inodes[i]);
         if(NameNode.stateChangeLog.isDebugEnabled()) {
           NameNode.stateChangeLog.debug(
               "DIR* FSDirectory.mkdirs: created directory " + cur);
@@ -1850,7 +1848,7 @@ public class FSDirectory implements Closeable {
     try {
       INodeDirectory dir = unprotectedSetQuota(src, nsQuota, dsQuota);
       if (dir != null) {
-        editlog.logSetQuota(src, dir.getNsQuota(), 
+        this.namesystem.getEditLog().logSetQuota(src, dir.getNsQuota(), 
                                          dir.getDsQuota());
       }
     } finally {
@@ -1872,7 +1870,7 @@ public class FSDirectory implements Closeable {
    */
   void setTimes(String src, INodeFile inode, long mtime, long atime, boolean force) {
     if (unprotectedSetTimes(src, inode, mtime, atime, force)) {
-      editlog.logTimes(src, mtime, atime);
+      this.namesystem.getEditLog().logTimes(src, mtime, atime);
     }
   }
 
@@ -2023,7 +2021,7 @@ public class FSDirectory implements Closeable {
                                    +" to the file system");
       return null;
     }
-    editlog.logSymlink(path, target, modTime, modTime, newNode);
+    this.namesystem.getEditLog().logSymlink(path, target, modTime, modTime, newNode);
     
     if(NameNode.stateChangeLog.isDebugEnabled()) {
       NameNode.stateChangeLog.debug("DIR* FSDirectory.addSymlink: "

@@ -105,6 +105,7 @@ public class PersistenceManager implements Closeable {
   public void setNamesystem(FSNamesystem namesystem) {
     this.namesystem = namesystem;
     image.setFSNamesystem(namesystem);
+    editlog.setFSNamesystem(namesystem);
   }
   
   private boolean getDistributedUpgradeState() {
@@ -429,10 +430,10 @@ public class PersistenceManager implements Closeable {
     
   }
 
-  public void format() throws IOException { 
+  /*  public void format() throws IOException { 
     storage.initializeDirectories( getStartupOption() );
     storage.format();
-  }
+    }*/
 
   /**
      Save the contents of FSNameSystem to disk
@@ -519,6 +520,10 @@ public class PersistenceManager implements Closeable {
       }
 
       image.setCheckpointDirectories(null, null);
+      
+      if (!editlog.isOpen()) {
+	editlog.open();
+      }
     } catch(IOException e) {
       image.close();
       throw e;

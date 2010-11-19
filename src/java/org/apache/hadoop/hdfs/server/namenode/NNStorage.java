@@ -183,6 +183,8 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     // FIXME: assert to avoid null values?
     super(NodeType.NAME_NODE);
     this.conf = conf;
+    this.listeners = new ArrayList<StorageListener>();
+
     loadStorages(conf);
        
   }
@@ -1109,11 +1111,21 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     setNamespaceId(newNamespaceID());
     setCTime(0L);
     setCheckpointTime(now());
-    
+
     for (StorageDirectory sd : this) {
+      sd.clearDirectory(); // create currrent dir
+
+      File curDir = sd.getCurrentDir();
+
+      // save new image or new edits
+      if (!curDir.exists() && !curDir.mkdir()) {
+	throw new IOException("Cannot create directory " + curDir);
+      }
+
       for (StorageListener listener : listeners) {
 	listener.formatOccurred(sd);
       }
+      sd.write();
     }
   }
 
