@@ -64,6 +64,9 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.conf.Configuration;
 
+import org.apache.hadoop.io.compress.CompressionCodec;
+import org.apache.hadoop.io.compress.CompressionCodecFactory;
+
 public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   
   public static class LoadDirectory {
@@ -147,6 +150,15 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     }
   }
  
+  /**
+   * Image compression related fields
+   */
+  private boolean compressImage = false;  // if image should be compressed
+  private CompressionCodec saveCodec;     // the compression codec
+  private CompressionCodecFactory codecFac;  // all the supported codecs
+
+  
+
   
   ////////////////////////////////////////////////////////////////////////  
   public void registerErrorListener(StorageErrorListener sel) {
@@ -570,6 +582,29 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     
     Collection<String> dirNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_KEY);
     Collection<String> editsNames = conf.getStringCollection(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY);
+
+    if(conf.getBoolean(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_KEY, 
+        DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_DEFAULT)) {
+      NameNode.LOG.info("set FSImage.restoreFailedStorage");
+      setRestoreFailedStorage(true);
+    }
+    setCheckpointDirectories(NNUtils.getCheckpointDirs(conf, null),
+        NNUtils.getCheckpointEditsDirs(conf, null));
+        
+    this.compressImage = conf.getBoolean(
+        DFSConfigKeys.DFS_IMAGE_COMPRESS_KEY,
+        DFSConfigKeys.DFS_IMAGE_COMPRESS_DEFAULT);
+     this.codecFac = new CompressionCodecFactory(conf);
+     if (this.compressImage) {
+       String codecClassName = conf.get(
+           DFSConfigKeys.DFS_IMAGE_COMPRESSION_CODEC_KEY,
+           DFSConfigKeys.DFS_IMAGE_COMPRESSION_CODEC_DEFAULT);
+       this.saveCodec = codecFac.getCodecByClassName(codecClassName);
+       if (this.saveCodec == null) {
+         throw new IOException("Not supported codec: " + codecClassName);
+       }
+     }
+
   
     StartupOption startOpt = NameNode.getStartupOption(conf);
     if(startOpt == StartupOption.IMPORT) {

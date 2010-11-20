@@ -170,11 +170,14 @@ public class SecondaryNameNode implements Runnable {
             NamenodeProtocol.versionID, nameNodeAddr, conf);
 
     // initialize checkpoint directories
+
+
+    // initialize checkpoint directories
     fsName = getInfoServer();
     checkpointDirs = NNUtils.getCheckpointDirs(conf,
-                                  "/tmp/hadoop/dfs/namesecondary");
-    checkpointEditsDirs = NNUtils.getCheckpointEditsDirs(conf, 
-                                  "/tmp/hadoop/dfs/namesecondary");  
+                              "/tmp/hadoop/dfs/namesecondary");
+    checkpointEditsDirs = NNUtils.getCheckpointEditsDirs(conf,
+                              "/tmp/hadoop/dfs/namesecondary");
     persistenceManager = new SecondaryNodePersistenceManager(conf, storage);
 
     // Initialize other scheduling parameters from the configuration
@@ -580,4 +583,6 @@ public class SecondaryNameNode implements Runnable {
     Daemon checkpointThread = new Daemon(new SecondaryNameNode(tconf)); 
     checkpointThread.start();
   }
+  
+
 }

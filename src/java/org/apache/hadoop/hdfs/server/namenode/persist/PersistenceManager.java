@@ -351,6 +351,7 @@ public class PersistenceManager implements Closeable {
     // replace real image with the checkpoint image
     FSImage realImage = fsNamesys.getFSImage();
     assert realImage == this;
+    
     fsNamesys.dir.fsImage = ckptImage;
     // load from the checkpoint dirs
     try {
