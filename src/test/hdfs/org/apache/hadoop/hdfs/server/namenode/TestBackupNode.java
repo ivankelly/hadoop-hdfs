@@ -29,7 +29,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.StartupOption;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.CheckpointStates;
+import org.apache.hadoop.hdfs.server.namenode.persist.PersistenceManager.CheckpointStates;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 
 import junit.framework.TestCase;
@@ -95,7 +95,7 @@ public class TestBackupNode extends TestCase {
         LOG.info("Waiting checkpoint to complete...");
         Thread.sleep(1000);
       } catch (Exception e) {}
-    } while(backup.getCheckpointState() != CheckpointStates.START);
+    } while(backup.getPersistenceManager().getCheckpointState() != CheckpointStates.START);
   }
 
   public void testCheckpoint() throws IOException {

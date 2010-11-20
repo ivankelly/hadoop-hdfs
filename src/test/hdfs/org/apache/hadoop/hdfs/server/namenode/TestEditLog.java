@@ -29,8 +29,8 @@ import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.server.namenode.EditLogFileInputStream;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 
 /**
  * This class tests the creation and validation of a checkpoint.
@@ -61,7 +61,7 @@ public class TestEditLog extends TestCase {
     public void run() {
       PermissionStatus p = namesystem.createFsOwnerPermissions(
                                           new FsPermission((short)0777));
-      FSEditLog editLog = namesystem.getEditLog();
+      FSEditLog editLog = namesystem.getPersistenceManager().getEditLog();
 
       for (int i = 0; i < numTransactions; i++) {
         INodeFileUnderConstruction inode = new INodeFileUnderConstruction(
@@ -106,8 +106,8 @@ public class TestEditLog extends TestCase {
         System.out.println(dir);
       }
   
-      FSImage fsimage = namesystem.getFSImage();
-      FSEditLog editLog = fsimage.getEditLog();
+      NNStorage storage = cluster.getNameNode().getStorage();
+      FSEditLog editLog = namesystem.getPersistenceManager().getEditLog();
   
       // set small size of flush buffer
       editLog.setBufferCapacity(initialSize);
@@ -138,12 +138,10 @@ public class TestEditLog extends TestCase {
       // If there were any corruptions, it is likely that the reading in
       // of these transactions will throw an exception.
       //
-      for (Iterator<StorageDirectory> it = 
-              fsimage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
-        File editFile = FSImage.getImageFile(it.next(), NameNodeFile.EDITS);
+      for (StorageDirectory sd : storage.iterable(NameNodeDirType.EDITS)) {
+        File editFile = storage.getImageFile(sd, NameNodeFile.EDITS);
         System.out.println("Verifying file: " + editFile);
-        int numEdits = namesystem.getEditLog().loadFSEdits(
-                                  new EditLogFileInputStream(editFile));
+        int numEdits = editLog.loadFSEdits(new EditLogFileInputStream(editFile));
         int numLeases = namesystem.leaseManager.countLease();
         System.out.println("Number of outstanding leases " + numLeases);
         assertEquals(0, numLeases);

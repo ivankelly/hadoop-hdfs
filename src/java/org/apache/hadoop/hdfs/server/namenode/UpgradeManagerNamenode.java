@@ -37,15 +37,17 @@ import org.apache.hadoop.hdfs.server.protocol.UpgradeCommand;
  * After that the name-nodes processes upgrade commands from data-nodes
  * and updates its status.
  */
-class UpgradeManagerNamenode extends UpgradeManager {
+public class UpgradeManagerNamenode extends UpgradeManager {
   public HdfsConstants.NodeType getType() {
     return HdfsConstants.NodeType.NAME_NODE;
   }
 
   private final FSNamesystem namesystem;
+  private final NNStorage storage;
 
-  UpgradeManagerNamenode(FSNamesystem namesystem) {
-    this.namesystem = namesystem;    
+  UpgradeManagerNamenode(FSNamesystem namesystem, NNStorage storage) {
+    this.namesystem = namesystem; 
+    this.storage = storage;
   }
 
   /**
@@ -60,7 +62,7 @@ class UpgradeManagerNamenode extends UpgradeManager {
       initializeUpgrade();
       if(!upgradeState) return false;
       // write new upgrade state into disk
-      namesystem.getFSImage().writeAll();
+      storage.writeAll();
     }
     assert currentUpgrades != null : "currentUpgrades is null";
     this.broadcastCommand = currentUpgrades.first().startUpgrade();
@@ -111,7 +113,7 @@ class UpgradeManagerNamenode extends UpgradeManager {
   public synchronized void completeUpgrade() throws IOException {
     // set and write new upgrade state into disk
     setUpgradeState(false, FSConstants.LAYOUT_VERSION);
-    namesystem.getFSImage().writeAll();
+    storage.writeAll();
     currentUpgrades = null;
     broadcastCommand = null;
     namesystem.leaveSafeMode(false);
@@ -121,11 +123,10 @@ class UpgradeManagerNamenode extends UpgradeManager {
                                   (UpgradeAction action) throws IOException {
     boolean isFinalized = false;
     if(currentUpgrades == null) { // no upgrades are in progress
-      FSImage fsimage = namesystem.getFSImage();
-      isFinalized = fsimage.isUpgradeFinalized();
+      isFinalized = storage.isUpgradeFinalized();
       if(isFinalized) // upgrade is finalized
         return null;  // nothing to report
-      return new UpgradeStatusReport(fsimage.getLayoutVersion(), 
+      return new UpgradeStatusReport(storage.getLayoutVersion(), 
                                      (short)101, isFinalized);
     }
     UpgradeObjectNamenode curUO = (UpgradeObjectNamenode)currentUpgrades.first();

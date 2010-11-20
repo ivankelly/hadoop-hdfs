@@ -89,6 +89,9 @@ public class TestSaveNamespace {
     Configuration conf = getConf();
     NameNode.initMetrics(conf, NamenodeRole.ACTIVE);
     NameNode.format(conf);
+    
+    throw new IOException("FIXME FIXME FIXME, fix all this code");
+    /*
     FSNamesystem fsn = new FSNamesystem(conf);
 
     // Replace the FSImage with a spy
@@ -140,7 +143,7 @@ public class TestSaveNamespace {
       if (fsn != null) {
         fsn.close();
       }
-    }
+      }*/
   }
 
   @Test
@@ -163,6 +166,9 @@ public class TestSaveNamespace {
     Configuration conf = getConf();
     NameNode.initMetrics(conf, NamenodeRole.ACTIVE);
     NameNode.format(conf);
+
+    throw new IOException("FIXME FIXME FIXME, fix all this code");
+    /*
     FSNamesystem fsn = new FSNamesystem(conf);
 
     // Replace the FSImage with a spy
@@ -196,7 +202,7 @@ public class TestSaveNamespace {
       if (fsn != null) {
         fsn.close();
       }
-    }
+      }*/
   }
 
   private void doAnEdit(FSNamesystem fsn, int id) throws IOException {

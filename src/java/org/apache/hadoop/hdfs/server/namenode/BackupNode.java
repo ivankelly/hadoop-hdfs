@@ -32,7 +32,9 @@ import org.apache.hadoop.hdfs.server.protocol.NamespaceInfo;
 import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.namenode.CheckpointSignature;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.CheckpointStates;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage;
+import org.apache.hadoop.hdfs.server.namenode.persist.BackupNodePersistenceManager;
+
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.ipc.RPC;
 import org.apache.hadoop.conf.Configuration;
@@ -68,6 +70,8 @@ public class BackupNode extends NameNode {
   String nnHttpAddress;
   /** Checkpoint manager */
   Checkpointer checkpointManager;
+  
+  private BackupNodePersistenceManager persistenceManager;
 
   BackupNode(Configuration conf, NamenodeRole role) throws IOException {
     super(conf, role);
@@ -123,11 +127,13 @@ public class BackupNode extends NameNode {
   }
 
   @Override // NameNode
-  protected void loadNamesystem(Configuration conf) throws IOException {
-    BackupStorage bnImage = new BackupStorage();
-    this.namesystem = new FSNamesystem(conf, bnImage);
-    bnImage.recoverCreateRead(FSNamesystem.getNamespaceDirs(conf),
-                              FSNamesystem.getNamespaceEditsDirs(conf));
+  protected FSNamesystem createNamesystem(Configuration conf, NNStorage storage) throws IOException {
+    BackupNodePersistenceManager persistenceManager = new BackupNodePersistenceManager(conf, storage);;
+    FSNamesystem namesystem = new FSNamesystem(conf, storage, persistenceManager);
+    
+    persistenceManager.recoverCreateRead();
+
+    return namesystem;
   }
 
   @Override // NameNode
@@ -216,18 +222,18 @@ public class BackupNode extends NameNode {
     if(!nnRpcAddress.equals(nnReg.getAddress()))
       throw new IOException("Journal request from unexpected name-node: "
           + nnReg.getAddress() + " expecting " + nnRpcAddress);
-    BackupStorage bnImage = (BackupStorage)getFSImage();
+    
     switch(jAction) {
       case (int)JA_IS_ALIVE:
         return;
       case (int)JA_JOURNAL:
-        bnImage.journal(length, args);
+        persistenceManager.journal(length, args);
         return;
       case (int)JA_JSPOOL_START:
-        bnImage.startJournalSpool(nnReg);
+        persistenceManager.startJournalSpool(nnReg);
         return;
       case (int)JA_CHECKPOINT_TIME:
-        bnImage.setCheckpointTime(length, args);
+        persistenceManager.setCheckpointTime(length, args);
         setRegistration(); // keep registration up to date
         return;
       default:
@@ -235,15 +241,14 @@ public class BackupNode extends NameNode {
     }
   }
 
-  boolean shouldCheckpointAtStartup() {
-    FSImage fsImage = getFSImage();
+  public boolean shouldCheckpointAtStartup() {
     if(isRole(NamenodeRole.CHECKPOINT)) {
-      assert fsImage.getNumStorageDirs() > 0;
-      return ! fsImage.getStorageDir(0).getVersionFile().exists();
+      return persistenceManager.isStorageInitialized();
     }
-    if(namesystem == null || namesystem.dir == null || getFSImage() == null)
+    if(namesystem == null || namesystem.dir == null) {
       return true;
-    return fsImage.getEditLog().getNumEditStreams() == 0;
+    }
+    return persistenceManager.isEditLogInitialized();
   }
 
   private NamespaceInfo handshake(Configuration conf) throws IOException {
@@ -287,28 +292,13 @@ public class BackupNode extends NameNode {
     checkpointManager.doCheckpoint();
   }
 
-  CheckpointStates getCheckpointState() {
-    return getFSImage().getCheckpointState();
-  }
-
-  void setCheckpointState(CheckpointStates cs) {
-    getFSImage().setCheckpointState(cs);
-  }
-
   /**
    * Register this backup node with the active name-node.
    * @param nsInfo
    * @throws IOException
    */
   private void registerWith(NamespaceInfo nsInfo) throws IOException {
-    BackupStorage bnImage = (BackupStorage)getFSImage();
-    // verify namespaceID
-    if(bnImage.getNamespaceID() == 0) // new backup storage
-      bnImage.setStorageInfo(nsInfo);
-    else if(bnImage.getNamespaceID() != nsInfo.getNamespaceID())
-      throw new IOException("Incompatible namespaceIDs"
-          + ": active node namespaceID = " + nsInfo.getNamespaceID() 
-          + "; backup node namespaceID = " + bnImage.getNamespaceID());
+    persistenceManager.verifyNamespaceID(nsInfo);
 
     setRegistration();
     NamenodeRegistration nnReg = null;
@@ -343,7 +333,7 @@ public class BackupNode extends NameNode {
    * @throws IOException
    */
   void resetNamespace() throws IOException {
-    ((BackupStorage)getFSImage()).reset();
+    persistenceManager.reset();
   }
 
   /**
@@ -374,4 +364,9 @@ public class BackupNode extends NameNode {
       + FSConstants.LAYOUT_VERSION + " actual "+ nsInfo.getLayoutVersion();
     return nsInfo;
   }
+
+  public BackupNodePersistenceManager getPersistenceManager() {
+    return persistenceManager;
+  }
 }
+

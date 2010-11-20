@@ -79,6 +79,8 @@ import org.apache.hadoop.hdfs.server.protocol.UpgradeCommand;
 import org.apache.hadoop.hdfs.server.namenode.GetDelegationTokenServlet;
 import org.apache.hadoop.hdfs.server.namenode.CancelDelegationTokenServlet;
 import org.apache.hadoop.hdfs.server.namenode.RenewDelegationTokenServlet;
+import org.apache.hadoop.hdfs.server.namenode.persist.PersistenceManager;
+
 import org.apache.hadoop.http.HttpServer;
 import org.apache.hadoop.io.EnumSetWritable;
 import org.apache.hadoop.io.Text;
@@ -165,6 +167,8 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   public static final Log stateChangeLog = LogFactory.getLog("org.apache.hadoop.hdfs.StateChange");
 
   protected FSNamesystem namesystem; 
+  protected NNStorage storage;
+
   protected NamenodeRole role;
   /** RPC server. Package-protected for use in tests. */
   Server server;
@@ -321,20 +325,28 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     conf.set(DFSConfigKeys.DFS_NAMENODE_HTTP_ADDRESS_KEY, getHostPortString(httpAddress));
   }
 
-  protected void loadNamesystem(Configuration conf) throws IOException {
-    this.namesystem = new FSNamesystem(conf);
-  }
-
   NamenodeRegistration getRegistration() {
     return nodeRegistration;
   }
 
   NamenodeRegistration setRegistration() {
-    nodeRegistration = new NamenodeRegistration(
+    /* FIXME when you have a persistentmanager in this file
+       nodeRegistration = new NamenodeRegistration(
         getHostPortString(rpcAddress),
         getHostPortString(httpAddress),
         getFSImage(), getRole(), getFSImage().getCheckpointTime());
+
     return nodeRegistration;
+    */
+    return null;
+  }
+
+  /**
+   * Other namenode types may wish to implement their own persistenceManager,
+   * therefore namesystem construction is broken out into a overloadable unit.
+   */
+  protected FSNamesystem createNamesystem(Configuration conf, NNStorage storage) throws IOException {
+    return new FSNamesystem(conf, storage);
   }
 
   /**
@@ -350,7 +362,10 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     int handlerCount = conf.getInt("dfs.namenode.handler.count", 10);
 
     NameNode.initMetrics(conf, this.getRole());
-    loadNamesystem(conf);
+
+    this.storage = new NNStorage(conf);
+    this.namesystem = createNamesystem(conf, this.storage);
+
     // create rpc server
     InetSocketAddress dnSocketAddr = getServiceRpcServerAddress(conf);
     if (dnSocketAddr != null) {
@@ -486,7 +501,7 @@ public class NameNode implements NamenodeProtocols, FSConstants {
           }
           httpServer.setAttribute("name.node", NameNode.this);
           httpServer.setAttribute("name.node.address", getNameNodeAddress());
-          httpServer.setAttribute("name.system.image", getFSImage());
+          httpServer.setAttribute("name.system.persistenceManager", namesystem.getPersistenceManager());
           httpServer.setAttribute(JspHelper.CURRENT_CONF, conf);
           httpServer.addInternalServlet("getDelegationToken",
               GetDelegationTokenServlet.PATH_SPEC, 
@@ -1243,7 +1258,7 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     }
 
     namesystem.processReport(nodeReg, blist);
-    if (getFSImage().isUpgradeFinalized())
+    if (storage.isUpgradeFinalized())
       return DatanodeCommand.FINALIZE;
     return null;
   }
@@ -1317,21 +1332,22 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   /**
    * Returns the name of the fsImage file
    */
-  public File getFsImageName() throws IOException {
+  /*DELETEME
+public File getFsImageName() throws IOException {
     return getFSImage().getFsImageName();
   }
     
   public FSImage getFSImage() {
     return namesystem.dir.fsImage;
-  }
+    }
 
-  /**
+  /*
    * Returns the name of the fsImage file uploaded by periodic
    * checkpointing
-   */
+   *
   public File[] getFsImageNameCheckpoint() throws IOException {
     return getFSImage().getFsImageNameCheckpoint();
-  }
+  }*/
 
   /**
    * Returns the address on which the NameNodes is listening to.
@@ -1384,10 +1400,14 @@ public class NameNode implements NamenodeProtocols, FSConstants {
         while(System.in.read() != '\n'); // discard the enter-key
       }
     }
+    
+    NNStorage storage = new NNStorage(conf);
+    PersistenceManager pm = new PersistenceManager(conf, storage);
+    
+    FSNamesystem nsys = new FSNamesystem(conf, storage, pm);
+    
+    pm.format();
 
-    FSNamesystem nsys = new FSNamesystem(new FSImage(dirsToFormat,
-                                         editDirsToFormat), conf);
-    nsys.dir.fsImage.format();
     return false;
   }
 
@@ -1397,8 +1417,12 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     Collection<URI> dirsToFormat = FSNamesystem.getNamespaceDirs(conf);
     Collection<URI> editDirsToFormat = 
                                FSNamesystem.getNamespaceEditsDirs(conf);
-    FSNamesystem nsys = new FSNamesystem(new FSImage(dirsToFormat,
-                                         editDirsToFormat), conf);
+    
+    NNStorage storage = new NNStorage(conf);
+    PersistenceManager pm = new PersistenceManager(conf, storage);
+    
+    FSNamesystem nsys = new FSNamesystem(conf, storage, pm);
+
     System.err.print(
         "\"finalize\" will remove the previous state of the files system.\n"
         + "Recent upgrade will become permanent.\n"
@@ -1411,7 +1435,7 @@ public class NameNode implements NamenodeProtocols, FSConstants {
       }
       while(System.in.read() != '\n'); // discard the enter-key
     }
-    nsys.dir.fsImage.finalizeUpgrade();
+    pm.finalizeUpgrade();
     return false;
   }
 
@@ -1439,6 +1463,13 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     LOG.info("Refreshing SuperUser proxy group mapping list ");
 
     ProxyUsers.refreshSuperUserGroupsConfiguration();
+  }
+
+  /** 
+   * Used by testing to check for file existence
+   */
+  public NNStorage getStorage() {
+    return this.storage;
   }
 
   private static void printUsage() {

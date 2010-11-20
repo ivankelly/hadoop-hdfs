@@ -45,8 +45,8 @@ import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 
 
@@ -126,33 +126,26 @@ public class TestStorageRestore extends TestCase {
   /**
    * invalidate storage by removing storage directories
    */
-  public void invalidateStorage(FSImage fi) throws IOException {
-    ArrayList<StorageDirectory> al = new ArrayList<StorageDirectory>(2);
-    Iterator<StorageDirectory> it = fi.dirIterator();
-    while(it.hasNext()) {
-      StorageDirectory sd = it.next();
+  public void invalidateStorage(NNStorage storage) throws IOException {
+    for (StorageDirectory sd : storage) {
       if(sd.getRoot().equals(path2) || sd.getRoot().equals(path3)) {
-        al.add(sd);
+        storage.errorDirectory(sd);
       }
     }
-    // simulate an error
-    fi.processIOError(al, true);
   }
   
   /**
    * test
    */
-  public void printStorages(FSImage fs) {
+  public void printStorages(NNStorage storage) {
     LOG.info("current storages and corresoponding sizes:");
-    for(Iterator<StorageDirectory> it = fs.dirIterator(); it.hasNext(); ) {
-      StorageDirectory sd = it.next();
-      
+    for(StorageDirectory sd : storage) {      
       if(sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
-        File imf = FSImage.getImageFile(sd, NameNodeFile.IMAGE);
+        File imf = storage.getImageFile(sd, NameNodeFile.IMAGE);
         LOG.info("  image file " + imf.getAbsolutePath() + "; len = " + imf.length());  
       }
       if(sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-        File edf = FSImage.getImageFile(sd, NameNodeFile.EDITS);
+        File edf = storage.getImageFile(sd, NameNodeFile.EDITS);
         LOG.info("  edits file " + edf.getAbsolutePath() + "; len = " + edf.length()); 
       }
     }
@@ -230,7 +223,7 @@ public class TestStorageRestore extends TestCase {
     } catch (Exception e) {
       System.err.println("md 5 calculation failed:" + e.getLocalizedMessage());
     }
-    this.printStorages(cluster.getNameNode().getFSImage());
+    this.printStorages(cluster.getNameNode().getStorage());
     
     LOG.info("++++ image files = "+fsImg1.getAbsolutePath() + "," + fsImg2.getAbsolutePath() + ","+ fsImg3.getAbsolutePath());
     LOG.info("++++ edits files = "+fsEdits1.getAbsolutePath() + "," + fsEdits2.getAbsolutePath() + ","+ fsEdits3.getAbsolutePath());
@@ -290,7 +283,7 @@ public class TestStorageRestore extends TestCase {
     
     SecondaryNameNode secondary = new SecondaryNameNode(config);
     System.out.println("****testStorageRestore: Cluster and SNN started");
-    printStorages(cluster.getNameNode().getFSImage());
+    printStorages(cluster.getNameNode().getStorage());
     
     FileSystem fs = cluster.getFileSystem();
     Path path = new Path("/", "test");
@@ -298,9 +291,9 @@ public class TestStorageRestore extends TestCase {
     
     System.out.println("****testStorageRestore: file test written, invalidating storage...");
   
-    invalidateStorage(cluster.getNameNode().getFSImage());
+    invalidateStorage(cluster.getNameNode().getStorage());
     //secondary.doCheckpoint(); // this will cause storages to be removed.
-    printStorages(cluster.getNameNode().getFSImage());
+    printStorages(cluster.getNameNode().getStorage());
     System.out.println("****testStorageRestore: storage invalidated + doCheckpoint");
 
     path = new Path("/", "test1");
@@ -338,10 +331,10 @@ public class TestStorageRestore extends TestCase {
     cluster.waitActive();
     try {
 
-      FSImage fsi = cluster.getNameNode().getFSImage();
+      NNStorage storage = cluster.getNameNode().getStorage();
 
       // it is started with dfs.name.dir.restore set to true (in SetUp())
-      boolean restore = fsi.getRestoreFailedStorage();
+      boolean restore = storage.getRestoreFailedStorage();
       LOG.info("Restore is " + restore);
       assertEquals(restore, true);
 
@@ -354,19 +347,19 @@ public class TestStorageRestore extends TestCase {
           new CLITestData.TestCmd(cmd, CLITestData.TestCmd.CommandType.DFSADMIN),
           namenode);
       executor.executeCommand(cmd);
-      restore = fsi.getRestoreFailedStorage();
+      restore = storage.getRestoreFailedStorage();
       assertFalse("After set true call restore is " + restore, restore);
 
       // run one more time - to set it to true again
       cmd = "-fs NAMENODE -restoreFailedStorage true";
       executor.executeCommand(cmd);
-      restore = fsi.getRestoreFailedStorage();
+      restore = storage.getRestoreFailedStorage();
       assertTrue("After set false call restore is " + restore, restore);
       
    // run one more time - no change in value
       cmd = "-fs NAMENODE -restoreFailedStorage check";
       CommandExecutor.Result cmdResult = executor.executeCommand(cmd);
-      restore = fsi.getRestoreFailedStorage();
+      restore = storage.getRestoreFailedStorage();
       assertTrue("After check call restore is " + restore, restore);
       String commandOutput = cmdResult.getCommandOutput();
       commandOutput.trim();

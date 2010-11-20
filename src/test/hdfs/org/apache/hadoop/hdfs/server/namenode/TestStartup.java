@@ -39,8 +39,8 @@ import org.apache.hadoop.hdfs.DFSConfigKeys;
 import static org.apache.hadoop.hdfs.server.common.Util.fileAsURI;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.StartupOption;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.util.StringUtils;
 
 /**
@@ -196,8 +196,8 @@ public class TestStartup extends TestCase {
       NameNode nn = cluster.getNameNode();
       assertNotNull(nn);	
       // Verify that image file sizes did not change.
-      FSImage image = nn.getFSImage();
-      verifyDifferentDirs(image, this.fsimageLength, this.editsLength);
+      NNStorage storage = nn.getStorage();
+      verifyDifferentDirs(storage, this.fsimageLength, this.editsLength);
     } finally {
       if(cluster != null)
         cluster.shutdown();
@@ -207,17 +207,14 @@ public class TestStartup extends TestCase {
   /**
    * verify that edits log and fsimage are in different directories and of a correct size
    */
-  private void verifyDifferentDirs(FSImage img, long expectedImgSize, long expectedEditsSize) {
-    StorageDirectory sd =null;
-    for (Iterator<StorageDirectory> it = img.dirIterator(); it.hasNext();) {
-      sd = it.next();
-
+  private void verifyDifferentDirs(NNStorage storage, long expectedImgSize, long expectedEditsSize) {
+    for (StorageDirectory sd : storage) {
       if(sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
-        File imf = FSImage.getImageFile(sd, NameNodeFile.IMAGE);
+        File imf = storage.getImageFile(sd, NameNodeFile.IMAGE);
         LOG.info("--image file " + imf.getAbsolutePath() + "; len = " + imf.length() + "; expected = " + expectedImgSize);
         assertEquals(expectedImgSize, imf.length());	
       } else if(sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-        File edf = FSImage.getImageFile(sd, NameNodeFile.EDITS);
+        File edf = storage.getImageFile(sd, NameNodeFile.EDITS);
         LOG.info("-- edits file " + edf.getAbsolutePath() + "; len = " + edf.length()  + "; expected = " + expectedEditsSize);
         assertEquals(expectedEditsSize, edf.length());	
       } else {
@@ -317,16 +314,15 @@ public class TestStartup extends TestCase {
 
 
       // now verify that image and edits are created in the different directories
-      FSImage image = nn.getFSImage();
-      StorageDirectory sd = image.getStorageDir(0); //only one
+      NNStorage storage = nn.getStorage();
+      StorageDirectory sd = storage.getStorageDir(0); //only one
       assertEquals(sd.getStorageDirType(), NameNodeDirType.IMAGE_AND_EDITS);
-      File imf = FSImage.getImageFile(sd, NameNodeFile.IMAGE);
-      File edf = FSImage.getImageFile(sd, NameNodeFile.EDITS);
+      File imf = storage.getImageFile(sd, NameNodeFile.IMAGE);
+      File edf = storage.getImageFile(sd, NameNodeFile.EDITS);
       LOG.info("--image file " + imf.getAbsolutePath() + "; len = " + imf.length());
       LOG.info("--edits file " + edf.getAbsolutePath() + "; len = " + edf.length());
 
-      FSImage chkpImage = sn.getFSImage();
-      verifyDifferentDirs(chkpImage, imf.length(), edf.length());
+      verifyDifferentDirs(sn.getStorage(), imf.length(), edf.length());
 
     } catch (IOException e) {
       fail(StringUtils.stringifyException(e));

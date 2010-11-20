@@ -33,15 +33,15 @@ import org.apache.hadoop.io.WritableComparable;
 public class CheckpointSignature extends StorageInfo 
                       implements WritableComparable<CheckpointSignature> {
   private static final String FIELD_SEPARATOR = ":";
-  long editsTime = -1L;
-  long checkpointTime = -1L;
+  public long editsTime = -1L;
+  public long checkpointTime = -1L;
 
   public CheckpointSignature() {}
 
-  CheckpointSignature(FSImage fsImage) {
-    super(fsImage);
-    editsTime = fsImage.getEditLog().getFsEditTime();
-    checkpointTime = fsImage.getCheckpointTime();
+  CheckpointSignature(NNStorage storage) {
+    super(storage);
+    editsTime = storage.getEditsTime();
+    checkpointTime = storage.getCheckpointTime();
   }
 
   CheckpointSignature(String str) {
@@ -62,10 +62,10 @@ public class CheckpointSignature extends StorageInfo
          + String.valueOf(checkpointTime);
   }
 
-  void validateStorageInfo(FSImage si) throws IOException {
+  public void validateStorageInfo(NNStorage si) throws IOException {
     if(layoutVersion != si.layoutVersion
         || namespaceID != si.namespaceID || cTime != si.cTime
-        || checkpointTime != si.checkpointTime) {
+       || checkpointTime != si.getCheckpointTime()) {
       // checkpointTime can change when the image is saved - do not compare
       throw new IOException("Inconsistent checkpoint fields.\n"
           + "LV = " + layoutVersion + " namespaceID = " + namespaceID

@@ -42,10 +42,12 @@ import static org.apache.hadoop.hdfs.server.common.HdfsConstants.NodeType.NAME_N
 import static org.apache.hadoop.hdfs.server.common.HdfsConstants.NodeType.DATA_NODE;
 
 import org.apache.hadoop.hdfs.server.common.Storage;
+import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.common.StorageInfo;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.datanode.DataStorage;
 import org.apache.hadoop.hdfs.server.namenode.FSImage;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage;
 import org.apache.hadoop.hdfs.server.namenode.NameNode;
 
 /**
@@ -312,13 +314,17 @@ public class UpgradeUtilities {
                                          StorageInfo version) throws IOException 
   {
     Storage storage = null;
+    Configuration  conf;
     File[] versionFiles = new File[parent.length];
     for (int i = 0; i < parent.length; i++) {
       File versionFile = new File(parent[i], "VERSION");
       FileUtil.fullyDelete(versionFile);
+      
       switch (nodeType) {
       case NAME_NODE:
-        storage = new FSImage(version);
+        //storage = new FSImage(version);
+        conf = new HdfsConfiguration();
+        storage = new NNStorage(conf);
         break;
       case DATA_NODE:
         storage = new DataStorage(version, "doNotCare");

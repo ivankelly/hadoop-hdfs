@@ -76,7 +76,8 @@ public class TestNNLeaseRecovery {
     FileSystem.setDefaultUri(conf, "hdfs://localhost:0");
     conf.set(DFSConfigKeys.DFS_NAMENODE_HTTP_ADDRESS_KEY, "0.0.0.0:0");
     NameNode.format(conf);
-    fsn = spy(new FSNamesystem(conf));
+    NNStorage storage = new NNStorage(conf);
+    fsn = spy(new FSNamesystem(conf, storage));
   }
 
   /**
@@ -406,7 +407,9 @@ public class TestNNLeaseRecovery {
     fsn.dir = fsDir;
     FSImage fsImage = mock(FSImage.class);
     FSEditLog editLog = mock(FSEditLog.class);
-                            
+    
+    assertTrue(false); // FIXME uncomment this code and make it work
+    /*
     when(fsn.getFSImage()).thenReturn(fsImage);
     when(fsn.getFSImage().getEditLog()).thenReturn(editLog);
     fsn.getFSImage().setFSNamesystem(fsn);
@@ -440,5 +443,6 @@ public class TestNNLeaseRecovery {
     }
 
     when(fsDir.getFileINode(anyString())).thenReturn(iNFmock);
+    */
   }
 }
