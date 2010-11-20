@@ -125,7 +125,7 @@ public class TestCheckpoint extends TestCase {
     File first = new File(namedirs.iterator().next().getPath());
     removeOneNameDir(first);
     try {
-      cluster = new MiniDFSCluster(conf, 0, false, null);
+      cluster = new MiniDFSCluster.Builder(conf).numDataNodes(0).format(false).build();
       cluster.shutdown();
       assertTrue(false);
     } catch (Throwable t) {
@@ -142,8 +142,9 @@ public class TestCheckpoint extends TestCase {
     throws IOException {
     System.out.println("Starting testSecondaryNamenodeError 1");
     Path file1 = new Path("checkpointxx.dat");
-    MiniDFSCluster cluster = new MiniDFSCluster(conf, numDatanodes, 
-                                                false, null);
+    MiniDFSCluster cluster = new MiniDFSCluster.Builder(conf)
+                                               .numDataNodes(numDatanodes)
+                                               .format(false).build();
     cluster.waitActive();
     FileSystem fileSys = cluster.getFileSystem();
     try {
@@ -178,7 +179,8 @@ public class TestCheckpoint extends TestCase {
     // namenode restart accounted for the rolled edit logs.
     //
     System.out.println("Starting testSecondaryNamenodeError 2");
-    cluster = new MiniDFSCluster(conf, numDatanodes, false, null);
+    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(numDatanodes)
+                                              .format(false).build();
     cluster.waitActive();
     // Also check that the edits file is empty here
     // and that temporary checkpoint files are gone.
@@ -215,8 +217,9 @@ public class TestCheckpoint extends TestCase {
     throws IOException {
     System.out.println("Starting testSecondaryNamenodeError 21");
     Path file1 = new Path("checkpointyy.dat");
-    MiniDFSCluster cluster = new MiniDFSCluster(conf, numDatanodes, 
-                                                false, null);
+    MiniDFSCluster cluster = new MiniDFSCluster.Builder(conf)
+                                               .numDataNodes(numDatanodes)
+                                               .format(false).build();
     cluster.waitActive();
     FileSystem fileSys = cluster.getFileSystem();
     try {
@@ -251,7 +254,7 @@ public class TestCheckpoint extends TestCase {
     // namenode restart accounted for the rolled edit logs.
     //
     System.out.println("Starting testSecondaryNamenodeError 22");
-    cluster = new MiniDFSCluster(conf, numDatanodes, false, null);
+    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(numDatanodes).format(false).build();
     cluster.waitActive();
     fileSys = cluster.getFileSystem();
     try {
@@ -274,8 +277,10 @@ public class TestCheckpoint extends TestCase {
     throws IOException {
     System.out.println("Starting testSecondaryNamenodeError 31");
     Path file1 = new Path("checkpointzz.dat");
-    MiniDFSCluster cluster = new MiniDFSCluster(conf, numDatanodes, 
-                                                false, null);
+    MiniDFSCluster cluster = new MiniDFSCluster.Builder(conf)
+                                               .numDataNodes(numDatanodes)
+                                               .format(false).build();
+
     cluster.waitActive();
     FileSystem fileSys = cluster.getFileSystem();
     try {
@@ -318,7 +323,7 @@ public class TestCheckpoint extends TestCase {
     // namenode restart accounted for the twice-rolled edit logs.
     //
     System.out.println("Starting testSecondaryNamenodeError 32");
-    cluster = new MiniDFSCluster(conf, numDatanodes, false, null);
+    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(numDatanodes).format(false).build();
     cluster.waitActive();
     fileSys = cluster.getFileSystem();
     try {
@@ -343,8 +348,9 @@ public class TestCheckpoint extends TestCase {
     throws IOException {
     System.out.println("Starting testSecondaryFailsToReturnImage");
     Path file1 = new Path("checkpointRI.dat");
-    MiniDFSCluster cluster = new MiniDFSCluster(conf, numDatanodes, 
-                                                false, null);
+    MiniDFSCluster cluster = new MiniDFSCluster.Builder(conf)
+                                               .numDataNodes(numDatanodes)
+                                               .format(false).build();
     cluster.waitActive();
     FileSystem fileSys = cluster.getFileSystem();
     NNStorage storage = cluster.getNameNode().getStorage();
@@ -393,8 +399,9 @@ public class TestCheckpoint extends TestCase {
     throws IOException {
     System.out.println("Starting testNameNodeImageSendFail");
     Path file1 = new Path("checkpointww.dat");
-    MiniDFSCluster cluster = new MiniDFSCluster(conf, numDatanodes, 
-                                                false, null);
+    MiniDFSCluster cluster = new MiniDFSCluster.Builder(conf)
+                                               .numDataNodes(numDatanodes)
+                                               .format(false).build();
     cluster.waitActive();
     FileSystem fileSys = cluster.getFileSystem();
     try {
@@ -591,7 +598,7 @@ public class TestCheckpoint extends TestCase {
     nn.stop(); nn = null;
     
     // Check that everything starts ok now.
-    MiniDFSCluster cluster = new MiniDFSCluster(conf, numDatanodes, false, null);
+    MiniDFSCluster cluster = new MiniDFSCluster.Builder(conf).numDataNodes(numDatanodes).format(false).build();
     cluster.waitActive();
     cluster.shutdown();
   }
@@ -630,8 +637,9 @@ public class TestCheckpoint extends TestCase {
 
     Configuration conf = new HdfsConfiguration();
     conf.set(DFSConfigKeys.DFS_NAMENODE_SECONDARY_HTTP_ADDRESS_KEY, "0.0.0.0:0");
-    replication = (short)conf.getInt("dfs.replication", 3);  
-    MiniDFSCluster cluster = new MiniDFSCluster(conf, numDatanodes, true, null);
+    replication = (short)conf.getInt("dfs.replication", 3);
+    MiniDFSCluster cluster = new MiniDFSCluster.Builder(conf)
+                                               .numDataNodes(numDatanodes).build();
     cluster.waitActive();
     FileSystem fileSys = cluster.getFileSystem();
 
@@ -664,7 +672,7 @@ public class TestCheckpoint extends TestCase {
     //
     // Restart cluster and verify that file1 still exist.
     //
-    cluster = new MiniDFSCluster(conf, numDatanodes, false, null);
+    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(numDatanodes).format(false).build();
     cluster.waitActive();
     fileSys = cluster.getFileSystem();
     try {
@@ -691,7 +699,7 @@ public class TestCheckpoint extends TestCase {
     // Restart cluster and verify that file2 exists and
     // file1 does not exist.
     //
-    cluster = new MiniDFSCluster(conf, numDatanodes, false, null);
+    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(numDatanodes).format(false).build();
     cluster.waitActive();
     fileSys = cluster.getFileSystem();
 
@@ -724,7 +732,7 @@ public class TestCheckpoint extends TestCase {
     DistributedFileSystem fs = null;
     try {
       Configuration conf = new HdfsConfiguration();
-      cluster = new MiniDFSCluster(conf, numDatanodes, false, null);
+      cluster = new MiniDFSCluster.Builder(conf).numDataNodes(numDatanodes).format(false).build();
       cluster.waitActive();
       fs = (DistributedFileSystem)(cluster.getFileSystem());
 
@@ -766,7 +774,7 @@ public class TestCheckpoint extends TestCase {
       cluster.shutdown();
       cluster = null;
 
-      cluster = new MiniDFSCluster(conf, numDatanodes, false, null);
+      cluster = new MiniDFSCluster.Builder(conf).numDataNodes(numDatanodes).format(false).build();
       cluster.waitActive();
       fs = (DistributedFileSystem)(cluster.getFileSystem());
       checkFile(fs, file, replication);

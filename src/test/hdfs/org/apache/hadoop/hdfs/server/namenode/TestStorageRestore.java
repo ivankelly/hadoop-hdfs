@@ -278,7 +278,9 @@ public class TestStorageRestore extends TestCase {
   @SuppressWarnings("deprecation")
   public void testStorageRestore() throws Exception {
     int numDatanodes = 2;
-    cluster = new MiniDFSCluster(0, config, numDatanodes, true, false, true,  null, null, null, null);
+    cluster = new MiniDFSCluster.Builder(config).numDataNodes(numDatanodes)
+                                                .manageNameDfsDirs(false)
+                                                .build();
     cluster.waitActive();
     
     SecondaryNameNode secondary = new SecondaryNameNode(config);
@@ -324,10 +326,9 @@ public class TestStorageRestore extends TestCase {
    * @throws Exception
    */
   public void testDfsAdminCmd() throws Exception {
-    int numDatanodes = 2;
-    
-    
-    cluster = new MiniDFSCluster(0, config, numDatanodes, true, false, true,  null, null, null, null);
+    cluster = new MiniDFSCluster.Builder(config).
+                                 numDataNodes(2).
+                                 manageNameDfsDirs(false).build();
     cluster.waitActive();
     try {
 
