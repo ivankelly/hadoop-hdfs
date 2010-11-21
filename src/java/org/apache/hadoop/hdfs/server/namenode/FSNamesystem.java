@@ -3474,6 +3474,28 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
   short getMaxReplication()     { return (short)blockManager.maxReplication; }
   short getMinReplication()     { return (short)blockManager.minReplication; }
   short getDefaultReplication() { return (short)blockManager.defaultReplication; }
+
+  /**
+   * Clamp the specified replication between the minimum and maximum
+   * replication levels for this namesystem.
+   */
+    //FIXME: HDFS-1462 moves this method here. Called from FSEditLogLoader
+    // we use it on NNStorage.
+    // This is just a wrapper arround storage
+  short adjustReplication(short replication) {
+      /*
+    short minReplication = getMinReplication();
+    if (replication < minReplication) {
+      replication = minReplication;
+    }
+    short maxReplication = getMaxReplication();
+    if (replication > maxReplication) {
+      replication = maxReplication;
+    }
+    return replication;
+      */
+      return storage.adjustReplication(replication);
+    }
     
   /**
    * A immutable object that stores the number of live replicas and

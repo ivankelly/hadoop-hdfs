@@ -966,6 +966,8 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     return needToSave;
   }
 
+  // On HFDS-1462 they move this method to FSNameSystem
+  // I commented the copy con FSNamesystem
   public short adjustReplication(short replication) {
     FSNamesystem fsNamesys = getFSNamesystem();
     short minReplication = fsNamesys.getMinReplication();

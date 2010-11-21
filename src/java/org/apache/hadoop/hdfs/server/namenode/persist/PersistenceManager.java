@@ -63,6 +63,8 @@ import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.hdfs.server.protocol.CheckpointCommand;
 import org.apache.hadoop.hdfs.protocol.FSConstants;
 
+//import org.apache.hadopp.hdfs.server.namenode.FSEditLogLoader;
+
 public class PersistenceManager implements Closeable {
   public static final Log LOG = LogFactory.getLog(PersistenceManager.class.getName());
   private static final SimpleDateFormat DATE_FORM = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");

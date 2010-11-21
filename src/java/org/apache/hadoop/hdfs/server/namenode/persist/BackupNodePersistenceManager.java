@@ -49,6 +49,11 @@ import org.apache.hadoop.hdfs.server.namenode.EditLogFileInputStream;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.NamespaceInfo;
 
+
+//import org.apache.hadoop.hdfs.server.namenode.FSNamesystem;
+import org.apache.hadoop.hdfs.server.namenode.FSEditLogLoader;
+
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -226,8 +231,14 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
           waitSpoolEnd();
           // update NameSpace in memory
           backupInputStream.setBytes(data);
-          editlog.loadEditRecords(storage.getLayoutVersion(),
-				  backupInputStream.getDataInputStream(), true);
+          // HDFS-1462
+	  FSEditLogLoader logLoader = new FSEditLogLoader(namesystem);
+          //logLoader.loadEditRecords(getLayoutVersion(),
+	  //          backupInputStream.getDataInputStream(), true);
+	  ///////////////////////////////////////////////////////////
+	  editlog.loadEditRecords(storage.getLayoutVersion(),
+                    backupInputStream.getDataInputStream(), true);
+
           namesystem.dir.updateCountForINodeWithQuota(); // inefficient!
           break;
         case INPROGRESS:
@@ -337,10 +348,8 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
    */
   public void convergeJournalSpool() throws IOException {
     Iterator<StorageDirectory> itEdits = storage.dirIterator(NameNodeDirType.EDITS);
-    if(! itEdits.hasNext()) {
+    if(! itEdits.hasNext())
       throw new IOException("Could not locate checkpoint directories");
-    }
-
     StorageDirectory sdEdits = itEdits.next();
     int numEdits = 0;
     File jSpoolFile = getJSpoolFile(sdEdits);
@@ -349,8 +358,9 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
       // load edits.new
       EditLogFileInputStream edits = new EditLogFileInputStream(jSpoolFile);
       DataInputStream in = edits.getDataInputStream();
+      //FSEditLogLoader logLoader = new FSEditLogLoader(namesystem);
+      //numEdits += logLoader.loadFSEdits(in, false);
       numEdits += editlog.loadFSEdits(in, false);
-  
       // first time reached the end of spool
       jsState = JSpoolState.WAIT;
       numEdits += editlog.loadEditRecords(storage.getLayoutVersion(), in, true);
@@ -359,8 +369,8 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
     }
 
     LOG.info("Edits file " + jSpoolFile.getCanonicalPath() 
-	     + " of size " + jSpoolFile.length() + " edits # " + numEdits 
-	     + " loaded in " + (now()-startTime)/1000 + " seconds.");
+        + " of size " + jSpoolFile.length() + " edits # " + numEdits 
+        + " loaded in " + (now()-startTime)/1000 + " seconds.");
 
     // rename spool edits.new to edits making it in sync with the active node
     // subsequent journal records will go directly to edits
@@ -378,17 +388,6 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
     // Rename lastcheckpoint.tmp to previous.checkpoint
     for(StorageDirectory sd : storage) {
       storage.moveLastCheckpoint(sd);
-    }
-  }
-  
-  public void verifyNamespaceID(NamespaceInfo nsInfo) throws IOException {
-    // verify namespaceID
-    if(storage.getNamespaceID() == 0) {// new backup storage
-      storage.setStorageInfo(nsInfo);
-    } else if(storage.getNamespaceID() != nsInfo.getNamespaceID()) {
-      throw new IOException("Incompatible namespaceIDs"
-			    + ": active node namespaceID = " + nsInfo.getNamespaceID() 
-			    + "; backup node namespaceID = " + storage.getNamespaceID());
     }
   }
 

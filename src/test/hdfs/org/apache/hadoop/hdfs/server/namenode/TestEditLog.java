@@ -138,10 +138,14 @@ public class TestEditLog extends TestCase {
       // If there were any corruptions, it is likely that the reading in
       // of these transactions will throw an exception.
       //
+      FSEditLogLoader loader = new FSEditLogLoader(namesystem);
       for (StorageDirectory sd : storage.iterable(NameNodeDirType.EDITS)) {
         File editFile = storage.getImageFile(sd, NameNodeFile.EDITS);
         System.out.println("Verifying file: " + editFile);
         int numEdits = editLog.loadFSEdits(new EditLogFileInputStream(editFile));
+	// FIXME
+	// From HDFS-1462, using wrapper on FSEditLog instead
+	//int numEdits = loader.loadFSEdits(new EditLogFileInputStream(editFile));
         int numLeases = namesystem.leaseManager.countLease();
         System.out.println("Number of outstanding leases " + numLeases);
         assertEquals(0, numLeases);

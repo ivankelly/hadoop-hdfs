@@ -220,8 +220,13 @@ public class TestEditLogRace {
     for (StorageDirectory sd : storage.iterable(NameNodeDirType.EDITS)) {
       File editFile = storage.getImageFile(sd, NameNodeFile.EDITS);
       System.out.println("Verifying file: " + editFile);
+
       int numEdits = namesystem.getPersistenceManager()
 	.getEditLog().loadFSEdits(new EditLogFileInputStream(editFile));
+      // FIXME
+      // From HDFS-1462
+      //int numEdits = new FSEditLogLoader(namesystem).loadFSEdits(
+      //  new EditLogFileInputStream(editFile));
       System.out.println("Number of edits: " + numEdits);
     }
   }

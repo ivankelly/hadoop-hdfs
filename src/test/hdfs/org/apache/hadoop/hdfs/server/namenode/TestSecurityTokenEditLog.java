@@ -134,12 +134,19 @@ public class TestSecurityTokenEditLog extends TestCase {
       // If there were any corruptions, it is likely that the reading in
       // of these transactions will throw an exception.
       //
+      FSEditLogLoader loader = new FSEditLogLoader(namesystem);
       namesystem.getDelegationTokenSecretManager().stopThreads();
       int numKeys = namesystem.getDelegationTokenSecretManager().getNumberOfKeys();
       for (StorageDirectory sd : storage.iterable(NameNodeDirType.EDITS)) {
         File editFile = storage.getImageFile(sd, NameNodeFile.EDITS);
         System.out.println("Verifying file: " + editFile);
+
         int numEdits = editLog.loadFSEdits(new EditLogFileInputStream(editFile));
+	// FIXME
+	// From HDFS-1462
+        //int numEdits = loader.loadFSEdits(
+        //                          new EditLogFileInputStream(editFile));
+
         assertTrue("Verification for " + editFile + " failed. " +
                    "Expected " + (NUM_THREADS * opsPerTrans * NUM_TRANSACTIONS + numKeys) + " transactions. "+
                    "Found " + numEdits + " transactions.",
