@@ -150,13 +150,9 @@ public class SecondaryNodePersistenceManager extends CheckpointingPersistenceMan
 
   /* @Override*/
   public boolean isConversionNeeded(StorageDirectory sd) throws IOException {
-      return isPreUpgradableLayout(sd);
+      return false;
   }
 
-  /*@Override*/
-  public boolean isPreUpgradableLayout(StorageDirectory sd) throws IOException {
-    return false;
-  }
 
   /**
    * Merge image and edits, and verify consistency with the signature.

@@ -585,5 +585,4 @@ public class SecondaryNameNode implements Runnable {
     checkpointThread.start();
   }
   
-
 }
