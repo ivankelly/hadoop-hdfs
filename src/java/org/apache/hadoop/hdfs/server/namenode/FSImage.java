@@ -850,6 +850,30 @@ public class FSImage
     }*/
   
   // TODELETE
+  // Introduced by HDFS-259 
+  // is the isConversionNeeded method renamed, and moved to NNStorage
+  /*  
+  public boolean isPreUpgradableLayout(StorageDirectory sd) throws IOException {
+    File oldImageDir = new File(sd.getRoot(), "image");
+    if (!oldImageDir.exists()) {
+      return false;
+    }
+    // check the layout version inside the image file
+    File oldF = new File(oldImageDir, "fsimage");
+    RandomAccessFile oldFile = new RandomAccessFile(oldF, "rws");
+    try {
+      oldFile.seek(0);
+      int odlVersion = oldFile.readInt();
+      if (odlVersion < LAST_PRE_UPGRADE_LAYOUT_VERSION)
+        return false;
+    } finally {
+      oldFile.close();
+    }
+    return true;
+    }*/
+
+  //
+
   // Atomic move sequence, to recover from interrupted checkpoint
   //
   //TODELETE
@@ -1903,6 +1927,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
       node.setXceiverCount(xceiverCount);
     }
   }
+
 
   /**
    * Save the contents of the FS image to the file.

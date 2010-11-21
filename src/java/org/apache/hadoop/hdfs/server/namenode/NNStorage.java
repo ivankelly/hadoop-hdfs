@@ -434,14 +434,18 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     return list;
   }
   
-  
-  @Override
+  /* 
+   * On HDFS-259 they rename this method to isPreUpgradableLayout
+   * FIXME: i just keep it for the moment,  also i created a 
+   * wrapper method called isPreUpgradableLayout around this one
+   */
+  //@Override
   public boolean isConversionNeeded(StorageDirectory sd) throws IOException {
     File oldImageDir = new File(sd.getRoot(), "image");
     if (!oldImageDir.exists()) {
-      if(sd.getVersionFile().exists())
-        throw new InconsistentFSStateException(sd.getRoot(),
-					       oldImageDir + " does not exist.");
+	// if(sd.getVersionFile().exists())
+        //throw new InconsistentFSStateException(sd.getRoot(),
+	//				       oldImageDir + " does not exist.");
       return false;
     }
     // check the layout version inside the image file
@@ -457,8 +461,12 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     }
     return true;
   }
-  
-  
+
+  @Override
+  public boolean isPreUpgradableLayout(StorageDirectory sd) throws IOException {
+       return isConversionNeeded(sd);
+  }
+
  
   /*
    synchronized void createEditLogFile(File name) throws IOException {
@@ -746,7 +754,9 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
 
   }
   
-  @Override
+  //HDFS-259 removes this method. No calls for anymore 
+  //@Override
+  /*
   protected void corruptPreUpgradeStorage(File rootDir) throws IOException {
     
     File oldImageDir = new File(rootDir, "image");
@@ -765,7 +775,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     } finally {
       oldFile.close();
       }
-  }
+  }*/
   
   public Iterator<StorageDirectory> iterator() {
     return dirIterator();
