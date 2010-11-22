@@ -348,6 +348,9 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
       this.persistenceManager = persistenceManager;
       this.persistenceManager.setNamesystem(this);
     }
+    
+    // tell FSDirectory it can start working
+    this.dir.setReady(); 
 
     this.safeMode = new SafeModeInfo(conf);
     this.hostsReader = new HostsFileReader(conf.get("dfs.hosts",""),
