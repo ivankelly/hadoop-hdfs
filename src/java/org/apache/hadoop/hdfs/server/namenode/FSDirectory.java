@@ -968,7 +968,7 @@ public class FSDirectory implements Closeable {
     }
     
     long now = now();
-    trgInode.setModificationTime(now);
+    trgInode.setModificationTimeForce(now);
     trgParent.setModificationTime(now);
     // update quota on the parent directory ('count' files removed, 0 space)
     unprotectedUpdateCount(trgINodes, trgINodes.length-1, - count, 0);
