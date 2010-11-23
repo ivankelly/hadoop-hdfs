@@ -345,7 +345,14 @@ public class SecondaryNameNode implements Runnable {
   
           @Override
           public Void run() throws Exception {
+
 	    persistenceManager.updateStorageTimes(sig.cTime, sig.checkpointTime);
+	    persistenceManager.getStorage().setImageDigest(sig.imageDigest);
+
+            //checkpointImage.cTime = sig.cTime;
+            //checkpointImage.checkpointTime = sig.checkpointTime;
+            //checkpointImage.imageDigest = sig.imageDigest;
+
         
             // get fsimage
             String fileid = "getimage=1";
