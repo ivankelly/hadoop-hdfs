@@ -42,13 +42,10 @@ import org.apache.hadoop.conf.Configuration;
 @InterfaceAudience.Private
 public class BackupStorage extends FSImage {
   // FIXME DELETE THIS WHOLE FILE
-  /**
+ /**
    */
   BackupStorage(Configuration conf, NNStorage storage) {
     super(conf,storage);
   }
 
 }
-
-
-

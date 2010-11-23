@@ -4204,16 +4204,23 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
       writeUnlock();
     }
   }
-  
-  public void rollFSImage() throws IOException {
+
+  /**
+   * Moves fsimage.ckpt to fsImage and edits.new to edits
+   * Reopens the new edits file.
+   *
+   * @param sig the signature of this checkpoint (old image)
+   */
+  void rollFSImage(CheckpointSignature sig) throws IOException {
     writeLock();
     try {
-      if (isInSafeMode()) {
-	throw new SafeModeException("Checkpoint not created",
-				    safeMode);
-      }
-      LOG.info("Roll FSImage from " + Server.getRemoteAddress());
-      persistenceManager.rollFSImage(true);
+    if (isInSafeMode()) {
+      throw new SafeModeException("Checkpoint not created",
+                                  safeMode);
+    }
+    LOG.info("Roll FSImage from " + Server.getRemoteAddress());
+    //getFSImage().rollFSImage(sig, true);
+    persistenceManager.rollFSImage(sig, true);
     } finally {
       writeUnlock();
     }

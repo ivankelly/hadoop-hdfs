@@ -30,6 +30,9 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.net.URI;
 import java.nio.ByteBuffer;
+import java.security.DigestInputStream;
+import java.security.DigestOutputStream;
+import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -75,6 +78,7 @@ import org.apache.hadoop.hdfs.server.protocol.CheckpointCommand;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeCommand;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
+import org.apache.hadoop.io.MD5Hash;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.compress.CompressionCodec;
@@ -94,7 +98,13 @@ public class FSImage
  //extends Storage
  implements StorageErrorListener{
 
+
   // DELETEME
+  //private static final SimpleDateFormat DATE_FORM =
+  //  new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+  //static final String MESSAGE_DIGEST_PROPERTY = "imageMD5Digest";
+
+  //
   // The filenames used for storing the images
   //
 /*
@@ -138,6 +148,8 @@ public class FSImage
   //protected long checkpointTime = -1L;  // The age of the image
   //protected FSEditLog editLog = null;
   private boolean isUpgradeFinalized = false;
+    //protected MD5Hash imageDigest = null;
+    //protected MD5Hash newImageDigest = null;
 
   /**
    * flag that controls if we try to restore failed storages
@@ -830,7 +842,7 @@ public class FSImage
   boolean isUpgradeFinalized() {
     return isUpgradeFinalized;
   }
-
+ 
   /**
    * @param sds - array of SDs to process
    * @param propagate - flag, if set - then call corresponding EditLog stream's 
@@ -1140,7 +1152,10 @@ public class FSImage
     // Load in bits
     //
     boolean needToSave = true;
-    FileInputStream fin = new FileInputStream(curFile);
+    MessageDigest digester = MD5Hash.getDigester();
+    DigestInputStream fin = new DigestInputStream(
+         new FileInputStream(curFile), digester);
+
     DataInputStream in = new DataInputStream(fin);
     try {
       /*
@@ -1306,7 +1321,17 @@ public class FSImage
     } finally {
       in.close();
     }
-    
+
+    // verify checksum
+    MD5Hash readImageMd5 = new MD5Hash(digester.digest());
+    if (storage.imageDigest == null) {
+      storage.imageDigest = readImageMd5; // set this fsimage's checksum
+    } else if (!storage.imageDigest.equals(readImageMd5)) {
+      throw new IOException("Image file " + curFile + 
+          "is corrupt with MD5 checksum of " + readImageMd5 +
+          " but expecting " + storage.imageDigest);
+    }
+
     LOG.info("Image file of size " + curFile.length() + " loaded in " 
         + (now() - startTime)/1000 + " seconds.");
 
@@ -1392,8 +1417,12 @@ public class FSImage
     //
     // Write out data
     //
-    FileOutputStream fos = new FileOutputStream(newFile);
+    FileOutputStream fout = new FileOutputStream(newFile);
+    MessageDigest digester = MD5Hash.getDigester();
+    DigestOutputStream fos = new DigestOutputStream(fout, digester);
+
     DataOutputStream out = new DataOutputStream(fos);
+
     try {
       out.writeInt(FSConstants.LAYOUT_VERSION);
       out.writeInt(storage.getNamespaceID());
@@ -1424,18 +1453,24 @@ public class FSImage
       strbuf = null;
 
       out.flush();
-      fos.getChannel().force(true);
+      fout.getChannel().force(true);
     } finally {
       out.close();
     }
+
+    // set md5 of the saved image
+    setImageDigest( new MD5Hash(digester.digest()));
 
     LOG.info("Image file of size " + newFile.length() + " saved in " 
         + (now() - startTime)/1000 + " seconds.");
     
   }*/
 
-  
-  
+
+  //public void setImageDigest(MD5Hash digest) {
+  //   this.imageDigest = digest;
+  // }
+
   /**
    * Save the contents of the FS image and create empty edits.
    * 
@@ -1796,7 +1831,45 @@ public class FSImage
     rollFSImage(true);
     }*/
 
+    //TODELETE
+    //HDFS-903 checkpoint signature change
+  /*
+  void rollFSImage(CheckpointSignature sig, 
+      boolean renewCheckpointTime) throws IOException {
+    sig.validateStorageInfo(this);
+    rollFSImage(true);
+  }
+
+  private void rollFSImage(boolean renewCheckpointTime)
+  throws IOException {
+    if (ckptState != CheckpointStates.UPLOAD_DONE
+      && !(ckptState == CheckpointStates.ROLLED_EDITS
+      && getNumStorageDirs(NameNodeDirType.IMAGE) == 0)) {
+      throw new IOException("Cannot roll fsImage before rolling edits log.");
+    }
+
+    for (Iterator<StorageDirectory> it = 
+                       dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
+      StorageDirectory sd = it.next();
+      File ckpt = getImageFile(sd, NameNodeFile.IMAGE_NEW);
+      if (!ckpt.exists()) {
+        throw new IOException("Checkpoint file " + ckpt +
+                              " does not exist");
+      }
+    }
+    editLog.purgeEditLog(); // renamed edits.new to edits
+    if(LOG.isDebugEnabled()) {
+      LOG.debug("rollFSImage after purgeEditLog: storageList=" + listStorageDirectories());
+    }
+    //
+    // Renames new image
+    //
+    renameCheckpoint();
+    resetVersion(renewCheckpointTime, newImageDigest);
+  }
+  */
   
+
 
 
   public synchronized void close() throws IOException {
@@ -1804,6 +1877,7 @@ public class FSImage
     storage.unlockAll();
     
   }
+
 
   /** FIXME - delete
    * Return the name of the image file.
@@ -1938,11 +2012,16 @@ public class FSImage
     FSNamesystem fsNamesys = getFSNamesystem();
     FSDirectory fsDir = fsNamesys.dir;
     long startTime = now();
+
     //
     // Write out data
     //
-    FileOutputStream fos = new FileOutputStream(newFile);
+    FileOutputStream fout = new FileOutputStream(newFile);
+    MessageDigest digester = MD5Hash.getDigester();
+    DigestOutputStream fos = new DigestOutputStream(fout, digester);
+
     DataOutputStream out = new DataOutputStream(fos);
+
     try {
       out.writeInt(FSConstants.LAYOUT_VERSION);
       out.writeInt(storage.getNamespaceID());
@@ -1973,55 +2052,18 @@ public class FSImage
       strbuf = null;
 
       out.flush();
-      fos.getChannel().force(true);
+      fout.getChannel().force(true);
     } finally {
       out.close();
     }
+
+    // set md5 of the saved image
+    storage.setImageDigest( new MD5Hash(digester.digest()));
 
     LOG.info("Image file of size " + newFile.length() + " saved in " 
         + (now() - startTime)/1000 + " seconds.");
     
   }
-  
-  /*
-  
-  
-  
-  void saveFSImage(File newFile) throws IOException {
-    FSNamesystem fsNamesys = getFSNamesystem();
-    FSDirectory fsDir = fsNamesys.dir;
-    long startTime = now();
-    //
-    // Write out data
-    //
-    FileOutputStream fos = new FileOutputStream(newFile);
-    DataOutputStream out = new DataOutputStream(
-      new BufferedOutputStream(fos));
-    try {
-      out.writeInt(FSConstants.LAYOUT_VERSION);
-      out.writeInt(storage.getNamespaceID());
-      out.writeLong(fsDir.rootDir.numItemsInTree());
-      out.writeLong(fsNamesys.getGenerationStamp());
-      byte[] byteStore = new byte[4*FSConstants.MAX_PATH_LENGTH];
-      ByteBuffer strbuf = ByteBuffer.wrap(byteStore);
-      // save the root
-      saveINode2Image(strbuf, fsDir.rootDir, out);
-      // save the rest of the nodes
-      saveImage(strbuf, 0, fsDir.rootDir, out);
-      fsNamesys.saveFilesUnderConstruction(out);
-      fsNamesys.saveSecretManagerState(out);
-      strbuf = null;
-
-      out.flush();
-      fos.getChannel().force(true);
-    } finally {
-      out.close();
-    }
-
-    LOG.info("Image file of size " + newFile.length() + " saved in " 
-        + (now() - startTime)/1000 + " seconds.");
-    
-  }*/
   
   
   /**

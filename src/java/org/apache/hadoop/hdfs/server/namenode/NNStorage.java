@@ -67,6 +67,14 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.compress.CompressionCodec;
 import org.apache.hadoop.io.compress.CompressionCodecFactory;
 
+import java.security.DigestInputStream;
+import java.security.DigestOutputStream;
+import java.security.MessageDigest;
+import org.apache.hadoop.io.MD5Hash;
+
+
+
+
 public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   
   public static class LoadDirectory {
@@ -110,7 +118,10 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   
   private volatile int sizeOutputFlushBuffer = 512*1024;
 
-  
+  protected MD5Hash imageDigest = null;
+  protected MD5Hash newImageDigest = null;
+
+  static final String MESSAGE_DIGEST_PROPERTY = "imageMD5Digest";
   
   private boolean isUpgradeFinalized = false;
   
@@ -159,7 +170,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
 
   
 
-  
+
   ////////////////////////////////////////////////////////////////////////  
   public void registerErrorListener(StorageErrorListener sel) {
     errorlisteners.add(sel);
@@ -398,6 +409,22 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     return getImageFile(sd, NameNodeFile.IMAGE);
   }
 
+  public MD5Hash getNewImageDigest(){
+      return newImageDigest;
+  }
+  
+  public void setNewImageDigest(MD5Hash newDigest){
+      this.newImageDigest = newDigest;
+  }
+
+  public MD5Hash getImageDigest(){
+      return imageDigest;
+  }
+
+  public void setImageDigest(MD5Hash digest) {
+    this.imageDigest = digest;
+  }
+  
   public File getEditFile(StorageDirectory sd) {
     return getImageFile(sd, NameNodeFile.EDITS);
     //return null;
@@ -775,7 +802,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
         public Iterator<StorageDirectory> iterator() {
 	  return dirIterator(type);
 	}
-    };
+   };
   }
   
   
@@ -975,7 +1002,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     
     //FIXME how to deal with distributed upgrade.
     // For the moment it is using local FSNamesystem. On next part we will handle that.
-
+    /*
     super.getFields(props, sd);
     if (layoutVersion == 0)
       throw new IOException("NameNode directory " 
@@ -987,8 +1014,36 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
         sDUS == null? false : Boolean.parseBoolean(sDUS),
         sDUV == null? getLayoutVersion() : Integer.parseInt(sDUV));
     this.checkpointTime = readCheckpointTime(sd);
-   
+    */
+ 
+    super.getFields(props, sd);
+    if (layoutVersion == 0)
+      throw new IOException("NameNode directory " 
+                            + sd.getRoot() + " is not formatted.");
+    String sDUS, sDUV;
+    sDUS = props.getProperty("distributedUpgradeState"); 
+    sDUV = props.getProperty("distributedUpgradeVersion");
+    setDistributedUpgradeState(
+        sDUS == null? false : Boolean.parseBoolean(sDUS),
+        sDUV == null? getLayoutVersion() : Integer.parseInt(sDUV));
+    
+    String sMd5 = props.getProperty(MESSAGE_DIGEST_PROPERTY);
+    if (layoutVersion <= -26) {
+      if (sMd5 == null) {
+        throw new InconsistentFSStateException(sd.getRoot(),
+            "file " + STORAGE_FILE_VERSION + " does not have MD5 image digest.");
+      }
+      this.imageDigest = new MD5Hash(sMd5);
+    } else if (sMd5 != null) {
+      throw new InconsistentFSStateException(sd.getRoot(),
+          "file " + STORAGE_FILE_VERSION +
+          " has image MD5 digest when version is " + layoutVersion);
+    }
+
+    this.checkpointTime = readCheckpointTime(sd);
   }
+
+
 
   /**
    * Write last checkpoint time and version file into the storage directory.
@@ -1014,6 +1069,12 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       props.setProperty("distributedUpgradeState", Boolean.toString(uState));
       props.setProperty("distributedUpgradeVersion", Integer.toString(uVersion)); 
     }
+    if (imageDigest == null) {
+	imageDigest = MD5Hash.digest(
+        new FileInputStream(getImageFile(sd, NameNodeFile.IMAGE)));
+    }
+    props.setProperty(MESSAGE_DIGEST_PROPERTY, imageDigest.toString());
+
     writeCheckpointTime(sd);
 
   }

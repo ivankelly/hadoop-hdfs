@@ -63,11 +63,19 @@ import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.hdfs.server.protocol.CheckpointCommand;
 import org.apache.hadoop.hdfs.protocol.FSConstants;
 
+import java.security.DigestInputStream;
+import java.security.DigestOutputStream;
+import java.security.MessageDigest;
+import org.apache.hadoop.io.MD5Hash;
+
+
 //import org.apache.hadopp.hdfs.server.namenode.FSEditLogLoader;
 
 public class PersistenceManager implements Closeable {
   public static final Log LOG = LogFactory.getLog(PersistenceManager.class.getName());
+
   private static final SimpleDateFormat DATE_FORM = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+
 
 
   protected Configuration conf;
@@ -199,6 +207,13 @@ public class PersistenceManager implements Closeable {
     ckptState = CheckpointStates.UPLOAD_START;
   }
 
+  public void rollFSImage(CheckpointSignature sig, 
+      boolean renewCheckpointTime) throws IOException {
+    sig.validateStorageInfo(this.storage);
+    rollFSImage(true);
+  }
+
+
   public void rollFSImage(boolean renewCheckpointTime) throws IOException {
     if (ckptState != CheckpointStates.UPLOAD_DONE
 	&& !(ckptState == CheckpointStates.ROLLED_EDITS
@@ -221,17 +236,19 @@ public class PersistenceManager implements Closeable {
     // Renames new image
     //
     renameCheckpoint();
-    resetVersion(renewCheckpointTime);
+    resetVersion(renewCheckpointTime, storage.getNewImageDigest());
   }
 
   /**
    * Updates version and fstime files in all directories (fsimage and edits).
    */
-  protected void resetVersion(boolean renewCheckpointTime) throws IOException {
+    protected void resetVersion(boolean renewCheckpointTime, MD5Hash newImageDigest) throws IOException {
     storage.layoutVersion = FSConstants.LAYOUT_VERSION;
     if(renewCheckpointTime)
       storage.setCheckpointTime(now());
     
+    storage.setImageDigest(newImageDigest);
+
     ArrayList<StorageDirectory> al = null;
     for (StorageDirectory sd : storage) {
       // delete old edits if sd is the image only the directory
@@ -284,7 +301,7 @@ public class PersistenceManager implements Closeable {
     // The backup-node always has up-to-date image and will have the same
     // checkpoint time as the active node.
     boolean renewCheckpointTime = remoteNNRole.equals(NamenodeRole.CHECKPOINT);
-    rollFSImage(renewCheckpointTime);
+    rollFSImage(sig,renewCheckpointTime);
   }
 
   public CheckpointStates getCheckpointState() {
@@ -339,6 +356,12 @@ public class PersistenceManager implements Closeable {
     return null;
   }
 
+
+  //FIXME
+  // used on TestStartup, modified on HDFS-903
+  public FSImage getFSImage(){
+	return image;
+  }
 
 
   public void importCheckpoint() throws IOException {

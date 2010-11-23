@@ -149,6 +149,7 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
 
     // set storage fields
     storage.setStorageInfo(sig);
+    storage.setImageDigest(sig.imageDigest);
     storage.setCheckpointTimeNoWrite(sig.checkpointTime);
   }
 
@@ -377,7 +378,7 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
     editlog.revertFileStreams(STORAGE_JSPOOL_DIR + "/" + STORAGE_JSPOOL_FILE);
 
     // write version file
-    resetVersion(false);
+    resetVersion(false,storage.getImageDigest());
 
     // wake up journal writer
     synchronized(this) {
