@@ -37,6 +37,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -190,7 +191,13 @@ public class FSImage
   /**
    * Used for saving the image to disk
    */
-  static private final FsPermission FILE_PERM = new FsPermission((short)0);
+  static private final ThreadLocal<FsPermission> FILE_PERM =
+                          new ThreadLocal<FsPermission>() {
+                            @Override
+                            protected FsPermission initialValue() {
+                              return new FsPermission((short) 0);
+                            }
+                          };
   static private final byte[] PATH_SEPARATOR = DFSUtil.string2Bytes(Path.SEPARATOR);
 
   protected static final Log LOG = LogFactory.getLog(NameNode.class.getName());
@@ -848,9 +855,12 @@ public class FSImage
    * @param propagate - flag, if set - then call corresponding EditLog stream's 
    * processIOError function.
    */
-  void processIOError(ArrayList<StorageDirectory> sds) {
-    for(StorageDirectory sd:sds) {
-      storage.errorDirectory(sd);
+
+  void processIOError(List<StorageDirectory> sds) {
+    synchronized (sds) {
+	for(StorageDirectory sd:sds) {
+	    storage.errorDirectory(sd);
+	}
     }
   }
 
@@ -1472,6 +1482,54 @@ public class FSImage
   // }
 
   /**
+   * FSImageSaver is being run in a separate thread when saving
+   * FSImage. There is one thread per each copy of the image.
+   *
+   * FSImageSaver assumes that it was launched from a thread that holds
+   * FSNamesystem lock and waits for the execution of FSImageSaver thread
+   * to finish.
+   * This way we are guraranteed that the namespace is not being updated
+   * while multiple instances of FSImageSaver are traversing it
+   * and writing it out.
+   */
+  private class FSImageSaver implements Runnable {
+    private StorageDirectory sd;
+    private List<StorageDirectory> errorSDs;
+    
+    FSImageSaver(StorageDirectory sd, List<StorageDirectory> errorSDs) {
+      this.sd = sd;
+      this.errorSDs = errorSDs;
+    }
+    
+    public void run() {
+      try {
+        saveCurrent(sd);
+        //saveFSImage(storage.getImageFile(sd, NameNodeFile.IMAGE));
+      } catch(IOException ie) {
+        LOG.error("Unable to save image for " + sd.getRoot(), ie);
+        errorSDs.add(sd);
+      }
+    }
+    
+    public String toString() {
+      return "FSImageSaver for " + sd.getRoot() +
+             " of type " + sd.getStorageDirType();
+    }
+  }
+  
+  private void waitForThreads(List<Thread> threads) {
+    for (Thread thread : threads) {
+      while (thread.isAlive()) {
+        try {
+          thread.join();
+        } catch (InterruptedException iex) {
+          LOG.error("Caught exception while waiting for thread " +
+                    thread.getName() + " to finish. Retrying join");
+        }        
+      }
+    }
+  }
+  /**
    * Save the contents of the FS image and create empty edits.
    * 
    * In order to minimize the recovery effort in case of failure during
@@ -1493,7 +1551,10 @@ public class FSImage
     */
     if(renewCheckpointTime)
       storage.checkpointTime = now();
-    ArrayList<StorageDirectory> errorSDs = new ArrayList<StorageDirectory>();
+    //ArrayList<StorageDirectory> errorSDs = new ArrayList<StorageDirectory>();
+    List<StorageDirectory> errorSDs =
+      Collections.synchronizedList(new ArrayList<StorageDirectory>());
+
 
     // mv current -> lastcheckpoint.tmp
     for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
@@ -1506,18 +1567,29 @@ public class FSImage
       }
     }
 
+    List<Thread> saveThreads = new ArrayList<Thread>();
     // save images into current
     for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.IMAGE);
                                                               it.hasNext();) {
       StorageDirectory sd = it.next();
+    
+      /*
       try {
         saveCurrent(sd);
         //saveFSImage(storage.getImageFile(sd, NameNodeFile.IMAGE));
       } catch(IOException ie) {
         LOG.error("Unable to save image for " + sd.getRoot(), ie);
         errorSDs.add(sd);
-      }
+	}*/
+      
+      //INTRODUCED ON HDFS-1071, save images in parallel
+      FSImageSaver saver = new FSImageSaver(sd, errorSDs);
+      Thread saveThread = new Thread(saver, saver.toString());
+      saveThreads.add(saveThread);
+      saveThread.start();
     }
+    waitForThreads(saveThreads);
+    saveThreads.clear();
 
     // -NOTE-
     // If NN has image-only and edits-only storage directories and fails here 
@@ -1528,19 +1600,29 @@ public class FSImage
     // to the old state contained in their lastcheckpoint.tmp.
     // The edits directories should be discarded during startup because their
     // checkpointTime is older than that of image directories.
-
     // recreate edits in current
     /*
     for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS);
                                                               it.hasNext();) {
       StorageDirectory sd = it.next();
-      try {
-        storage.saveCurrent(sd);
-      } catch(IOException ie) {
-        LOG.error("Unable to save edits for " + sd.getRoot(), ie);
-        errorSDs.add(sd);
-      }
-    }*/
+      /*
+      //try {
+      //  storage.saveCurrent(sd);
+      //} catch(IOException ie) {
+      //  LOG.error("Unable to save edits for " + sd.getRoot(), ie);
+      //  errorSDs.add(sd);
+      //}
+    
+      // Changed on HDFS-1073.. we got this piece of code commented
+      final StorageDirectory sd = it.next();
+      FSImageSaver saver = new FSImageSaver(sd, errorSDs);
+      Thread saveThread = new Thread(saver, saver.toString());
+      saveThreads.add(saveThread);
+      saveThread.start();
+    }
+    waitForThreads(saveThreads);
+    */
+
     // mv lastcheckpoint.tmp -> previous.checkpoint
     for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
@@ -1623,16 +1705,17 @@ public class FSImage
     
   }
 
+
   /*
    * Save one inode's attributes to the image.
    */
-  /*
   private static void saveINode2Image(ByteBuffer name,
                                       INode node,
                                       DataOutputStream out) throws IOException {
     int nameLen = name.position();
     out.writeShort(nameLen);
     out.write(name.array(), name.arrayOffset(), nameLen);
+    FsPermission filePerm = FILE_PERM.get();
     if (node.isDirectory()) {
       out.writeShort(0);  // replication
       out.writeLong(node.getModificationTime());
@@ -1641,10 +1724,12 @@ public class FSImage
       out.writeInt(-1);   // # of blocks
       out.writeLong(node.getNsQuota());
       out.writeLong(node.getDsQuota());
-      FILE_PERM.fromShort(node.getFsPermissionShort());
+      //FILE_PERM.fromShort(node.getFsPermissionShort());
+      filePerm.fromShort(node.getFsPermissionShort());
       PermissionStatus.write(out, node.getUserName(),
                              node.getGroupName(),
-                             FILE_PERM);
+                             //FILE_PERM);
+                             filePerm);
     } else if (node.isLink()) {
       out.writeShort(0);  // replication
       out.writeLong(0);   // modification time
@@ -1652,10 +1737,12 @@ public class FSImage
       out.writeLong(0);   // preferred block size
       out.writeInt(-2);   // # of blocks
       Text.writeString(out, ((INodeSymlink)node).getLinkValue());
-      FILE_PERM.fromShort(node.getFsPermissionShort());
+      //FILE_PERM.fromShort(node.getFsPermissionShort());
+      filePerm.fromShort(node.getFsPermissionShort());
       PermissionStatus.write(out, node.getUserName(),
                              node.getGroupName(),
-                             FILE_PERM);      
+                             //FILE_PERM);      
+			     filePerm);
     } else {
       INodeFile fileINode = (INodeFile)node;
       out.writeShort(fileINode.getReplication());
@@ -1666,10 +1753,64 @@ public class FSImage
       out.writeInt(blocks.length);
       for (Block blk : blocks)
         blk.write(out);
-      FILE_PERM.fromShort(fileINode.getFsPermissionShort());
+      filePerm.fromShort(fileINode.getFsPermissionShort());
       PermissionStatus.write(out, fileINode.getUserName(),
                              fileINode.getGroupName(),
-                             FILE_PERM);
+                             //FILE_PERM);
+			     filePerm);
+    }
+  }
+
+
+
+  /*
+   * Save one inode's attributes to the image.
+   */
+  /*
+  private static void saveINode2Image(ByteBuffer name,
+                                      INode node,
+                                      DataOutputStream out) throws IOException {
+    int nameLen = name.position();
+    out.writeShort(nameLen);
+    out.write(name.array(), name.arrayOffset(), nameLen);
+    FsPermission filePerm = FILE_PERM.get();
+    if (node.isDirectory()) {
+      out.writeShort(0);  // replication
+      out.writeLong(node.getModificationTime());
+      out.writeLong(0);   // access time
+      out.writeLong(0);   // preferred block size
+      out.writeInt(-1);   // # of blocks
+      out.writeLong(node.getNsQuota());
+      out.writeLong(node.getDsQuota());
+      filePerm.fromShort(node.getFsPermissionShort());
+      PermissionStatus.write(out, node.getUserName(),
+                             node.getGroupName(),
+                             filePerm);
+    } else if (node.isLink()) {
+      out.writeShort(0);  // replication
+      out.writeLong(0);   // modification time
+      out.writeLong(0);   // access time
+      out.writeLong(0);   // preferred block size
+      out.writeInt(-2);   // # of blocks
+      Text.writeString(out, ((INodeSymlink)node).getLinkValue());
+      filePerm.fromShort(node.getFsPermissionShort());
+      PermissionStatus.write(out, node.getUserName(),
+                             node.getGroupName(),
+                             filePerm);      
+    } else {
+      INodeFile fileINode = (INodeFile)node;
+      out.writeShort(fileINode.getReplication());
+      out.writeLong(fileINode.getModificationTime());
+      out.writeLong(fileINode.getAccessTime());
+      out.writeLong(fileINode.getPreferredBlockSize());
+      Block[] blocks = fileINode.getBlocks();
+      out.writeInt(blocks.length);
+      for (Block blk : blocks)
+        blk.write(out);
+      filePerm.fromShort(fileINode.getFsPermissionShort());
+      PermissionStatus.write(out, fileINode.getUserName(),
+                             fileINode.getGroupName(),
+                             filePerm);
     }
   }*/
   
@@ -2096,54 +2237,6 @@ public class FSImage
   }
   
   
-  /*
-   * Save one inode's attributes to the image.
-   */
-  private static void saveINode2Image(ByteBuffer name,
-                                      INode node,
-                                      DataOutputStream out) throws IOException {
-    int nameLen = name.position();
-    out.writeShort(nameLen);
-    out.write(name.array(), name.arrayOffset(), nameLen);
-    if (node.isDirectory()) {
-      out.writeShort(0);  // replication
-      out.writeLong(node.getModificationTime());
-      out.writeLong(0);   // access time
-      out.writeLong(0);   // preferred block size
-      out.writeInt(-1);   // # of blocks
-      out.writeLong(node.getNsQuota());
-      out.writeLong(node.getDsQuota());
-      FILE_PERM.fromShort(node.getFsPermissionShort());
-      PermissionStatus.write(out, node.getUserName(),
-                             node.getGroupName(),
-                             FILE_PERM);
-    } else if (node.isLink()) {
-      out.writeShort(0);  // replication
-      out.writeLong(0);   // modification time
-      out.writeLong(0);   // access time
-      out.writeLong(0);   // preferred block size
-      out.writeInt(-2);   // # of blocks
-      Text.writeString(out, ((INodeSymlink)node).getLinkValue());
-      FILE_PERM.fromShort(node.getFsPermissionShort());
-      PermissionStatus.write(out, node.getUserName(),
-                             node.getGroupName(),
-                             FILE_PERM);      
-    } else {
-      INodeFile fileINode = (INodeFile)node;
-      out.writeShort(fileINode.getReplication());
-      out.writeLong(fileINode.getModificationTime());
-      out.writeLong(fileINode.getAccessTime());
-      out.writeLong(fileINode.getPreferredBlockSize());
-      Block[] blocks = fileINode.getBlocks();
-      out.writeInt(blocks.length);
-      for (Block blk : blocks)
-        blk.write(out);
-      FILE_PERM.fromShort(fileINode.getFsPermissionShort());
-      PermissionStatus.write(out, fileINode.getUserName(),
-                             fileINode.getGroupName(),
-                             FILE_PERM);
-    }
-  }
   
   
   /**

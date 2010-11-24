@@ -25,6 +25,8 @@ import java.util.Collection;
 import java.util.Set;
 import java.util.HashSet;
 import java.io.DataInputStream;
+import java.util.List;
+
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -357,8 +359,10 @@ public class FSEditLog {
    *  except fsimage.processIOError)
    */
   synchronized void processIOError(
-      ArrayList<EditLogOutputStream> errorStreams) {
-    
+			//ArrayList<EditLogOutputStream> errorStreams) {
+			List<EditLogOutputStream> errorStreams){
+  
+  
     if (errorStreams == null || errorStreams.size() == 0) {
       return;                       // nothing to do
     }
