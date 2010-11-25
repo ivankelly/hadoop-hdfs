@@ -2,6 +2,18 @@ Hadoop HDFS Change Log
 
 Trunk (unreleased changes)
 
+  INCOMPATIBLE CHANGES
+
+  NEW FEATURES
+
+  IMPROVEMENTS
+
+  OPTIMIZATIONS
+
+  BUG FIXES
+
+Release 0.22.0 - Unreleased
+
   NEW FEATURES
 
     HDFS-992. Re-factor block access token implementation to conform to the 
@@ -211,6 +223,9 @@ Trunk (unreleased changes)
 
     HDFS-1483. DFSClient.getBlockLocations should indicate if corresponding
     blocks are corrupt. (Patrick Kling via hairong)
+
+    HDFS-259. Remove intentionally corrupt 0.13 directory layout creation.
+    (Todd Lipcon via eli).
 
   OPTIMIZATIONS
 

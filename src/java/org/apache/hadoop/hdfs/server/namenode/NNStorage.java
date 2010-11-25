@@ -462,7 +462,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   }
   
   //@Override
-  public boolean isConversionNeeded(StorageDirectory sd) throws IOException {
+  public boolean isPreUpgradableLayout(StorageDirectory sd) throws IOException {
     File oldImageDir = new File(sd.getRoot(), "image");
     if (!oldImageDir.exists()) {
 	// if(sd.getVersionFile().exists())
@@ -771,6 +771,8 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
 
   }
   
+  //HDFS-259 REMOVES THIS METHOD
+  /*
   @Override
   protected void corruptPreUpgradeStorage(File rootDir) throws IOException {
     
@@ -791,7 +793,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       oldFile.close();
       }
   }
-  
+  */
   public Iterator<StorageDirectory> iterator() {
     return dirIterator();
   }

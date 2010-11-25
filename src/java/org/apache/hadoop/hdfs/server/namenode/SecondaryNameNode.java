@@ -593,5 +593,5 @@ public class SecondaryNameNode implements Runnable {
     Daemon checkpointThread = new Daemon(new SecondaryNameNode(tconf)); 
     checkpointThread.start();
   }
-  
+
 }

@@ -869,14 +869,12 @@ public class FSImage
     return editLog;
     }*/
   
+  // HDFS-259 RENAMES THIS METHOD TO isPreUpgradableLayout
   // TODELETE
   /*
   public boolean isConversionNeeded(StorageDirectory sd) throws IOException {
     File oldImageDir = new File(sd.getRoot(), "image");
     if (!oldImageDir.exists()) {
-      if(sd.getVersionFile().exists())
-        throw new InconsistentFSStateException(sd.getRoot(),
-            oldImageDir + " does not exist.");
       return false;
     }
     // check the layout version inside the image file
@@ -891,8 +889,10 @@ public class FSImage
       oldFile.close();
     }
     return true;
+
   }*/
  
+
 
   //
   // Atomic move sequence, to recover from interrupted checkpoint
@@ -2144,6 +2144,7 @@ public class FSImage
       node.setXceiverCount(xceiverCount);
     }
   }
+
 
   /**
    * Save the contents of the FS image to the file.
