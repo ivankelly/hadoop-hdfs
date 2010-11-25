@@ -392,6 +392,17 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
     }
   }
 
+  public void verifyNamespaceID(NamespaceInfo nsInfo) throws IOException {
+    // verify namespaceID
+    if(storage.getNamespaceID() == 0) {// new backup storage
+      storage.setStorageInfo(nsInfo);
+    } else if(storage.getNamespaceID() != nsInfo.getNamespaceID()) {
+      throw new IOException("Incompatible namespaceIDs"
+                            + ": active node namespaceID = " + nsInfo.getNamespaceID()
+                            + "; backup node namespaceID = " + storage.getNamespaceID());
+    }
+  }
+
   public boolean isStorageInitialized() {
     assert storage.getNumStorageDirs() > 0;
     return ! storage.getStorageDir(0).getVersionFile().exists();

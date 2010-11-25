@@ -35,6 +35,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.server.common.JspHelper;
 import org.apache.hadoop.hdfs.util.DataTransferThrottler;
+import org.apache.hadoop.io.MD5Hash;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.StringUtils;
 
@@ -95,18 +96,38 @@ public class GetImageServlet extends HttpServlet {
 
           } else if (ff.putImage()) {
             // issue a HTTP get request to download the new fsimage 
+
             persistenceManager.validateCheckpointUpload(ff.getToken());
 	    persistenceManager.getStorage().setNewImageDigest(ff.getNewChecksum());
 
-            reloginIfNecessary().doAs(new PrivilegedExceptionAction<Void>() {
-                @Override
+	    /*
+            MD5Hash downloadImageDigest = reloginIfNecessary().doAs(
+		new PrivilegedExceptionAction<MD5Hash>() {
+		@Override
                 public Void run() throws Exception {
-                  TransferFsImage.getFileClient(ff.getInfoServer(), "getimage=1", 
-						storage.getCheckpointFiles());
-                  return null;
+		  return TransferFsImage.getFileClient(ff.getInfoServer(), "getimage=1", 
+						storage.getCheckpointFiles(), true);
+                }
+	    });*/
+	    
+            MD5Hash downloadImageDigest = reloginIfNecessary().doAs(
+                new PrivilegedExceptionAction<MD5Hash>() {
+                @Override
+                public MD5Hash run() throws Exception {
+                  return TransferFsImage.getFileClient(
+                      ff.getInfoServer(), "getimage=1", 
+		      storage.getCheckpointFiles(), true);
+                      //storage.getFsImageNameCheckpoint(), true);
                 }
             });
-	    persistenceManager.checkpointUploadDone();
+
+	    if (!persistenceManager.getStorage().getNewImageDigest().equals(downloadImageDigest)) {
+              throw new IOException("The downloaded image is corrupt," +
+				    " expecting a checksum " +  persistenceManager.getStorage().getNewImageDigest() +
+                  " but received a checksum " + downloadImageDigest);
+            }
+           persistenceManager.checkpointUploadDone();
+
           }
           return null;
         }
