@@ -546,17 +546,6 @@ public class PersistenceManager implements Closeable {
       image.close();
       throw e;
     }
-
-    /* FIXME understand and fix this locking 
-    storage.writeLock();
-    try {
-      this.ready = true;
-      this.nameCache.initialized();
-      cond.signalAll();
-    } finally {
-      storage.writeUnlock();
-    }
-    */
   }
   
   public FSEditLog getLog() {

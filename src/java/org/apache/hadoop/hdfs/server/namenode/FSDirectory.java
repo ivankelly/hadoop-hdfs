@@ -2076,4 +2076,15 @@ public class FSDirectory implements Closeable {
       inode.setLocalName(name.getBytes());
     }
   }
+
+  void setReady() {
+    writeLock();
+    try {
+      this.ready = true;
+      this.nameCache.initialized();
+      cond.signalAll();
+    } finally {
+      writeUnlock();
+    }
+  }
 }
