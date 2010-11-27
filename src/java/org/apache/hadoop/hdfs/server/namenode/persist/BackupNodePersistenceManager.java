@@ -49,10 +49,8 @@ import org.apache.hadoop.hdfs.server.namenode.EditLogFileInputStream;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.NamespaceInfo;
 
-
 //import org.apache.hadoop.hdfs.server.namenode.FSNamesystem;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogLoader;
-
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -232,6 +230,7 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
           waitSpoolEnd();
           // update NameSpace in memory
           backupInputStream.setBytes(data);
+
           // HDFS-1462
 	  FSEditLogLoader logLoader = new FSEditLogLoader(namesystem);
           //logLoader.loadEditRecords(getLayoutVersion(),
@@ -349,6 +348,7 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
    */
   public void convergeJournalSpool() throws IOException {
     Iterator<StorageDirectory> itEdits = storage.dirIterator(NameNodeDirType.EDITS);
+
     if(! itEdits.hasNext())
       throw new IOException("Could not locate checkpoint directories");
     StorageDirectory sdEdits = itEdits.next();
@@ -359,6 +359,7 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
       // load edits.new
       EditLogFileInputStream edits = new EditLogFileInputStream(jSpoolFile);
       DataInputStream in = edits.getDataInputStream();
+
       //FSEditLogLoader logLoader = new FSEditLogLoader(namesystem);
       //numEdits += logLoader.loadFSEdits(in, false);
       numEdits += editlog.loadFSEdits(in, false);
@@ -370,6 +371,7 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
     }
 
     LOG.info("Edits file " + jSpoolFile.getCanonicalPath() 
+
         + " of size " + jSpoolFile.length() + " edits # " + numEdits 
         + " loaded in " + (now()-startTime)/1000 + " seconds.");
 

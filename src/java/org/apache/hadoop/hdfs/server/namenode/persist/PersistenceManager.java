@@ -76,8 +76,6 @@ public class PersistenceManager implements Closeable {
 
   private static final SimpleDateFormat DATE_FORM = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
-
-
   protected Configuration conf;
   protected FSImage image;
   protected FSEditLog editlog;
@@ -207,12 +205,12 @@ public class PersistenceManager implements Closeable {
     ckptState = CheckpointStates.UPLOAD_START;
   }
 
+
   public void rollFSImage(CheckpointSignature sig, 
       boolean renewCheckpointTime) throws IOException {
     sig.validateStorageInfo(this.storage);
     rollFSImage(true);
   }
-
 
   public void rollFSImage(boolean renewCheckpointTime) throws IOException {
     if (ckptState != CheckpointStates.UPLOAD_DONE
@@ -236,6 +234,7 @@ public class PersistenceManager implements Closeable {
     // Renames new image
     //
     renameCheckpoint();
+
     resetVersion(renewCheckpointTime, storage.getNewImageDigest());
   }
 
@@ -363,7 +362,6 @@ public class PersistenceManager implements Closeable {
 	return image;
   }
 
-
   public void importCheckpoint() throws IOException {
     storage.initializeDirectories( getStartupOption() );
 
@@ -376,7 +374,6 @@ public class PersistenceManager implements Closeable {
     // replace real image with the checkpoint image
     FSImage realImage = fsNamesys.getFSImage();
     assert realImage == this;
-    
     fsNamesys.dir.fsImage = ckptImage;
     // load from the checkpoint dirs
     try {
@@ -457,9 +454,8 @@ public class PersistenceManager implements Closeable {
 
   public void format() throws IOException { 
     storage.initializeDirectories( getStartupOption() );
+    storage.format();
 
-    image.format();
-    editlog.createEditLogFiles();
   }
 
   /**

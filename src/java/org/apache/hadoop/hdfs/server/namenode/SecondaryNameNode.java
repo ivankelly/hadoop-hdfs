@@ -347,7 +347,6 @@ public class SecondaryNameNode implements Runnable {
             new PrivilegedExceptionAction<Boolean>() {
   
           @Override
-
           //public Void run() throws Exception {
           public Boolean run() throws Exception {
 
@@ -360,6 +359,9 @@ public class SecondaryNameNode implements Runnable {
 
 	    //HDFS-1458 
 	    /*
+          public Void run() throws Exception {
+	    persistenceManager.updateStorageTimes(sig.cTime, sig.checkpointTime);
+      
             // get fsimage
             String fileid = "getimage=1";
             Collection<File> list = persistenceManager.getImageFilenames();
@@ -489,7 +491,6 @@ public class SecondaryNameNode implements Runnable {
                             "after uploading new image to NameNode");
     }
 
-
     namenode.rollFsImage(sig);
     persistenceManager.endCheckpoint();
 
@@ -497,7 +498,6 @@ public class SecondaryNameNode implements Runnable {
     LOG.warn("Checkpoint done. New Image Size: " + persistenceManager.getCheckpointSize());
 
     return loadImage;
-
   }
 
   private void startCheckpoint() throws IOException {
@@ -508,6 +508,7 @@ public class SecondaryNameNode implements Runnable {
    * Merge downloaded image and edits and write the new image into
    * current storage directory.
    */
+
     private void doMerge(CheckpointSignature sig, boolean loadImage){
   /* FIXME when the construction story is sorted out
   throws IOException {
@@ -637,119 +638,4 @@ public class SecondaryNameNode implements Runnable {
     Daemon checkpointThread = new Daemon(new SecondaryNameNode(tconf)); 
     checkpointThread.start();
   }
-
-//TODELETE
-/*
-  static class CheckpointStorage extends FSImage {
-    //
-    CheckpointStorage(Configuration conf) throws IOException {
-      super(conf);
-    }
-
-    /**
-     * Analyze checkpoint directories.
-     * Create directories if they do not exist.
-     * Recover from an unsuccessful checkpoint is necessary. 
-     * 
-     * @param dataDirs
-     * @param editsDirs
-     * @throws IOException
-     */
-/*
-    void recoverCreate(Collection<URI> dataDirs,
-                       Collection<URI> editsDirs) throws IOException {
-      Collection<URI> tempDataDirs = new ArrayList<URI>(dataDirs);
-      Collection<URI> tempEditsDirs = new ArrayList<URI>(editsDirs);
-      this.storageDirs = new ArrayList<StorageDirectory>();
-      setStorageDirectories(tempDataDirs, tempEditsDirs);
-      for (Iterator<StorageDirectory> it = 
-                   dirIterator(); it.hasNext();) {
-        StorageDirectory sd = it.next();
-        boolean isAccessible = true;
-        try { // create directories if don't exist yet
-          if(!sd.getRoot().mkdirs()) {
-            // do nothing, directory is already created
-          }
-        } catch(SecurityException se) {
-          isAccessible = false;
-        }
-        if(!isAccessible)
-          throw new InconsistentFSStateException(sd.getRoot(),
-              "cannot access checkpoint directory.");
-        StorageState curState;
-        try {
-          curState = sd.analyzeStorage(HdfsConstants.StartupOption.REGULAR);
-          // sd is locked but not opened
-          switch(curState) {
-          case NON_EXISTENT:
-            // fail if any of the configured checkpoint dirs are inaccessible 
-            throw new InconsistentFSStateException(sd.getRoot(),
-                  "checkpoint directory does not exist or is not accessible.");
-          case NOT_FORMATTED:
-            break;  // it's ok since initially there is no current and VERSION
-          case NORMAL:
-            break;
-          default:  // recovery is possible
-            sd.doRecover(curState);
-          }
-        } catch (IOException ioe) {
-          sd.unlock();
-          throw ioe;
-        }
-      }
-    }
-
-    /**
-     * Prepare directories for a new checkpoint.
-     * <p>
-     * Rename <code>current</code> to <code>lastcheckpoint.tmp</code>
-     * and recreate <code>current</code>.
-     * @throws IOException
-     */
-/*
-    void startCheckpoint() throws IOException {
-      for(StorageDirectory sd : storageDirs) {
-        moveCurrent(sd);
-      }
-    }
-
-    void endCheckpoint() throws IOException {
-      for(StorageDirectory sd : storageDirs) {
-        moveLastCheckpoint(sd);
-      }
-    }
-
-    /**
-     * Merge image and edits, and verify consistency with the signature.
-     */
-/*
-    private void doMerge(CheckpointSignature sig, boolean loadImage)
-    throws IOException {
-      getEditLog().open();
-      StorageDirectory sdName = null;
-      StorageDirectory sdEdits = null;
-      Iterator<StorageDirectory> it = null;
-      if (loadImage) {
-        it = dirIterator(NameNodeDirType.IMAGE);
-        if (it.hasNext())
-          sdName = it.next();
-        if (sdName == null) {
-          throw new IOException("Could not locate checkpoint fsimage");
-        }
-      }
-      it = dirIterator(NameNodeDirType.EDITS);
-      if (it.hasNext())
-        sdEdits = it.next();
-      if (sdEdits == null)
-        throw new IOException("Could not locate checkpoint edits");
-      if (loadImage) {
-        this.layoutVersion = -1; // to avoid assert in loadFSImage()
-        loadFSImage(FSImage.getImageFile(sdName, NameNodeFile.IMAGE));
-      }
-      loadFSEdits(sdEdits);
-      sig.validateStorageInfo(this);
-      saveNamespace(false);
-    }
-  }
-*/
 }

@@ -35,6 +35,7 @@ public class CheckpointSignature extends StorageInfo
                       implements WritableComparable<CheckpointSignature> {
   private static final String FIELD_SEPARATOR = ":";
 
+
   public long editsTime = -1L;
   public long checkpointTime = -1L;
   public MD5Hash imageDigest = null;
@@ -45,6 +46,7 @@ public class CheckpointSignature extends StorageInfo
     super(storage);
     editsTime = storage.getEditsTime();
     checkpointTime = storage.getCheckpointTime();
+
     imageDigest = storage.imageDigest;
 
   }

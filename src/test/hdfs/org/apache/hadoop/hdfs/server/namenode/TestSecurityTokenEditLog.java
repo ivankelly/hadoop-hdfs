@@ -146,7 +146,6 @@ public class TestSecurityTokenEditLog extends TestCase {
 	// From HDFS-1462
         //int numEdits = loader.loadFSEdits(
         //                          new EditLogFileInputStream(editFile));
-
         assertTrue("Verification for " + editFile + " failed. " +
                    "Expected " + (NUM_THREADS * opsPerTrans * NUM_TRANSACTIONS + numKeys) + " transactions. "+
                    "Found " + numEdits + " transactions.",

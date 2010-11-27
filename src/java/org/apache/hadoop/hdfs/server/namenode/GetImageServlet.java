@@ -127,7 +127,6 @@ public class GetImageServlet extends HttpServlet {
                   " but received a checksum " + downloadImageDigest);
             }
            persistenceManager.checkpointUploadDone();
-
           }
           return null;
         }

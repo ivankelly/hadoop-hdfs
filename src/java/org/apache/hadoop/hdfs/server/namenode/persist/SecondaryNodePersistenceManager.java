@@ -153,7 +153,6 @@ public class SecondaryNodePersistenceManager extends CheckpointingPersistenceMan
       return false;
   }
 
-
   /**
    * Merge image and edits, and verify consistency with the signature.
    */

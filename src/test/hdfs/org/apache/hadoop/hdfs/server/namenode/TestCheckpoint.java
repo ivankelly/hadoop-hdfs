@@ -800,21 +800,33 @@ public class TestCheckpoint extends TestCase {
                                                .format(false).build();
     cluster.waitActive();
     FileSystem fileSys = cluster.getFileSystem();
-    FSImage image = cluster.getNameNode().getFSImage();
+    //FSImage image = cluster.getNameNode().getFSImage();
+    FSImage image = cluster.getNameNode().getNamesystem().getPersistenceManager().getFSImage();
+    NNStorage storage =  cluster.getNameNode().getNamesystem().getPersistenceManager().getStorage();
     try {
       assertTrue(!fileSys.exists(dir));
       //
       // Make the checkpoint
       //
+
+      // FIXME
       SecondaryNameNode secondary = startSecondaryNameNode(conf);
+      //long fsimageLength = FSImage.getImageFile(
+      //    image.dirIterator(NameNodeDirType.IMAGE).next(),
+      //    NameNodeFile.IMAGE).length();
       long fsimageLength = FSImage.getImageFile(
-          image.dirIterator(NameNodeDirType.IMAGE).next(),
+          storage.dirIterator(NameNodeDirType.IMAGE).next(),
           NameNodeFile.IMAGE).length();
+
+
       assertFalse("Image is downloaded", secondary.doCheckpoint());
 
       // Verify that image file sizes did not change.
+      //for (Iterator<StorageDirectory> it = 
+      //        image.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
       for (Iterator<StorageDirectory> it = 
-              image.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
+              storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
+
         assertTrue("Image size does not change", FSImage.getImageFile(it.next(), 
                                 NameNodeFile.IMAGE).length() == fsimageLength);
       }
@@ -823,8 +835,11 @@ public class TestCheckpoint extends TestCase {
       fileSys.mkdirs(dir);
       assertTrue("Image is not downloaded", secondary.doCheckpoint());
 
+      //for (Iterator<StorageDirectory> it = 
+      //  image.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
+
       for (Iterator<StorageDirectory> it = 
-        image.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
+        storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
         assertTrue("Image size increased", FSImage.getImageFile(it.next(), 
                           NameNodeFile.IMAGE).length() > fsimageLength);
      }

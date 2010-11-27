@@ -73,8 +73,6 @@ import java.security.MessageDigest;
 import org.apache.hadoop.io.MD5Hash;
 
 
-
-
 public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   
   public static class LoadDirectory {
@@ -99,14 +97,16 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   
   protected long checkpointTime = -1L;  // The age of the image
 
-  
-  public interface StorageErrorListener {
-    public void errorOccurred(StorageDirectory sd);
+
+  public interface StorageListener {
+    public void errorOccurred(StorageDirectory sd) throws IOException;
+    public void formatOccurred(StorageDirectory sd) throws IOException;
   }
 
   private Configuration conf;
   private FSNamesystem namesystem;
-  private List<StorageErrorListener> errorlisteners;
+
+  private List<StorageListener> listeners;
 
   private static final Log LOG = LogFactory.getLog(NameNode.class.getName());
   
@@ -168,27 +168,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
   private CompressionCodec saveCodec;     // the compression codec
   private CompressionCodecFactory codecFac;  // all the supported codecs
 
-  
-
-
-  ////////////////////////////////////////////////////////////////////////  
-  public void registerErrorListener(StorageErrorListener sel) {
-    errorlisteners.add(sel);
-  }
-  
-  // TODO +
-  public void errorDirectory(StorageDirectory sd) {
-    for (StorageErrorListener listener : errorlisteners) {
-      listener.errorOccurred(sd);
-    }
-    
-    LOG.info("about to remove corresponding storage:" 
-        + sd.getRoot().getAbsolutePath());
-    this.removedStorageDirs.add(sd);
-  }
-  
-  
-  
   // FIXME
   // to delete. Only temporary change
   protected FSNamesystem getFSNamesystem() {
@@ -409,6 +388,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     return getImageFile(sd, NameNodeFile.IMAGE);
   }
 
+
   public MD5Hash getNewImageDigest(){
       return newImageDigest;
   }
@@ -461,6 +441,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     return list;
   }
   
+
   //@Override
   public boolean isPreUpgradableLayout(StorageDirectory sd) throws IOException {
     File oldImageDir = new File(sd.getRoot(), "image");
@@ -483,7 +464,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     }
     return true;
   }
-
  
   /*
    synchronized void createEditLogFile(File name) throws IOException {
@@ -630,7 +610,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
        }
      }
 
-  
     StartupOption startOpt = NameNode.getStartupOption(conf);
     if(startOpt == StartupOption.IMPORT) {
       // In case of IMPORT this will get rid of default directories 
@@ -804,7 +783,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
         public Iterator<StorageDirectory> iterator() {
 	  return dirIterator(type);
 	}
-   };
+    };
   }
   
   
@@ -921,8 +900,9 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       }
   }
 
-  private void verifyDistributedUpgradeProgress(StartupOption startOpt
-  ) throws IOException {
+
+
+  private void verifyDistributedUpgradeProgress(StartupOption startOpt) throws IOException {
     if(startOpt == StartupOption.ROLLBACK || startOpt == StartupOption.IMPORT)
       return;
     UpgradeManager um = getFSNamesystem().upgradeManager;
@@ -1017,7 +997,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
         sDUV == null? getLayoutVersion() : Integer.parseInt(sDUV));
     this.checkpointTime = readCheckpointTime(sd);
     */
- 
+
     super.getFields(props, sd);
     if (layoutVersion == 0)
       throw new IOException("NameNode directory " 
@@ -1028,7 +1008,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     setDistributedUpgradeState(
         sDUS == null? false : Boolean.parseBoolean(sDUS),
         sDUV == null? getLayoutVersion() : Integer.parseInt(sDUV));
-    
+   
     String sMd5 = props.getProperty(MESSAGE_DIGEST_PROPERTY);
     if (layoutVersion <= -26) {
       if (sMd5 == null) {
@@ -1071,6 +1051,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       props.setProperty("distributedUpgradeState", Boolean.toString(uState));
       props.setProperty("distributedUpgradeVersion", Integer.toString(uVersion)); 
     }
+
     if (imageDigest == null) {
 	imageDigest = MD5Hash.digest(
         new FileInputStream(getImageFile(sd, NameNodeFile.IMAGE)));
@@ -1214,4 +1195,43 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     }    
     return null;
   }
+
+  public void registerListener(StorageListener sel) {
+    listeners.add(sel);
+  }
+  
+  public void format() throws IOException {
+    setLayoutVersion(FSConstants.LAYOUT_VERSION);
+    setNamespaceId(newNamespaceID());
+    setCTime(0L);
+    setCheckpointTime(now());
+    
+    for (StorageDirectory sd : this) {
+      for (StorageListener listener : listeners) {
+	listener.formatOccurred(sd);
+      }
+    }
+  }
+
+  
+  // TODO +
+  public synchronized void errorDirectory(StorageDirectory sd) throws IOException {
+    String lsd = listStorageDirectories();
+    LOG.info("current list of storage dirs:" + lsd);
+    
+    for (StorageListener listener : listeners) {
+      listener.errorOccurred(sd);
+    }
+    
+    LOG.info("about to remove corresponding storage:" 
+	     + sd.getRoot().getAbsolutePath());
+    this.removedStorageDirs.add(sd);
+    this.storageDirs.remove(sd);
+    
+    incrementCheckpointTime();
+    
+    lsd = listStorageDirectories();
+    LOG.info("at the end current list of storage dirs:" + lsd);
+  }
+
 }

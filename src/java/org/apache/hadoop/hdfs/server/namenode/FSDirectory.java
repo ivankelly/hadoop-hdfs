@@ -105,16 +105,6 @@ public class FSDirectory implements Closeable {
    */
   private final NameCache<ByteArray> nameCache;
 
-    //<<<<<<< .merge_file_l56uNo
-    //FSDirectory(FSNamesystem ns, Configuration conf) {
-    //=======
-  /** Access an existing dfs name directory. */
-  //FSDirectory(FSNamesystem ns, Configuration conf) throws IOException {
-      //this(new FSImage(conf), ns, conf);
-      //}
-
-      //FSDirectory(FSImage fsImage, FSNamesystem ns, Configuration conf) {
-      //>>>>>>> .merge_file_TdIjEl
   FSDirectory(FSNamesystem ns, Configuration conf) {
     this.bLock = new ReentrantReadWriteLock(true); // fair
     this.cond = bLock.writeLock().newCondition();

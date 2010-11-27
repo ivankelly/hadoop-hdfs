@@ -227,6 +227,7 @@ public class TestEditLogRace {
       // From HDFS-1462
       //int numEdits = new FSEditLogLoader(namesystem).loadFSEdits(
       //  new EditLogFileInputStream(editFile));
+
       System.out.println("Number of edits: " + numEdits);
     }
   }
