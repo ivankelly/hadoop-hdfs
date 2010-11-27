@@ -356,11 +356,6 @@ public class PersistenceManager implements Closeable {
   }
 
 
-  //FIXME
-  // used on TestStartup, modified on HDFS-903
-  public FSImage getFSImage(){
-	return image;
-  }
 
   public void importCheckpoint() throws IOException {
     storage.initializeDirectories( getStartupOption() );
@@ -588,6 +583,12 @@ public class PersistenceManager implements Closeable {
   */
   public void setEditLog(FSEditLog editlog) {
     this.editlog = editlog;
+  }
+
+  //FIXME
+  // used on TestStartup, modified on HDFS-903
+  public FSImage getFSImage(){
+	return image;
   }
   
   public NNStorage getStorage() {
