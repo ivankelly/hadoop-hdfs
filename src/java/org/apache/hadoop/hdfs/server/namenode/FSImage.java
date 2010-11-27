@@ -293,7 +293,6 @@ public class FSImage implements StorageListener {
   @Override
   public void formatOccurred(StorageDirectory sd) throws IOException {
     if (sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
-      sd.clearDirectory(); // create currrent dir
       sd.lock();
       try {
 	saveCurrentImageToDirectory(sd);

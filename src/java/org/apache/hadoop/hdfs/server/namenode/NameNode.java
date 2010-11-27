@@ -1420,11 +1420,13 @@ public File getFsImageName() throws IOException {
     }
     
     NNStorage storage = new NNStorage(conf);
+
+    // create persistence manager and namesystem so that image and editlog
+    // format callbacks are installed
     PersistenceManager pm = new PersistenceManager(conf, storage);
-    
     FSNamesystem nsys = new FSNamesystem(conf, storage, pm);
     
-    pm.format();
+    storage.format();
 
     return false;
   }

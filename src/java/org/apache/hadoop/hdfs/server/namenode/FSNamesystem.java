@@ -323,6 +323,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
    */
   private void initialize(Configuration conf, PersistenceManager persistenceManager)
       throws IOException {
+    this.storage.setFSNamesystem(this);
     this.systemStart = now();
     this.blockManager = new BlockManager(this, conf);
     this.upgradeManager = new UpgradeManagerNamenode(this, storage);
@@ -337,7 +338,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
       
       this.persistenceManager = new PersistenceManager(conf, storage);
       this.persistenceManager.setNamesystem(this);
-      persistenceManager.load();
+      this.persistenceManager.load();
 
       long timeTakenToLoadFSImage = now() - systemStart;
       LOG.info("Finished loading FSImage in " + timeTakenToLoadFSImage + " msecs");
@@ -5272,7 +5273,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     return alivenode.getDfsUsed();
   }
 
-  private FSEditLog getEditLog() {
+  public FSEditLog getEditLog() {
     return persistenceManager.getEditLog();
   }
 

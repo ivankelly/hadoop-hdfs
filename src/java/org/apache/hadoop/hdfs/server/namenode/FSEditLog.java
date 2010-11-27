@@ -162,6 +162,8 @@ public class FSEditLog implements StorageListener {
   public FSEditLog(Configuration conf, NNStorage storage){
     this.conf = conf;
     this.storage = storage;
+
+    this.storage.registerListener(this);
   }
   
   /**
@@ -240,14 +242,10 @@ public class FSEditLog implements StorageListener {
         LOG.warn("Unable to open edit log file " + eFile);
         // Remove the directory from list of storage directories
         
-        //if(al == null) al = new ArrayList<StorageDirectory>(1);
-        //al.add(sd);
         storage.errorDirectory(sd);
         
       }
     }
-    
-    //if(al != null) processIOError(al);
   }
   
   
