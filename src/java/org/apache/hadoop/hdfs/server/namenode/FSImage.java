@@ -17,11 +17,7 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.DataInput;
 import java.io.DataInputStream;
-import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -29,13 +25,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.net.URI;
-import java.nio.ByteBuffer;
-import java.security.DigestInputStream;
-import java.security.DigestOutputStream;
-import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
@@ -53,15 +44,7 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.permission.FsPermission;
-import org.apache.hadoop.fs.permission.PermissionStatus;
-import org.apache.hadoop.hdfs.DFSUtil;
-import org.apache.hadoop.hdfs.DeprecatedUTF8;
-import org.apache.hadoop.hdfs.protocol.Block;
-import org.apache.hadoop.hdfs.protocol.DatanodeID;
 import org.apache.hadoop.hdfs.protocol.FSConstants;
-import org.apache.hadoop.hdfs.server.common.GenerationStamp;
 import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
 import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
@@ -70,7 +53,6 @@ import org.apache.hadoop.hdfs.server.common.StorageInfo;
 import org.apache.hadoop.hdfs.server.common.UpgradeManager;
 import org.apache.hadoop.hdfs.server.common.Util;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
-import org.apache.hadoop.hdfs.server.common.HdfsConstants.BlockUCState;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NodeType;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.StartupOption;
@@ -80,10 +62,6 @@ import org.apache.hadoop.hdfs.server.protocol.NamenodeCommand;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.io.MD5Hash;
-import org.apache.hadoop.io.Text;
-import org.apache.hadoop.io.Writable;
-import org.apache.hadoop.io.compress.CompressionCodec;
-import org.apache.hadoop.io.compress.CompressionCodecFactory;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.StorageListener;
@@ -165,28 +143,9 @@ public class FSImage implements StorageListener {
   //private Collection<URI> checkpointEditsDirs;
 
   /**
-   * Image compression related fields
-   */
-  private boolean compressImage = false;  // if image should be compressed
-  private CompressionCodec saveCodec;     // the compression codec
-  private CompressionCodecFactory codecFac;  // all the supported codecs
-
-  /**
    * Can fs-image be rolled?
    */
   //volatile protected CheckpointStates ckptState = FSImage.CheckpointStates.START; 
-
-  /**
-   * Used for saving the image to disk
-   */
-  static private final ThreadLocal<FsPermission> FILE_PERM =
-                          new ThreadLocal<FsPermission>() {
-                            @Override
-                            protected FsPermission initialValue() {
-                              return new FsPermission((short) 0);
-                            }
-                          };
-  static private final byte[] PATH_SEPARATOR = DFSUtil.string2Bytes(Path.SEPARATOR);
 
   protected static final Log LOG = LogFactory.getLog(FSImage.class.getName());
     
@@ -223,6 +182,8 @@ public class FSImage implements StorageListener {
     /*
   FSImage(Configuration conf) throws IOException {
     this();
+    this.conf = conf; // TODO we have too many constructors, this is a mess
+
     if(conf.getBoolean(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_KEY, 
         DFSConfigKeys.DFS_NAMENODE_NAME_DIR_RESTORE_DEFAULT)) {
       NameNode.LOG.info("set FSImage.restoreFailedStorage");
@@ -248,6 +209,7 @@ public class FSImage implements StorageListener {
   FSImage(FSNamesystem ns) {
     super(NodeType.NAME_NODE);
     //this.editLog = new FSEditLog(this);
+    this.conf = new Configuration();
     setFSNamesystem(ns);
   }*/
 
@@ -1128,6 +1090,9 @@ public class FSImage implements StorageListener {
    * filenames and blocks.  Return whether we should
    * "re-save" and consolidate the edit-logs
    */
+    
+  /*
+    //HDFS-1473
   public boolean loadFSImage(File curFile) throws IOException {
     assert storage.getLayoutVersion() < 0 : "Negative layout version is expected.";
     assert curFile != null : "curFile is null";
@@ -1150,12 +1115,12 @@ public class FSImage implements StorageListener {
        * Note: Remove any checks for version earlier than 
        * Storage.LAST_UPGRADABLE_LAYOUT_VERSION since we should never get 
        * to here with older images.
-       */
+       *
       
       /*
        * TODO we need to change format of the image file
        * it should not contain version and namespace fields
-       */
+       *
       // read image version: first appeared in version -1
       int imgVersion = in.readInt();
       needToSave = (imgVersion != FSConstants.LAYOUT_VERSION);
@@ -1264,68 +1229,33 @@ public class FSImage implements StorageListener {
         if (imgVersion <= -18 && blocks == null && numBlocks == -1) {
           dsQuota = in.readLong();
         }
+	*/
+  public boolean loadFSImage(File curFile) throws IOException {
+      FSImageFormat.Loader loader = new FSImageFormat.Loader(conf);
+    loader.load(curFile, getFSNamesystem());
 
-        // Read the symlink only when the node is a symlink
-        String symlink = "";
-        if (imgVersion <= -23 && numBlocks == -2) {
-          symlink = Text.readString(in);
-        }
-        
-        PermissionStatus permissions = fsNamesys.getUpgradePermission();
-        if (imgVersion <= -11) {
-          permissions = PermissionStatus.read(in);
-        }
-        
-        if (isRoot(pathComponents)) { // it is the root
-          // update the root's attributes
-          if (nsQuota != -1 || dsQuota != -1) {
-            fsDir.rootDir.setQuota(nsQuota, dsQuota);
-          }
-          fsDir.rootDir.setModificationTime(modificationTime);
-          fsDir.rootDir.setPermissionStatus(permissions);
-          continue;
-        }
-        // check if the new inode belongs to the same parent
-        if(!isParent(pathComponents, parentPath)) {
-          parentINode = null;
-          parentPath = getParent(pathComponents);
-        }
-        // add new inode
-        // without propagating modification time to parent
-        parentINode = fsDir.addToParent(pathComponents, parentINode, permissions,
-                                        blocks, symlink, replication, modificationTime, 
-                                        atime, nsQuota, dsQuota, blockSize, false);
-      }
-      
-      // load datanode info
-      this.loadDatanodes(imgVersion, in);
 
-      // load Files Under Construction
-      this.loadFilesUnderConstruction(imgVersion, in, fsNamesys);
-      
-      this.loadSecretManagerState(imgVersion, in, fsNamesys);
-      
-    } finally {
-      in.close();
-    }
-
-    // verify checksum
-    MD5Hash readImageMd5 = new MD5Hash(digester.digest());
+    // Check that the image digest we loaded matches up with what
+    // we expected
+    MD5Hash readImageMd5 = loader.getLoadedImageMd5();
     if (storage.imageDigest == null) {
       storage.imageDigest = readImageMd5; // set this fsimage's checksum
     } else if (!storage.imageDigest.equals(readImageMd5)) {
-      throw new IOException("Image file " + curFile + 
-          "is corrupt with MD5 checksum of " + readImageMd5 +
+      throw new IOException("Image file " + curFile +
+          " is corrupt with MD5 checksum of " + readImageMd5 +
           " but expecting " + storage.imageDigest);
     }
 
-    LOG.info("Image file of size " + curFile.length() + " loaded in " 
-        + (now() - startTime)/1000 + " seconds.");
+    storage.namespaceID = loader.getLoadedNamespaceID();
+    storage.layoutVersion = loader.getLoadedImageVersion();
 
+    boolean needToSave =
+      loader.getLoadedImageVersion() != FSConstants.LAYOUT_VERSION;
     return needToSave;
   }
 
   /**
+
    * Return string representing the parent of the given path.
    */
   //TODELETE
@@ -1333,7 +1263,11 @@ public class FSImage implements StorageListener {
   String getParent(String path) {
     return path.substring(0, path.lastIndexOf(Path.SEPARATOR));
   }*/
-  
+
+    //TODELETE
+    /////////////////////////////////////////////
+    //HDFS-1473 removes these
+    /*
   byte[][] getParent(byte[][] path) {
     byte[][] result = new byte[path.length - 1][];
     for (int i = 0; i < result.length; i++) {
@@ -1358,8 +1292,8 @@ public class FSImage implements StorageListener {
       isParent = isParent && Arrays.equals(path[i], parent[i]); 
     }
     return isParent;
-  }
-
+    }*/
+/////////////////////////////////////////////
 
   /**
    * Load and merge edits from two edits files
@@ -1394,8 +1328,10 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
   /**
    * Save the contents of the FS image to the file.
    */
-  /*
+ 
   void saveFSImage(File newFile) throws IOException {
+  
+  /*
     FSNamesystem fsNamesys = getFSNamesystem();
     FSDirectory fsDir = fsNamesys.dir;
     long startTime = now();
@@ -1450,6 +1386,13 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
         + (now() - startTime)/1000 + " seconds.");
     
   }*/
+
+    FSImageFormat.Writer writer = new FSImageFormat.Writer();
+    FSImageCompression compression = FSImageCompression.createCompression(conf);
+    writer.write(newFile, getFSNamesystem(), compression);
+    storage.setImageDigest(writer.getWrittenDigest());
+  }
+
 
   //public void setImageDigest(MD5Hash digest) {
   //   this.imageDigest = digest;
@@ -1714,265 +1657,6 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
   }
 
 
-  /*
-   * Save one inode's attributes to the image.
-   */
-
-  private static void saveINode2Image(ByteBuffer name,
-                                      INode node,
-                                      DataOutputStream out) throws IOException {
-    int nameLen = name.position();
-    out.writeShort(nameLen);
-    out.write(name.array(), name.arrayOffset(), nameLen);
-    FsPermission filePerm = FILE_PERM.get();
-    if (node.isDirectory()) {
-      out.writeShort(0);  // replication
-      out.writeLong(node.getModificationTime());
-      out.writeLong(0);   // access time
-      out.writeLong(0);   // preferred block size
-      out.writeInt(-1);   // # of blocks
-      out.writeLong(node.getNsQuota());
-      out.writeLong(node.getDsQuota());
-      //FILE_PERM.fromShort(node.getFsPermissionShort());
-      filePerm.fromShort(node.getFsPermissionShort());
-      PermissionStatus.write(out, node.getUserName(),
-                             node.getGroupName(),
-                             //FILE_PERM);
-                             filePerm);
-    } else if (node.isLink()) {
-      out.writeShort(0);  // replication
-      out.writeLong(0);   // modification time
-      out.writeLong(0);   // access time
-      out.writeLong(0);   // preferred block size
-      out.writeInt(-2);   // # of blocks
-      Text.writeString(out, ((INodeSymlink)node).getLinkValue());
-      //FILE_PERM.fromShort(node.getFsPermissionShort());
-      filePerm.fromShort(node.getFsPermissionShort());
-      PermissionStatus.write(out, node.getUserName(),
-                             node.getGroupName(),
-                             //FILE_PERM);      
-			     filePerm);
-    } else {
-      INodeFile fileINode = (INodeFile)node;
-      out.writeShort(fileINode.getReplication());
-      out.writeLong(fileINode.getModificationTime());
-      out.writeLong(fileINode.getAccessTime());
-      out.writeLong(fileINode.getPreferredBlockSize());
-      Block[] blocks = fileINode.getBlocks();
-      out.writeInt(blocks.length);
-      for (Block blk : blocks)
-        blk.write(out);
-      filePerm.fromShort(fileINode.getFsPermissionShort());
-      PermissionStatus.write(out, fileINode.getUserName(),
-                             fileINode.getGroupName(),
-                             //FILE_PERM);
-			     filePerm);
-    }
-  }
-
-
-
-  /*
-   * Save one inode's attributes to the image.
-   */
-  /*
-  private static void saveINode2Image(ByteBuffer name,
-                                      INode node,
-                                      DataOutputStream out) throws IOException {
-    int nameLen = name.position();
-    out.writeShort(nameLen);
-    out.write(name.array(), name.arrayOffset(), nameLen);
-    FsPermission filePerm = FILE_PERM.get();
-    if (node.isDirectory()) {
-      out.writeShort(0);  // replication
-      out.writeLong(node.getModificationTime());
-      out.writeLong(0);   // access time
-      out.writeLong(0);   // preferred block size
-      out.writeInt(-1);   // # of blocks
-      out.writeLong(node.getNsQuota());
-      out.writeLong(node.getDsQuota());
-      filePerm.fromShort(node.getFsPermissionShort());
-      PermissionStatus.write(out, node.getUserName(),
-                             node.getGroupName(),
-                             filePerm);
-    } else if (node.isLink()) {
-      out.writeShort(0);  // replication
-      out.writeLong(0);   // modification time
-      out.writeLong(0);   // access time
-      out.writeLong(0);   // preferred block size
-      out.writeInt(-2);   // # of blocks
-      Text.writeString(out, ((INodeSymlink)node).getLinkValue());
-      filePerm.fromShort(node.getFsPermissionShort());
-      PermissionStatus.write(out, node.getUserName(),
-                             node.getGroupName(),
-                             filePerm);      
-    } else {
-      INodeFile fileINode = (INodeFile)node;
-      out.writeShort(fileINode.getReplication());
-      out.writeLong(fileINode.getModificationTime());
-      out.writeLong(fileINode.getAccessTime());
-      out.writeLong(fileINode.getPreferredBlockSize());
-      Block[] blocks = fileINode.getBlocks();
-      out.writeInt(blocks.length);
-      for (Block blk : blocks)
-        blk.write(out);
-      filePerm.fromShort(fileINode.getFsPermissionShort());
-      PermissionStatus.write(out, fileINode.getUserName(),
-                             fileINode.getGroupName(),
-                             filePerm);
-    }
-  }*/
-  
-  /**
-   * Save file tree image starting from the given root.
-   * This is a recursive procedure, which first saves all children of
-   * a current directory and then moves inside the sub-directories.
-   */
-  /*
-  private static void saveImage(ByteBuffer parentPrefix,
-                                int prefixLength,
-                                INodeDirectory current,
-                                DataOutputStream out) throws IOException {
-    int newPrefixLength = prefixLength;
-    if (current.getChildrenRaw() == null)
-      return;
-    for(INode child : current.getChildren()) {
-      // print all children first
-      parentPrefix.position(prefixLength);
-      parentPrefix.put(PATH_SEPARATOR).put(child.getLocalNameBytes());
-      saveINode2Image(parentPrefix, child, out);
-    }
-    for(INode child : current.getChildren()) {
-      if(!child.isDirectory())
-        continue;
-      parentPrefix.position(prefixLength);
-      parentPrefix.put(PATH_SEPARATOR).put(child.getLocalNameBytes());
-      newPrefixLength = parentPrefix.position();
-      saveImage(parentPrefix, newPrefixLength, (INodeDirectory)child, out);
-    }
-    parentPrefix.position(prefixLength);
-  }*/
-
-  void loadDatanodes(int version, DataInputStream in) throws IOException {
-    if (version > -3) // pre datanode image version
-      return;
-    if (version <= -12) {
-      return; // new versions do not store the datanodes any more.
-    }
-    int size = in.readInt();
-    for(int i = 0; i < size; i++) {
-      DatanodeImage nodeImage = new DatanodeImage();
-      nodeImage.readFields(in);
-      // We don't need to add these descriptors any more.
-    }
-  }
-
-  private void loadFilesUnderConstruction(int version, DataInputStream in, 
-      FSNamesystem fs) throws IOException {
-    FSDirectory fsDir = fs.dir;
-    if (version > -13) // pre lease image version
-      return;
-    int size = in.readInt();
-
-    LOG.info("Number of files under construction = " + size);
-
-    for (int i = 0; i < size; i++) {
-      INodeFileUnderConstruction cons = readINodeUnderConstruction(in);
-
-      // verify that file exists in namespace
-      String path = cons.getLocalName();
-      INode old = fsDir.getFileINode(path);
-      if (old == null) {
-        throw new IOException("Found lease for non-existent file " + path);
-      }
-      if (old.isDirectory()) {
-        throw new IOException("Found lease for directory " + path);
-      }
-      INodeFile oldnode = (INodeFile) old;
-      fsDir.replaceNode(path, oldnode, cons);
-      fs.leaseManager.addLease(cons.getClientName(), path); 
-    }
-  }
-
-  private void loadSecretManagerState(int version,  DataInputStream in, 
-      FSNamesystem fs) throws IOException {
-    if (version > -23) {
-      //SecretManagerState is not available.
-      //This must not happen if security is turned on.
-      return; 
-    }
-    fs.loadSecretManagerState(in);
-  }
-  
-  // Helper function that reads in an INodeUnderConstruction
-  // from the input stream
-  //
-  static INodeFileUnderConstruction readINodeUnderConstruction(
-                            DataInputStream in) throws IOException {
-    byte[] name = readBytes(in);
-    short blockReplication = in.readShort();
-    long modificationTime = in.readLong();
-    long preferredBlockSize = in.readLong();
-    int numBlocks = in.readInt();
-    BlockInfo[] blocks = new BlockInfo[numBlocks];
-    Block blk = new Block();
-    int i = 0;
-    for (; i < numBlocks-1; i++) {
-      blk.readFields(in);
-      blocks[i] = new BlockInfo(blk, blockReplication);
-    }
-    // last block is UNDER_CONSTRUCTION
-    if(numBlocks > 0) {
-      blk.readFields(in);
-      blocks[i] = new BlockInfoUnderConstruction(
-        blk, blockReplication, BlockUCState.UNDER_CONSTRUCTION, null);
-    }
-    PermissionStatus perm = PermissionStatus.read(in);
-    String clientName = readString(in);
-    String clientMachine = readString(in);
-
-    // These locations are not used at all
-    int numLocs = in.readInt();
-    DatanodeDescriptor[] locations = new DatanodeDescriptor[numLocs];
-    for (i = 0; i < numLocs; i++) {
-      locations[i] = new DatanodeDescriptor();
-      locations[i].readFields(in);
-    }
-
-    return new INodeFileUnderConstruction(name, 
-                                          blockReplication, 
-                                          modificationTime,
-                                          preferredBlockSize,
-                                          blocks,
-                                          perm,
-                                          clientName,
-                                          clientMachine,
-                                          null);
-  }
-
-  // Helper function that writes an INodeUnderConstruction
-  // into the input stream
-  //
-  static void writeINodeUnderConstruction(DataOutputStream out,
-                                           INodeFileUnderConstruction cons,
-                                           String path) 
-                                           throws IOException {
-    writeString(path, out);
-    out.writeShort(cons.getReplication());
-    out.writeLong(cons.getModificationTime());
-    out.writeLong(cons.getPreferredBlockSize());
-    int nrBlocks = cons.getBlocks().length;
-    out.writeInt(nrBlocks);
-    for (int i = 0; i < nrBlocks; i++) {
-      cons.getBlocks()[i].write(out);
-    }
-    cons.getPermissionStatus().write(out);
-    writeString(cons.getClientName(), out);
-    writeString(cons.getClientMachine(), out);
-
-    out.writeInt(0); //  do not store locations of last block
-  }
-
   /** DELETEME
    * Moves fsimage.ckpt to fsImage and edits.new to edits
    * Reopens the new edits file.
@@ -2108,188 +1792,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     return list.toArray(new File[list.size()]);
   }
 
-  // TO DELETE
-  // Moved to NNUtils
-  /**
-   * DatanodeImage is used to store persistent information
-   * about datanodes into the fsImage.
-   */
-  static class DatanodeImage implements Writable {
-    DatanodeDescriptor node = new DatanodeDescriptor();
-
-    /////////////////////////////////////////////////
-    // Writable
-    /////////////////////////////////////////////////
-    /**
-     * Public method that serializes the information about a
-     * Datanode to be stored in the fsImage.
-     */
-    public void write(DataOutput out) throws IOException {
-      new DatanodeID(node).write(out);
-      out.writeLong(node.getCapacity());
-      out.writeLong(node.getRemaining());
-      out.writeLong(node.getLastUpdate());
-      out.writeInt(node.getXceiverCount());
-    }
-
-    /**
-     * Public method that reads a serialized Datanode
-     * from the fsImage.
-     */
-    public void readFields(DataInput in) throws IOException {
-      DatanodeID id = new DatanodeID();
-      id.readFields(in);
-      long capacity = in.readLong();
-      long remaining = in.readLong();
-      long lastUpdate = in.readLong();
-      int xceiverCount = in.readInt();
-
-      // update the DatanodeDescriptor with the data we read in
-      node.updateRegInfo(id);
-      node.setStorageID(id.getStorageID());
-      node.setCapacity(capacity);
-      node.setRemaining(remaining);
-      node.setLastUpdate(lastUpdate);
-      node.setXceiverCount(xceiverCount);
-    }
-  }
-
-  /**
-   * Save the contents of the FS image to the file.
-   */
-  void saveFSImage(File newFile) throws IOException {
-    FSNamesystem fsNamesys = getFSNamesystem();
-    FSDirectory fsDir = fsNamesys.dir;
-    long startTime = now();
-
-
-    //
-    // Write out data
-    //
-    FileOutputStream fout = new FileOutputStream(newFile);
-    MessageDigest digester = MD5Hash.getDigester();
-    DigestOutputStream fos = new DigestOutputStream(fout, digester);
-
-    DataOutputStream out = new DataOutputStream(fos);
-
-    try {
-      out.writeInt(FSConstants.LAYOUT_VERSION);
-      out.writeInt(storage.getNamespaceID());
-      out.writeLong(fsDir.rootDir.numItemsInTree());
-      out.writeLong(fsNamesys.getGenerationStamp());
-
-      
-      // write compression info
-      out.writeBoolean(compressImage);
-      if (compressImage) {
-        String codecClassName = saveCodec.getClass().getCanonicalName();
-        Text.writeString(out, codecClassName);
-        out = new DataOutputStream(saveCodec.createOutputStream(fos));
-        LOG.info("Saving image file " + newFile +
-            " compressed using codec " + codecClassName);
-      } else {
-        // use a buffered output stream
-        out = new DataOutputStream(new BufferedOutputStream(fos));
-      }
-
-      byte[] byteStore = new byte[4*FSConstants.MAX_PATH_LENGTH];
-      ByteBuffer strbuf = ByteBuffer.wrap(byteStore);
-      // save the root
-      saveINode2Image(strbuf, fsDir.rootDir, out);
-      // save the rest of the nodes
-      saveImage(strbuf, 0, fsDir.rootDir, out);
-      fsNamesys.saveFilesUnderConstruction(out);
-      fsNamesys.saveSecretManagerState(out);
-      strbuf = null;
-
-      out.flush();
-      fout.getChannel().force(true);
-    } finally {
-      out.close();
-    }
-
-
-    // set md5 of the saved image
-    storage.setImageDigest( new MD5Hash(digester.digest()));
-    LOG.info("Image file of size " + newFile.length() + " saved in " 
-        + (now() - startTime)/1000 + " seconds.");
-    
-  }
-  
-  
-  /**
-   * Save file tree image starting from the given root.
-   * This is a recursive procedure, which first saves all children of
-   * a current directory and then moves inside the sub-directories.
-   */
-  private static void saveImage(ByteBuffer parentPrefix,
-                                int prefixLength,
-                                INodeDirectory current,
-                                DataOutputStream out) throws IOException {
-    int newPrefixLength = prefixLength;
-    if (current.getChildrenRaw() == null)
-      return;
-    for(INode child : current.getChildren()) {
-      // print all children first
-      parentPrefix.position(prefixLength);
-      parentPrefix.put(PATH_SEPARATOR).put(child.getLocalNameBytes());
-      saveINode2Image(parentPrefix, child, out);
-    }
-    for(INode child : current.getChildren()) {
-      if(!child.isDirectory())
-        continue;
-      parentPrefix.position(prefixLength);
-      parentPrefix.put(PATH_SEPARATOR).put(child.getLocalNameBytes());
-      newPrefixLength = parentPrefix.position();
-      saveImage(parentPrefix, newPrefixLength, (INodeDirectory)child, out);
-    }
-    parentPrefix.position(prefixLength);
-  }
-  
-  
-  
-  /**
-   * Save current image and empty journal into {@code current} directory.
-   */
-  public void saveCurrent(StorageDirectory sd) throws IOException {
-    File curDir = sd.getCurrentDir();
-    NameNodeDirType dirType = (NameNodeDirType)sd.getStorageDirType();
-    // save new image or new edits
-    if (!curDir.exists() && !curDir.mkdir())
-      throw new IOException("Cannot create directory " + curDir);
-    if (dirType.isOfType(NameNodeDirType.IMAGE))
-      saveFSImage(getImageFile(sd, NameNodeFile.IMAGE));
-    //if (dirType.isOfType(NameNodeDirType.EDITS))
-      //editlog.createEditLogFile(getImageFile(sd, NameNodeFile.EDITS));
-      //createEditLogFile(getImageFile(sd, NameNodeFile.EDITS));
-    // write version and time files
-    sd.write();
-  }
-
-  
-  // TODELETE
   /*
-  protected void corruptPreUpgradeStorage(File rootDir) throws IOException {
-    File oldImageDir = new File(rootDir, "image");
-    if (!oldImageDir.exists())
-      if (!oldImageDir.mkdir())
-        throw new IOException("Cannot create directory " + oldImageDir);
-    File oldImage = new File(oldImageDir, "fsimage");
-    if (!oldImage.exists())
-      // recreate old image file to let pre-upgrade versions fail
-      if (!oldImage.createNewFile())
-        throw new IOException("Cannot create file " + oldImage);
-    RandomAccessFile oldFile = new RandomAccessFile(oldImage, "rws");
-    // write new version into old image file
-    try {
-      writeCorruptedData(oldFile);
-    } finally {
-      oldFile.close();
-    }
-  }
-   */
-  /*
-  //TODELETE
   private boolean getDistributedUpgradeState() {
     FSNamesystem ns = getFSNamesystem();
     return ns == null ? false : ns.getDistributedUpgradeState();
@@ -2369,50 +1872,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
       dirNames.add(defaultName);
     }
     return Util.stringCollectionAsURIs(dirNames);
-  }
+  }  
   */
-  static private final DeprecatedUTF8 U_STR = new DeprecatedUTF8();
-  // This should be reverted to package private once the ImageLoader
-  // code is moved into this package. This method should not be called
-  // by other code.
-  public static String readString(DataInputStream in) throws IOException {
-    U_STR.readFields(in);
-    return U_STR.toString();
-  }
-
-  static String readString_EmptyAsNull(DataInputStream in) throws IOException {
-    final String s = readString(in);
-    return s.isEmpty()? null: s;
-  }
-  
-  /**
-   * Reading the path from the image and converting it to byte[][] directly
-   * this saves us an array copy and conversions to and from String
-   * @param in
-   * @return the array each element of which is a byte[] representation 
-   *            of a path component
-   * @throws IOException
-   */
-  public static byte[][] readPathComponents(DataInputStream in)
-      throws IOException {
-      U_STR.readFields(in);
-      return DFSUtil.bytes2byteArray(U_STR.getBytes(),
-        U_STR.getLength(), (byte) Path.SEPARATOR_CHAR);
-    
-  }
-
-  // Same comments apply for this method as for readString()
-  public static byte[] readBytes(DataInputStream in) throws IOException {
-    U_STR.readFields(in);
-    int len = U_STR.getLength();
-    byte[] bytes = new byte[len];
-    System.arraycopy(U_STR.getBytes(), 0, bytes, 0, len);
-    return bytes;
-  }
-
-  static void writeString(String str, DataOutputStream out) throws IOException {
-    U_STR.set(str);
-    U_STR.write(out);
-  }
 
 }
