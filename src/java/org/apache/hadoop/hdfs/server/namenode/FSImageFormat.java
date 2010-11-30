@@ -315,7 +315,8 @@ public abstract class FSImageFormat {
         in.close();
       }
 
-      storage.setImageDigest(new MD5Hash(digester.digest()));
+      imgDigest = new MD5Hash(digester.digest());
+      storage.setImageDigest(imgDigest);
       loaded = true;
       
       LOG.info("Image file of size " + curFile.length() + " loaded in " 

@@ -35,6 +35,7 @@ import org.apache.hadoop.hdfs.protocol.AlreadyBeingCreatedException;
 import org.apache.hadoop.hdfs.protocol.DatanodeID;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
+import org.apache.hadoop.hdfs.server.namenode.persist.PersistenceManager;
 import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.log4j.Level;
 import org.junit.After;
@@ -408,11 +409,10 @@ public class TestNNLeaseRecovery {
     FSImage fsImage = mock(FSImage.class);
     FSEditLog editLog = mock(FSEditLog.class);
     
-    assertTrue(false); // FIXME uncomment this code and make it work
-    /*
-    when(fsn.getFSImage()).thenReturn(fsImage);
-    when(fsn.getFSImage().getEditLog()).thenReturn(editLog);
-    fsn.getFSImage().setFSNamesystem(fsn);
+    PersistenceManager persistenceManager = mock(PersistenceManager.class);
+    when(fsn.getPersistenceManager()).thenReturn(persistenceManager);
+    when(persistenceManager.getFSImage()).thenReturn(fsImage);
+    when(persistenceManager.getEditLog()).thenReturn(editLog);
     
     switch (fileBlocksNumber) {
       case 0:
@@ -443,6 +443,5 @@ public class TestNNLeaseRecovery {
     }
 
     when(fsDir.getFileINode(anyString())).thenReturn(iNFmock);
-    */
   }
 }
