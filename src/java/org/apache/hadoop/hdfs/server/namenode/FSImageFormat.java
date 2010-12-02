@@ -132,7 +132,6 @@ public abstract class FSImageFormat {
     //
     // Load in bits
     //
-    boolean needToSave = true;
     MessageDigest digester = MD5Hash.getDigester();
     DigestInputStream fin = new DigestInputStream(
     new FileInputStream(curFile), digester);
@@ -150,52 +149,19 @@ public abstract class FSImageFormat {
        * it should not contain version and namespace fields
        */
       // read image version: first appeared in version -1
-      int imgVersion = in.readInt();
-      needToSave = (imgVersion != FSConstants.LAYOUT_VERSION);
+      imgVersion = in.readInt();
 
       // read namespaceID: first appeared in version -2
-      //this.namespaceID = in.readInt();
-      storage.setNamespaceId(in.readInt());
+      imgNamespaceID = in.readInt();
 
       // read number of files
-      long numFiles;
-      if (imgVersion <= -16) {
-        numFiles = in.readLong();
-      } else {
-        numFiles = in.readInt();
-      }
+      long numFiles = readNumFiles(in);
 
-      //this.layoutVersion = imgVersion;
-      storage.setLayoutVersion(imgVersion);
-      
       // read in the last generation stamp.
       if (imgVersion <= -12) {
         long genstamp = in.readLong();
         targetNamesystem.setGenerationStamp(genstamp); 
       }
-      
-      /*
-      // read compression related info
-      boolean isCompressed = false;
-      if (imgVersion <= -25) {  // -25: 1st version providing compression option
-        isCompressed = in.readBoolean();
-        if (isCompressed) {
-          String codecClassName = Text.readString(in);
-          CompressionCodec loadCodec = codecFac.getCodecByClassName(codecClassName);
-          if (loadCodec == null) {
-            throw new IOException("Image compression codec not supported: "
-                                 + codecClassName);
-          }
-          in = new DataInputStream(loadCodec.createInputStream(fin));
-          LOG.info("Loading image file " + curFile +
-              " compressed using codec " + codecClassName);
-        }
-      }
-      if (!isCompressed) {
-        // use buffered input stream
-        in = new DataInputStream(new BufferedInputStream(fin));
-      }
-      */
       
       // read compression related info
       FSImageCompression compression;
@@ -205,6 +171,7 @@ public abstract class FSImageFormat {
         compression = FSImageCompression.createNoopCompression();
       }
       in = compression.unwrapInputStream(fin);
+
       LOG.info("Loading image file " + curFile + " using " + compression);
 
       // read file info

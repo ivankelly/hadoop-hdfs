@@ -24,6 +24,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.io.Closeable;
 import java.net.URI;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -74,7 +75,7 @@ import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
 
-public class FSImage implements StorageListener {
+public class FSImage implements StorageListener, Closeable {
 
   // DELETEME
   // The filenames used for storing the images
@@ -1704,15 +1705,6 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
   }
   */
   
-
-
-
-  public synchronized void close() throws IOException {
-    //getEditLog().close();
-    storage.unlockAll();
-    
-  }
-
   /** FIXME - delete
    * Return the name of the image file.
    */
@@ -1875,4 +1867,7 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
   }  
   */
 
+  public synchronized void close() throws IOException {
+      // does nothing but may want to at some point
+  }
 }

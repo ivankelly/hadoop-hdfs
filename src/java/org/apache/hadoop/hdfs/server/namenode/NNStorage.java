@@ -28,6 +28,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.DataInputStream;
 import java.io.FileInputStream;
+import java.io.Closeable;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -73,7 +74,7 @@ import java.security.MessageDigest;
 import org.apache.hadoop.io.MD5Hash;
 
 
-public class NNStorage extends Storage implements Iterable<StorageDirectory> {
+public class NNStorage extends Storage implements Iterable<StorageDirectory>, Closeable {
   
   public static class LoadDirectory {
     private StorageDirectory directory;
@@ -253,7 +254,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
 	writeCheckpointTime(sd);
       } catch(IOException e) {
 	// Close any edits stream associated with this dir and remove directory
-	LOG.warn("incrementCheckpointTime failed on " + sd.getRoot().getPath() + ";type="+sd.getStorageDirType());
+	LOG.warn("setCheckpointTime failed on " + sd.getRoot().getPath() + ";type="+sd.getStorageDirType());
       }
     }
   }
@@ -514,25 +515,26 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
    */
   public void moveLastCheckpoint(StorageDirectory sd)
   throws IOException {
-    /* FIXME
     File tmpCkptDir = sd.getLastCheckpointTmp();
     File prevCkptDir = sd.getPreviousCheckpoint();
+
     // remove previous.checkpoint
     if (prevCkptDir.exists())
       deleteDir(prevCkptDir);
+    
     // mv lastcheckpoint.tmp -> previous.checkpoint
     if(tmpCkptDir.exists())
-    rename(tmpCkptDir, prevCkptDir);*/
+      rename(tmpCkptDir, prevCkptDir);
   }
 
   
   public File getImageFile(StorageDirectory sd, NameNodeFile type) {
     return new File(sd.getCurrentDir(), type.getName());
-    //return null;
   }
   
   
   public void clearStorageDirectories() throws IOException {
+    close();
     this.storageDirs = new ArrayList<StorageDirectory>();
     this.removedStorageDirs = new ArrayList<StorageDirectory>();
   }
@@ -557,9 +559,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
    */
   public void setStorageDirectories(Collection<URI> fsNameDirs,
 				    Collection<URI> fsEditsDirs) throws IOException {
-
-    this.storageDirs = new ArrayList<StorageDirectory>();
-    this.removedStorageDirs = new ArrayList<StorageDirectory>();
+    clearStorageDirectories();
 
     // Add all name dirs with appropriate NameNodeDirType 
     for (URI dirName : fsNameDirs) {
@@ -1206,7 +1206,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     setLayoutVersion(FSConstants.LAYOUT_VERSION);
     setNamespaceId(newNamespaceID());
     setCTime(0L);
-    setCheckpointTime(now());
 
     for (StorageDirectory sd : this) {
       sd.clearDirectory(); // create currrent dir
@@ -1223,6 +1222,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
       }
       sd.write();
     }
+    setCheckpointTime(now());
   }
 
   
@@ -1246,4 +1246,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory> {
     LOG.info("at the end current list of storage dirs:" + lsd);
   }
 
+  public synchronized void close() throws IOException {
+    unlockAll();
+  }
 }

@@ -92,6 +92,10 @@ public class PersistenceManager implements Closeable {
 
 
   /* Constructor */
+  protected PersistenceManager() {
+    // dummy constructor for accessors
+  }
+
   public PersistenceManager(Configuration conf, NNStorage storage) {
     this.conf = conf;
     this.storage = storage;
@@ -545,7 +549,7 @@ public class PersistenceManager implements Closeable {
 	editlog.open();
       }
     } catch(IOException e) {
-      image.close();
+      storage.close();
       throw e;
     }
   }
@@ -558,6 +562,7 @@ public class PersistenceManager implements Closeable {
   public void close() throws IOException {
     image.close();
     editlog.close();
+    storage.close();
   }
 
   /**

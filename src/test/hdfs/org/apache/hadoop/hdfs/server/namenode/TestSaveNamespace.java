@@ -39,6 +39,8 @@ import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.protocol.FSConstants.SafeModeAction;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
+import org.apache.hadoop.hdfs.server.namenode.persist.PersistenceManagerAccessor;
+
 import org.junit.Test;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
@@ -85,40 +87,58 @@ public class TestSaveNamespace {
     MOVE_LAST_CHECKPOINT
   };
 
+  /**
+     Normal mockito spy doesn't work for NNStorage because of how mockito
+     works. Mockito create a mocked object from the original and does a copy of the data.
+     This means that any object making a object working with the nonmocked object, call into 
+     thin air a lot of the time. An example of this is inner classes, such as StorageDirectory.
+  */
+  private static class FaultyNNStorage extends NNStorage {
+    private Fault fault;
+
+    public FaultyNNStorage(Configuration conf, Fault fault) throws IOException {
+      super(conf);
+      this.fault = fault;
+    }
+
+    public void moveCurrent(StorageDirectory sd) throws IOException {
+      if (fault == Fault.MOVE_CURRENT) {
+	throw new RuntimeException("Injected fault: moveCurrent"); 
+      } else {
+	super.moveCurrent(sd);
+      }
+    }
+
+    public void moveLastCheckpoint(StorageDirectory sd) throws IOException {
+      if (fault == Fault.MOVE_LAST_CHECKPOINT) {
+	throw new RuntimeException("Injected fault: moveLastCheckpoint");
+      } else {
+	super.moveLastCheckpoint(sd);
+      }
+    }
+  }
+
   private void saveNamespaceWithInjectedFault(Fault fault) throws IOException {
     Configuration conf = getConf();
     NameNode.initMetrics(conf, NamenodeRole.ACTIVE);
     NameNode.format(conf);
     
-    throw new IOException("FIXME FIXME FIXME, fix all this code");
-    /*
-    FSNamesystem fsn = new FSNamesystem(conf);
+    NNStorage faultyStorage = new FaultyNNStorage(conf, fault);
+    FSNamesystem fsn = new FSNamesystem(conf, faultyStorage); 
 
     // Replace the FSImage with a spy
-    FSImage originalImage = fsn.dir.fsImage;
+    PersistenceManagerAccessor accessor = new PersistenceManagerAccessor(fsn.getPersistenceManager());
+    FSImage originalImage = accessor.getFSImage();
     FSImage spyImage = spy(originalImage);
-    spyImage.setStorageDirectories(
-        FSNamesystem.getNamespaceDirs(conf), 
-        FSNamesystem.getNamespaceEditsDirs(conf));
-    fsn.dir.fsImage = spyImage;
-
+    faultyStorage.setStorageDirectories(FSNamesystem.getNamespaceDirs(conf), 
+					FSNamesystem.getNamespaceEditsDirs(conf));
+    accessor.setFSImage(spyImage);
+    
     // inject fault
-    switch(fault) {
-    case SAVE_FSIMAGE:
+    if (fault == Fault.SAVE_FSIMAGE) {
       // The spy throws a RuntimeException when writing to the second directory
-      doAnswer(new FaultySaveImage(spyImage)).
+      doAnswer(new FaultySaveImage(originalImage)).
         when(spyImage).saveFSImage((File)anyObject());
-      break;
-    case MOVE_CURRENT:
-      // The spy throws a RuntimeException when calling moveCurrent()
-      doThrow(new RuntimeException("Injected fault: moveCurrent")).
-        when(spyImage).moveCurrent((StorageDirectory)anyObject());
-      break;
-    case MOVE_LAST_CHECKPOINT:
-      // The spy throws a RuntimeException when calling moveLastCheckpoint()
-      doThrow(new RuntimeException("Injected fault: moveLastCheckpoint")).
-        when(spyImage).moveLastCheckpoint((StorageDirectory)anyObject());
-      break;
     }
 
     try {
@@ -139,7 +159,8 @@ public class TestSaveNamespace {
 
       // Start a new namesystem, which should be able to recover
       // the namespace from the previous incarnation.
-      fsn = new FSNamesystem(conf);
+      faultyStorage = new NNStorage(conf);
+      fsn = new FSNamesystem(conf, faultyStorage);
 
       // Make sure the image loaded including our edit.
       checkEditExists(fsn, 1);
@@ -147,7 +168,7 @@ public class TestSaveNamespace {
       if (fsn != null) {
         fsn.close();
       }
-      }*/
+    }
   }
 
   @Test
@@ -167,12 +188,13 @@ public class TestSaveNamespace {
 
   @Test
   public void testSaveWhileEditsRolled() throws Exception {
-    Configuration conf = getConf();
-    NameNode.initMetrics(conf, NamenodeRole.ACTIVE);
-    NameNode.format(conf);
 
     throw new IOException("FIXME FIXME FIXME, fix all this code");
     /*
+          Configuration conf = getConf();
+    NameNode.initMetrics(conf, NamenodeRole.ACTIVE);
+    NameNode.format(conf);
+
     FSNamesystem fsn = new FSNamesystem(conf);
 
     // Replace the FSImage with a spy
