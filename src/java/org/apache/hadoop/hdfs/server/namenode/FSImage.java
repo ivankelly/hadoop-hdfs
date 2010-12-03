@@ -1546,17 +1546,6 @@ int DELETEMEloadFSEdits(StorageDirectory sd) throws IOException {
     */
 
 
-    // mv lastcheckpoint.tmp -> previous.checkpoint
-    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
-      StorageDirectory sd = it.next();
-      try {
-        storage.moveLastCheckpoint(sd);
-      } catch(IOException ie) {
-        LOG.error("Unable to move last checkpoint for " + sd.getRoot(), ie);
-        errorSDs.add(sd);
-      }
-    }
-    processIOError(errorSDs);
     /* TODELETE
     if(!editLog.isOpen()) editLog.open();
     */

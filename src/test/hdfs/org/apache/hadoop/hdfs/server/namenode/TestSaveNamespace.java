@@ -188,22 +188,12 @@ public class TestSaveNamespace {
 
   @Test
   public void testSaveWhileEditsRolled() throws Exception {
-
-    throw new IOException("FIXME FIXME FIXME, fix all this code");
-    /*
-          Configuration conf = getConf();
+    Configuration conf = getConf();
     NameNode.initMetrics(conf, NamenodeRole.ACTIVE);
     NameNode.format(conf);
 
-    FSNamesystem fsn = new FSNamesystem(conf);
-
-    // Replace the FSImage with a spy
-    final FSImage originalImage = fsn.dir.fsImage;
-    FSImage spyImage = spy(originalImage);
-    spyImage.setStorageDirectories(
-        FSNamesystem.getNamespaceDirs(conf), 
-        FSNamesystem.getNamespaceEditsDirs(conf));
-    fsn.dir.fsImage = spyImage;
+    NNStorage storage = new NNStorage(conf);
+    FSNamesystem fsn = new FSNamesystem(conf, storage);
 
     try {
       doAnEdit(fsn, 1);
@@ -217,13 +207,13 @@ public class TestSaveNamespace {
       fsn.saveNamespace();
 
       // Now shut down and restart the NN
-      originalImage.close();
       fsn.close();
       fsn = null;
 
       // Start a new namesystem, which should be able to recover
       // the namespace from the previous incarnation.
-      fsn = new FSNamesystem(conf);
+      storage = new NNStorage(conf);
+      fsn = new FSNamesystem(conf, storage);
 
       // Make sure the image loaded including our edits.
       checkEditExists(fsn, 1);
@@ -232,7 +222,7 @@ public class TestSaveNamespace {
       if (fsn != null) {
         fsn.close();
       }
-      }*/
+    }
   }
 
   private void doAnEdit(FSNamesystem fsn, int id) throws IOException {

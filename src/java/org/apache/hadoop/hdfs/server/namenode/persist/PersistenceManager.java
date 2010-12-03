@@ -469,6 +469,16 @@ public class PersistenceManager implements Closeable {
 
     image.saveNamespace(true);
     editlog.createEditLogFiles();
+
+    // mv lastcheckpoint.tmp -> previous.checkpoint
+    for (StorageDirectory sd : storage) {
+      try {
+        storage.moveLastCheckpoint(sd);
+      } catch(IOException ie) {
+	  LOG.error("Unable to move last checkpoint for " + sd.getRoot(), ie);
+	  storage.errorDirectory(sd);
+      }
+    }
     
     if(!editlog.isOpen()) {
       editlog.open();
