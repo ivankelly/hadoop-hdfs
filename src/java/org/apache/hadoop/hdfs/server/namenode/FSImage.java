@@ -581,9 +581,7 @@ public class FSImage implements StorageListener, Closeable {
     return needToSave;
   }*/
 
-  public void doUpgrade() throws IOException {
-    
-    
+  public void upgrade() throws IOException {
     // Do upgrade for each directory
     long oldCTime = storage.getCTime();
     storage.cTime = now();  // generate new cTime for the state
@@ -608,8 +606,7 @@ public class FSImage implements StorageListener, Closeable {
       // rename current to tmp
       NNStorage.rename(curDir, tmpDir);
       // save new image
-      //storage.saveCurrent(sd);
-      saveFSImage(getImageFile(sd, NameNodeFile.IMAGE));
+      saveCurrentImageToDirectory(sd);
       
       // rename tmp to previous
       NNStorage.rename(tmpDir, prevDir);
@@ -617,8 +614,6 @@ public class FSImage implements StorageListener, Closeable {
       isUpgradeFinalized = false;
       LOG.info("Upgrade of " + sd.getRoot() + " is complete.");
     }
-    //initializeDistributedUpgrade();
-    //editLog.open();
   }
   
   /*
@@ -692,7 +687,7 @@ public class FSImage implements StorageListener, Closeable {
   
   public void doRollback() throws IOException {
     
-    storage.doRollback();
+      //storage.doRollback();
     
     /* Move somewhere else
     // Rollback is allowed only if there is 
@@ -780,7 +775,7 @@ public class FSImage implements StorageListener, Closeable {
   void finalizeUpgrade() throws IOException {
     for (Iterator<StorageDirectory> it = 
                           storage.dirIterator(); it.hasNext();) {
-      storage.doFinalize(it.next());
+	//storage.doFinalize(it.next());
     }
   }
 

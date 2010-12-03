@@ -338,12 +338,19 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
       
       this.persistenceManager = new PersistenceManager(conf, storage);
       this.persistenceManager.setNamesystem(this);
-      this.persistenceManager.load();
+      if (startOpt == StartupOption.UPGRADE) {
+        this.persistenceManager.upgrade();
+      }
+      boolean needsave = this.persistenceManager.load();
 
       long timeTakenToLoadFSImage = now() - systemStart;
       LOG.info("Finished loading FSImage in " + timeTakenToLoadFSImage + " msecs");
       NameNode.getNameNodeMetrics().fsImageLoadTime.set(
                                 (int) timeTakenToLoadFSImage);
+
+      if (needsave) {
+        this.persistenceManager.save();
+      }
     } else {
       this.persistenceManager = persistenceManager;
       this.persistenceManager.setNamesystem(this);
@@ -354,7 +361,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
 
     this.safeMode = new SafeModeInfo(conf);
     this.hostsReader = new HostsFileReader(conf.get("dfs.hosts",""),
-					   conf.get("dfs.hosts.exclude",""));
+                                           conf.get("dfs.hosts.exclude",""));
     if (isBlockTokenEnabled) {
       blockTokenSecretManager = new BlockTokenSecretManager(true,
           blockKeyUpdateInterval, blockTokenLifetime);
@@ -4253,8 +4260,8 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     writeLock();
     try {
       if (isInSafeMode()) {
-	throw new SafeModeException("Checkpoint not created",
-				    safeMode);
+        throw new SafeModeException("Checkpoint not created",
+                                    safeMode);
       }
       LOG.info("Roll Edit Log from " + Server.getRemoteAddress());
       return persistenceManager.rollEditLog();
@@ -5178,7 +5185,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
 
   @Override // NameNodeMXBean
   public boolean isUpgradeFinalized() {
-    return storage.isUpgradeFinalized();
+    return persistenceManager.isUpgradeFinalized();
   }
 
   @Override // NameNodeMXBean

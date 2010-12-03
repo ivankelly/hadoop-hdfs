@@ -124,8 +124,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory>, Cl
 
   static final String MESSAGE_DIGEST_PROPERTY = "imageMD5Digest";
   
-  private boolean isUpgradeFinalized = false;
-  
   // 
   // The filenames used for storing the images
   //
@@ -902,8 +900,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory>, Cl
       }
   }
 
-
-
   private void verifyDistributedUpgradeProgress(StartupOption startOpt) throws IOException {
     if(startOpt == StartupOption.ROLLBACK || startOpt == StartupOption.IMPORT)
       return;
@@ -1067,96 +1063,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory>, Cl
   /*
    * 
    */
-  boolean isUpgradeFinalized() {
-    return isUpgradeFinalized;
-  }
-  
-  
-  public void doFinalize(StorageDirectory sd) throws IOException {
-    
-    File prevDir = sd.getPreviousDir();
-    if (!prevDir.exists()) { // already discarded
-      LOG.info("Directory " + prevDir + " does not exist.");
-      LOG.info("Finalize upgrade for " + sd.getRoot()+ " is not required.");
-      return;
-    }
-    LOG.info("Finalizing upgrade for storage directory " 
-             + sd.getRoot() + "."
-             + (getLayoutVersion()==0 ? "" :
-                   "\n   cur LV = " + this.getLayoutVersion()
-                   + "; cur CTime = " + this.getCTime()));
-    assert sd.getCurrentDir().exists() : "Current directory must exist.";
-    final File tmpDir = sd.getFinalizedTmp();
-    // rename previous to tmp and remove
-    rename(prevDir, tmpDir);
-    deleteDir(tmpDir);
-    isUpgradeFinalized = true;
-    LOG.info("Finalize upgrade for " + sd.getRoot()+ " is complete.");
- 
-  }
-  
-
-  public void doRollback() throws IOException {
-    //FIXME
-    
-    //Move somewhere else
-    // Rollback is allowed only if there is 
-    // a previous fs states in at least one of the storage directories.
-    // Directories that don't have previous state do not rollback
-    
-    boolean canRollback = false;
-    Configuration conf = new HdfsConfiguration();
-    NNStorage storage = new NNStorage(conf);
-    FSImage prevState = new FSImage(conf,storage);
-    prevState.storage.layoutVersion = FSConstants.LAYOUT_VERSION;
-    for (Iterator<StorageDirectory> it = 
-                       dirIterator(); it.hasNext();) {
-      StorageDirectory sd = it.next();
-      File prevDir = sd.getPreviousDir();
-      if (!prevDir.exists()) {  // use current directory then
-        LOG.info("Storage directory " + sd.getRoot()
-                 + " does not contain previous fs state.");
-        sd.read(); // read and verify consistency with other directories
-        continue;
-      }
-      StorageDirectory sdPrev = prevState.storage.new StorageDirectory(sd.getRoot());
-      sdPrev.read(sdPrev.getPreviousVersionFile());  // read and verify consistency of the prev dir
-      canRollback = true;
-    }
-    if (!canRollback)
-      throw new IOException("Cannot rollback. " 
-                            + "None of the storage directories contain previous fs state.");
-
-    // Now that we know all directories are going to be consistent
-    // Do rollback for each directory containing previous state
-    for (Iterator<StorageDirectory> it = 
-                          dirIterator(); it.hasNext();) {
-      StorageDirectory sd = it.next();
-      File prevDir = sd.getPreviousDir();
-      if (!prevDir.exists())
-        continue;
-
-      LOG.info("Rolling back storage directory " + sd.getRoot()
-               + ".\n   new LV = " + prevState.storage.getLayoutVersion()
-               + "; new CTime = " + prevState.storage.getCTime());
-      File tmpDir = sd.getRemovedTmp();
-      assert !tmpDir.exists() : "removed.tmp directory must not exist.";
-      // rename current to tmp
-      File curDir = sd.getCurrentDir();
-      assert curDir.exists() : "Current directory must exist.";
-      rename(curDir, tmpDir);
-      // rename previous to current
-      rename(prevDir, curDir);
-
-      // delete tmp dir
-      deleteDir(tmpDir);
-      LOG.info("Rollback of " + sd.getRoot()+ " is complete.");
-    }
-    isUpgradeFinalized = true;
-    // check whether name-node can start in regular mode
-    verifyDistributedUpgradeProgress(StartupOption.REGULAR);
-    
-  }
   
   public List<StorageDirectory> getRemovedStorageDirs() {
     return removedStorageDirs;

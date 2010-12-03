@@ -1897,10 +1897,8 @@ public class FSEditLog implements StorageListener {
   }
   
   
-  public void doUpgrade() throws IOException {
-    
-    this.createEditLogFiles();
-    this.open();
+  public void upgrade() throws IOException {
+    // do nothing for now
   }
 
   /**

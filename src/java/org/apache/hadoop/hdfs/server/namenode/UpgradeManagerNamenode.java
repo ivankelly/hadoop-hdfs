@@ -123,7 +123,7 @@ public class UpgradeManagerNamenode extends UpgradeManager {
                                   (UpgradeAction action) throws IOException {
     boolean isFinalized = false;
     if(currentUpgrades == null) { // no upgrades are in progress
-      isFinalized = storage.isUpgradeFinalized();
+      isFinalized = namesystem.getPersistenceManager().isUpgradeFinalized();
       if(isFinalized) // upgrade is finalized
         return null;  // nothing to report
       return new UpgradeStatusReport(storage.getLayoutVersion(), 

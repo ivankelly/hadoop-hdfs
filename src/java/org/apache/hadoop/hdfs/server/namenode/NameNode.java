@@ -1266,7 +1266,7 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     }
 
     namesystem.processReport(nodeReg, blist);
-    if (storage.isUpgradeFinalized())
+    if (namesystem.getPersistenceManager().isUpgradeFinalized())
       return DatanodeCommand.FINALIZE;
     return null;
   }

@@ -82,6 +82,9 @@ public class PersistenceManager implements Closeable {
   protected NNStorage storage;
   protected FSNamesystem namesystem;
 
+  private boolean isUpgradeFinalized = false;
+  
+
   /**
    * Can fs-image be rolled?
    */
@@ -397,8 +400,6 @@ public class PersistenceManager implements Closeable {
      Implement functionallity used by the command line options
   */
   public void upgrade() throws IOException {
-    storage.initializeDirectories( getStartupOption() );
-
     if(getDistributedUpgradeState()) {
       // only distributed upgrade need to continue
       // don't do version upgrade
@@ -406,34 +407,37 @@ public class PersistenceManager implements Closeable {
       initializeDistributedUpgrade();
       return;
     }
-
-
-    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
-      StorageDirectory sd = it.next();
-      if (sd.getPreviousDir().exists())
-        throw new InconsistentFSStateException(sd.getRoot(),
-                           "previous fs state should not exist during upgrade. "
-                           + "Finalize or rollback first.");
-    }
     
     this.load();
-    //FIXMEstorage.doUpgrade();
+
+    for (StorageDirectory sd : storage) {
+      if (sd.getPreviousDir().exists())
+        throw new InconsistentFSStateException(sd.getRoot(),
+					       "previous fs state should not exist during upgrade. "
+					       + "Finalize or rollback first.");
+    }
+
+    editlog.close();
+    storage.close();
+
+    assert !editlog.isOpen();
+
+    image.upgrade();
+    editlog.upgrade();
+
     editlog.createEditLogFiles();
-    
-    //image.doUpgrade();
-    //editlog.doUpgrade();
-    
+    editlog.open();
+
+    isUpgradeFinalized = false;
+
     initializeDistributedUpgrade();
-    
   }
   
-  
-
   private void initializeDistributedUpgrade() throws IOException {
-    
     UpgradeManagerNamenode um = namesystem.getUpgradeManager();
     if(! um.initializeUpgrade())
       return;
+
     // write new upgrade state into disk
     storage.writeAll();
     NameNode.LOG.info("\n   Distributed upgrade for NameNode version " 
@@ -446,7 +450,7 @@ public class PersistenceManager implements Closeable {
   public void rollback() throws IOException {
     storage.initializeDirectories( getStartupOption() );
     
-    storage.doRollback();
+    //storage.doRollback();
     
   }
 
@@ -475,8 +479,8 @@ public class PersistenceManager implements Closeable {
       try {
         storage.moveLastCheckpoint(sd);
       } catch(IOException ie) {
-	  LOG.error("Unable to move last checkpoint for " + sd.getRoot(), ie);
-	  storage.errorDirectory(sd);
+          LOG.error("Unable to move last checkpoint for " + sd.getRoot(), ie);
+          storage.errorDirectory(sd);
       }
     }
     
@@ -490,13 +494,16 @@ public class PersistenceManager implements Closeable {
   /**
      Load the latest version of the FSNameSystem from disk
      w Interfaces
+     
+     @return Whether the save should be called soon
   */
-  public void load() throws IOException {
+  public boolean load() throws IOException {
+    boolean needToSave = false;
+
     try {
       // FIXME where do i get the dataDirs? editsDirs? should recoverTransitionRead even be a method
       storage.initializeDirectories( getStartupOption() );
 
-      boolean needToSave = false;
       assert editlog != null : "editLog must be initialized";
       NNStorage.LoadDirectory imagedir = image.findLatestImageDirectory();
       NNStorage.LoadDirectory editsdir = editlog.findLatestEditsDirectory();
@@ -549,10 +556,6 @@ public class PersistenceManager implements Closeable {
 	needToSave |= editlog.loadEdits(editsdir.getDirectory()) > 0;
       }
 
-      if (needToSave) {
-	save();
-      }
-
       image.setCheckpointDirectories(null, null);
       
       if (!editlog.isOpen()) {
@@ -562,6 +565,7 @@ public class PersistenceManager implements Closeable {
       storage.close();
       throw e;
     }
+    return needToSave;
   }
   
   public FSEditLog getLog() {
@@ -603,5 +607,96 @@ public class PersistenceManager implements Closeable {
   
   public NNStorage getStorage() {
     return storage;
+  }
+
+  public boolean isUpgradeFinalized() {
+    return isUpgradeFinalized;
+  }
+  
+  
+  public void doFinalize(StorageDirectory sd) throws IOException {
+    /*
+    File prevDir = sd.getPreviousDir();
+    if (!prevDir.exists()) { // already discarded
+      LOG.info("Directory " + prevDir + " does not exist.");
+      LOG.info("Finalize upgrade for " + sd.getRoot()+ " is not required.");
+      return;
+    }
+    LOG.info("Finalizing upgrade for storage directory " 
+             + sd.getRoot() + "."
+             + (storage.getLayoutVersion()==0 ? "" :
+                   "\n   cur LV = " + this.getLayoutVersion()
+                   + "; cur CTime = " + this.getCTime()));
+    assert sd.getCurrentDir().exists() : "Current directory must exist.";
+    final File tmpDir = sd.getFinalizedTmp();
+    // rename previous to tmp and remove
+    rename(prevDir, tmpDir);
+    deleteDir(tmpDir);
+    isUpgradeFinalized = true;
+    LOG.info("Finalize upgrade for " + sd.getRoot()+ " is complete.");
+    */
+  }
+  
+
+  public void doRollback() throws IOException {
+    //FIXME
+    
+    //Move somewhere else
+    // Rollback is allowed only if there is 
+    // a previous fs states in at least one of the storage directories.
+    // Directories that don't have previous state do not rollback
+    /*
+    boolean canRollback = false;
+    Configuration conf = new HdfsConfiguration();
+    NNStorage storage = new NNStorage(conf);
+    FSImage prevState = new FSImage(conf,storage);
+    prevState.storage.layoutVersion = FSConstants.LAYOUT_VERSION;
+    for (Iterator<StorageDirectory> it = 
+                       dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
+      File prevDir = sd.getPreviousDir();
+      if (!prevDir.exists()) {  // use current directory then
+        LOG.info("Storage directory " + sd.getRoot()
+                 + " does not contain previous fs state.");
+        sd.read(); // read and verify consistency with other directories
+        continue;
+      }
+      StorageDirectory sdPrev = prevState.storage.new StorageDirectory(sd.getRoot());
+      sdPrev.read(sdPrev.getPreviousVersionFile());  // read and verify consistency of the prev dir
+      canRollback = true;
+    }
+    if (!canRollback)
+      throw new IOException("Cannot rollback. " 
+                            + "None of the storage directories contain previous fs state.");
+
+    // Now that we know all directories are going to be consistent
+    // Do rollback for each directory containing previous state
+    for (Iterator<StorageDirectory> it = 
+                          dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
+      File prevDir = sd.getPreviousDir();
+      if (!prevDir.exists())
+        continue;
+
+      LOG.info("Rolling back storage directory " + sd.getRoot()
+               + ".\n   new LV = " + prevState.storage.getLayoutVersion()
+               + "; new CTime = " + prevState.storage.getCTime());
+      File tmpDir = sd.getRemovedTmp();
+      assert !tmpDir.exists() : "removed.tmp directory must not exist.";
+      // rename current to tmp
+      File curDir = sd.getCurrentDir();
+      assert curDir.exists() : "Current directory must exist.";
+      rename(curDir, tmpDir);
+      // rename previous to current
+      rename(prevDir, curDir);
+
+      // delete tmp dir
+      deleteDir(tmpDir);
+      LOG.info("Rollback of " + sd.getRoot()+ " is complete.");
+    }
+    isUpgradeFinalized = true;
+    // check whether name-node can start in regular mode
+    verifyDistributedUpgradeProgress(StartupOption.REGULAR);
+    */
   }
 }
