@@ -1896,8 +1896,11 @@ public class FSEditLog implements StorageListener {
     return numEdits;
   }
   
-  
   public void upgrade() throws IOException {
+    // do nothing for now
+  }
+
+  public void rollback() throws IOException {
     // do nothing for now
   }
 

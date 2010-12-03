@@ -876,8 +876,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory>, Cl
            "\nFile system image contains an old layout version " + layoutVersion
          + ".\nAn upgrade to version " + FSConstants.LAYOUT_VERSION
          + " is required.\nPlease restart NameNode with -upgrade option.");
-    // check whether distributed upgrade is reguired and/or should be continued
-    verifyDistributedUpgradeProgress(startOpt);
 
     // 2. Format unformatted dirs.
     this.checkpointTime = 0L;
@@ -898,23 +896,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory>, Cl
         break;
       }
       }
-  }
-
-  private void verifyDistributedUpgradeProgress(StartupOption startOpt) throws IOException {
-    if(startOpt == StartupOption.ROLLBACK || startOpt == StartupOption.IMPORT)
-      return;
-    UpgradeManager um = getFSNamesystem().upgradeManager;
-    assert um != null : "FSNameSystem.upgradeManager is null.";
-    if(startOpt != StartupOption.UPGRADE) {
-      if(um.getUpgradeState())
-        throw new IOException(
-            "\n   Previous distributed upgrade was not completed. "
-            + "\n   Please restart NameNode with -upgrade option.");
-      if(um.getDistributedUpgrades() != null)
-        throw new IOException("\n   Distributed upgrade for NameNode version " 
-            + um.getUpgradeVersion() + " to current LV " + FSConstants.LAYOUT_VERSION
-            + " is required.\n   Please restart NameNode with -upgrade option.");
-    }
   }
   
   public boolean recoverInterruptedCheckpoint(StorageDirectory nameSD,

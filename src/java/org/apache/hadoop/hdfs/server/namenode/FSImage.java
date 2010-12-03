@@ -534,7 +534,7 @@ public class FSImage implements StorageListener, Closeable {
          + ".\nAn upgrade to version " + FSConstants.LAYOUT_VERSION
          + " is required.\nPlease restart NameNode with -upgrade option.");
     // check whether distributed upgrade is reguired and/or should be continued
-    verifyDistributedUpgradeProgress(startOpt);
+    //verifyDistributedUpgradeProgress(startOpt);
 
     // 2. Format unformatted dirs.
     this.checkpointTime = 0L;
@@ -588,9 +588,7 @@ public class FSImage implements StorageListener, Closeable {
     int oldLV = storage.getLayoutVersion();
     storage.layoutVersion = FSConstants.LAYOUT_VERSION;
     storage.checkpointTime = now();
-    for (Iterator<StorageDirectory> it = 
-                           storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
-      StorageDirectory sd = it.next();
+    for (StorageDirectory sd : storage.iterable(NameNodeDirType.IMAGE)) {
       LOG.info("Upgrading image directory " + sd.getRoot()
                + ".\n   old LV = " + oldLV
                + "; old CTime = " + oldCTime
@@ -604,18 +602,45 @@ public class FSImage implements StorageListener, Closeable {
       assert !tmpDir.exists() : "prvious.tmp directory must not exist.";
       //assert !editLog.isOpen() : "Edits log must not be open.";
       // rename current to tmp
-      NNStorage.rename(curDir, tmpDir);
+      storage.rename(curDir, tmpDir);
       // save new image
       saveCurrentImageToDirectory(sd);
       
       // rename tmp to previous
-      NNStorage.rename(tmpDir, prevDir);
+      storage.rename(tmpDir, prevDir);
       
       isUpgradeFinalized = false;
       LOG.info("Upgrade of " + sd.getRoot() + " is complete.");
     }
   }
-  
+
+  public void rollback() throws IOException {
+    // Now that we know all directories are going to be consistent
+    // Do rollback for each directory containing previous state
+    for (StorageDirectory sd : storage) {
+      File prevDir = sd.getPreviousDir();
+      if (!prevDir.exists())
+        continue;
+      
+      LOG.info("Rolling back storage directory " + sd.getRoot()
+               + ".\n   new LV = " + storage.getLayoutVersion()
+               + "; new CTime = " + storage.getCTime());
+      File tmpDir = sd.getRemovedTmp();
+      assert !tmpDir.exists() : "removed.tmp directory must not exist.";
+      // rename current to tmp
+      File curDir = sd.getCurrentDir();
+      assert curDir.exists() : "Current directory must exist.";
+      storage.rename(curDir, tmpDir);
+      // rename previous to current
+      storage.rename(prevDir, curDir);
+
+      // delete tmp dir
+      storage.deleteDir(tmpDir);
+      LOG.info("Rollback of " + sd.getRoot()+ " is complete.");
+    }
+
+  }
+
   /*
   public void doUpgrade() throws IOException {
        
@@ -741,7 +766,7 @@ public class FSImage implements StorageListener, Closeable {
     }
     isUpgradeFinalized = true;
     // check whether name-node can start in regular mode
-    verifyDistributedUpgradeProgress(StartupOption.REGULAR);
+    //verifyDistributedUpgradeProgress(StartupOption.REGULAR);
     */
 
   }

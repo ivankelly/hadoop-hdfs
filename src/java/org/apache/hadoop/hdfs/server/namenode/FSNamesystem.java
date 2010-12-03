@@ -340,7 +340,10 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
       this.persistenceManager.setNamesystem(this);
       if (startOpt == StartupOption.UPGRADE) {
         this.persistenceManager.upgrade();
+      } else if (startOpt == StartupOption.ROLLBACK) {
+        this.persistenceManager.rollback();
       }
+
       boolean needsave = this.persistenceManager.load();
 
       long timeTakenToLoadFSImage = now() - systemStart;
