@@ -529,6 +529,16 @@ public class PersistenceManager implements Closeable {
     assert editlog != null : "editLog must be initialized";
     editlog.close();
 
+    // mv current -> lastcheckpoint.tmp
+    for (StorageDirectory sd : storage) { 
+      try {
+        storage.moveCurrent(sd);
+      } catch(IOException ie) {
+        LOG.error("Unable to move current for " + sd.getRoot(), ie);
+        storage.errorDirectory(sd);
+      }
+    }
+
     image.saveNamespace(true);
     editlog.createEditLogFiles();
 
@@ -674,30 +684,4 @@ public class PersistenceManager implements Closeable {
   public boolean isUpgradeFinalized() {
     return isUpgradeFinalized;
   }
-  
-  
-  public void doFinalize(StorageDirectory sd) throws IOException {
-    /*
-    File prevDir = sd.getPreviousDir();
-    if (!prevDir.exists()) { // already discarded
-      LOG.info("Directory " + prevDir + " does not exist.");
-      LOG.info("Finalize upgrade for " + sd.getRoot()+ " is not required.");
-      return;
-    }
-    LOG.info("Finalizing upgrade for storage directory " 
-             + sd.getRoot() + "."
-             + (storage.getLayoutVersion()==0 ? "" :
-                   "\n   cur LV = " + this.getLayoutVersion()
-                   + "; cur CTime = " + this.getCTime()));
-    assert sd.getCurrentDir().exists() : "Current directory must exist.";
-    final File tmpDir = sd.getFinalizedTmp();
-    // rename previous to tmp and remove
-    rename(prevDir, tmpDir);
-    deleteDir(tmpDir);
-    isUpgradeFinalized = true;
-    LOG.info("Finalize upgrade for " + sd.getRoot()+ " is complete.");
-    */
-  }
-  
-
 }

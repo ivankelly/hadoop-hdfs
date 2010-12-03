@@ -265,18 +265,13 @@ public class FSEditLog implements StorageListener {
     eStream.close();
   }
 
-  
-  
   synchronized public void createEditLogFiles() throws IOException {
-    
-
     for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
         StorageDirectory sd = it.next();
         //waitForSyncToFinish();
         createEditLogFile(storage.getImageFile(sd, NameNodeFile.EDITS));
+	sd.write();
     } 
-    
-
   }
   
   /**
@@ -1943,5 +1938,13 @@ public class FSEditLog implements StorageListener {
       createEditLogFile(storage.getImageFile(sd, NameNodeFile.EDITS));
     }
   };
+  
+  @Override
+  public synchronized void directoryAvailable(StorageDirectory sd) throws IOException {
+    if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
+      File eFile = getEditFile(sd);
+      addNewEditLogStream(eFile);
+    }
+  }
 
 }

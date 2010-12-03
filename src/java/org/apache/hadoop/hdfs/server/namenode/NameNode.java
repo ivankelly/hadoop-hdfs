@@ -1088,7 +1088,7 @@ public class NameNode implements NamenodeProtocols, FSConstants {
    * @inheritDoc
    */
   public void saveNamespace() throws IOException {
-    namesystem.saveNamespace();
+    namesystem.getPersistenceManager().save();
   }
 
   /**
@@ -1333,26 +1333,6 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     if (version != LAYOUT_VERSION)
       throw new IncorrectVersionException(version, "data node");
   }
-
-  /**
-   * Returns the name of the fsImage file
-   */
-  /*DELETEME
-public File getFsImageName() throws IOException {
-    return getFSImage().getFsImageName();
-  }
-    
-  public FSImage getFSImage() {
-    return namesystem.dir.fsImage;
-    }
-
-  /*
-   * Returns the name of the fsImage file uploaded by periodic
-   * checkpointing
-   *
-  public File[] getFsImageNameCheckpoint() throws IOException {
-    return getFSImage().getFsImageNameCheckpoint();
-  }*/
 
   /**
    * Returns the address on which the NameNodes is listening to.

@@ -102,6 +102,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory>, Cl
   public interface StorageListener {
     public void errorOccurred(StorageDirectory sd) throws IOException;
     public void formatOccurred(StorageDirectory sd) throws IOException;
+    public void directoryAvailable(StorageDirectory sd) throws IOException;
   }
 
   private Configuration conf;
@@ -708,38 +709,30 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory>, Cl
    */
   // TODO
   synchronized void attemptRestoreRemovedStorage() {
-    
     // if directory is "alive" - copy the images there...
     if (!restoreFailedStorage || removedStorageDirs.size() == 0)
       return; // nothing to restore
 
     LOG.info("FSImage.attemptRestoreRemovedStorage: check removed(failed) "
-        + "storarge. removedStorages size = "
-        + removedStorageDirs.size());
-    for (Iterator<StorageDirectory> it = this.removedStorageDirs.iterator(); 
-          it.hasNext();) {
-      StorageDirectory sd = it.next();
+             + "storarge. removedStorages size = "
+             + removedStorageDirs.size());
+    for (StorageDirectory sd : this.removedStorageDirs) {
       File root = sd.getRoot();
       LOG.info("currently disabled dir " + root.getAbsolutePath()
           + "; type=" + sd.getStorageDirType() + ";canwrite="
                    + root.canWrite());
       try {
         if (root.exists() && root.canWrite()) {
-          
-	  /* FIXME: restoration requires writing the current image. This isn't quite right.
-	     in any case we need some way to write an image, without polluting NNStorage with knowledge of FSImage
-	     
-	     some sort of callbacking would be nice (similar to error handling)
-	    format(sd);
-	  */
+          format(sd);
 	  
 	  LOG.info("restoring dir " + sd.getRoot().getAbsolutePath());
-          /*if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-            File eFile = getEditFile(sd);
-            editLog.addNewEditLogStream(eFile);
-          }*/
+          
+          for (StorageListener listener : listeners) {
+            listener.directoryAvailable(sd);
+          }
+
           this.addStorageDir(sd); // restore
-          it.remove();
+          this.removedStorageDirs.remove(sd);
           }
 	throw new IOException("Sort out FIXME at this point in the code.");
         } catch (IOException e) {
@@ -1089,25 +1082,29 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory>, Cl
     listeners.add(sel);
   }
   
+  public void format(StorageDirectory sd) throws IOException {
+    sd.clearDirectory(); // create currrent dir
+    
+    File curDir = sd.getCurrentDir();
+    
+    // save new image or new edits
+    if (!curDir.exists() && !curDir.mkdir()) {
+      throw new IOException("Cannot create directory " + curDir);
+    }
+    
+    for (StorageListener listener : listeners) {
+      listener.formatOccurred(sd);
+    }
+    sd.write();
+  }
+
   public void format() throws IOException {
     setLayoutVersion(FSConstants.LAYOUT_VERSION);
     setNamespaceId(newNamespaceID());
     setCTime(0L);
 
     for (StorageDirectory sd : this) {
-      sd.clearDirectory(); // create currrent dir
-
-      File curDir = sd.getCurrentDir();
-
-      // save new image or new edits
-      if (!curDir.exists() && !curDir.mkdir()) {
-	throw new IOException("Cannot create directory " + curDir);
-      }
-
-      for (StorageListener listener : listeners) {
-	listener.formatOccurred(sd);
-      }
-      sd.write();
+	format(sd);
     }
     setCheckpointTime(now());
   }
