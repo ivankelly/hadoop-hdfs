@@ -638,7 +638,28 @@ public class FSImage implements StorageListener, Closeable {
       storage.deleteDir(tmpDir);
       LOG.info("Rollback of " + sd.getRoot()+ " is complete.");
     }
+  }
 
+  public void finalizeUpgrade() throws IOException {
+    for (StorageDirectory sd : storage) {
+      File prevDir = sd.getPreviousDir();
+      if (!prevDir.exists()) { // already discarded
+        LOG.info("Directory " + prevDir + " does not exist.");
+        LOG.info("Finalize upgrade for " + sd.getRoot()+ " is not required.");
+        return;
+      }
+      LOG.info("Finalizing upgrade for storage directory " 
+               + sd.getRoot() + "."
+               + (storage.getLayoutVersion()==0 ? "" :
+                  "\n   cur LV = " + storage.getLayoutVersion()
+                  + "; cur CTime = " + storage.getCTime()));
+      assert sd.getCurrentDir().exists() : "Current directory must exist.";
+      final File tmpDir = sd.getFinalizedTmp();
+      // rename previous to tmp and remove
+      storage.rename(prevDir, tmpDir);
+      storage.deleteDir(tmpDir);
+      LOG.info("Finalize upgrade for " + sd.getRoot()+ " is complete.");
+    }
   }
 
   /*
@@ -796,13 +817,6 @@ public class FSImage implements StorageListener, Closeable {
    
   } */
 
-
-  void finalizeUpgrade() throws IOException {
-    for (Iterator<StorageDirectory> it = 
-                          storage.dirIterator(); it.hasNext();) {
-	//storage.doFinalize(it.next());
-    }
-  }
 
   boolean isUpgradeFinalized() {
     return isUpgradeFinalized;

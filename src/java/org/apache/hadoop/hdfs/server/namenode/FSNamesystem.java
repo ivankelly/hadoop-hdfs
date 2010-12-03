@@ -3665,11 +3665,6 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     }
   }
     
-  void finalizeUpgrade() throws IOException {
-    checkSuperuserPrivilege();
-    persistenceManager.finalizeUpgrade();
-  }
-
   /**
    * Checks if the node is not on the hosts list.  If it is not, then
    * it will be ignored.  If the node is in the hosts list, but is also 
@@ -4386,7 +4381,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     return checkPermission(path, false, null, null, null, null);
   }
 
-  private void checkSuperuserPrivilege() throws AccessControlException {
+  public void checkSuperuserPrivilege() throws AccessControlException {
     if (isPermissionEnabled) {
       FSPermissionChecker.checkSuperuserPrivilege(fsOwner, supergroup);
     }

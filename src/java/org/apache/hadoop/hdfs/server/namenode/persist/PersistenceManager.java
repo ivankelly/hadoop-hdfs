@@ -471,7 +471,20 @@ public class PersistenceManager implements Closeable {
     // check whether name-node can start in regular mode
     verifyDistributedUpgradeProgress(StartupOption.REGULAR);
   }
-  
+
+  public void finalizeUpgrade() throws IOException {
+    namesystem.checkSuperuserPrivilege();
+
+    editlog.close();
+    storage.close();
+    assert !editlog.isOpen();
+
+    image.finalizeUpgrade();
+    editlog.finalizeUpgrade();
+    
+    isUpgradeFinalized = true;
+  }
+
   private void initializeDistributedUpgrade() throws IOException {
     UpgradeManagerNamenode um = namesystem.getUpgradeManager();
     if(! um.initializeUpgrade())
@@ -502,10 +515,6 @@ public class PersistenceManager implements Closeable {
     }
   }
 
-
-  public  void finalizeUpgrade() throws IOException  {
-    
-  }
 
   /*  public void format() throws IOException { 
     storage.initializeDirectories( getStartupOption() );

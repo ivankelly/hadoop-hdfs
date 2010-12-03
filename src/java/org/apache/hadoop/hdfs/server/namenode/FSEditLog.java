@@ -1904,6 +1904,10 @@ public class FSEditLog implements StorageListener {
     // do nothing for now
   }
 
+  public void finalizeUpgrade() throws IOException {
+    // do nothing for now
+  }
+
   /**
    * Error Handling on a storageDirectory
    * 

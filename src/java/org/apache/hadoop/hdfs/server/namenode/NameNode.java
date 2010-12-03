@@ -1124,10 +1124,6 @@ public class NameNode implements NamenodeProtocols, FSConstants {
     namesystem.rollFSImage(sig);
   }
     
-  public void finalizeUpgrade() throws IOException {
-    namesystem.finalizeUpgrade();
-  }
-
   public UpgradeStatusReport distributedUpgradeProgress(UpgradeAction action)
       throws IOException {
     return namesystem.distributedUpgradeProgress(action);
@@ -1430,8 +1426,8 @@ public File getFsImageName() throws IOException {
 
     return false;
   }
-
-  private static boolean finalize(Configuration conf,
+  
+  private static boolean finalizeUpgrade(Configuration conf,
                                boolean isConfirmationNeeded
                                ) throws IOException {
     Collection<URI> dirsToFormat = FSNamesystem.getNamespaceDirs(conf);
@@ -1458,6 +1454,12 @@ public File getFsImageName() throws IOException {
     pm.finalizeUpgrade();
     return false;
   }
+
+  public void finalizeUpgrade() throws IOException {
+    assert namesystem != null;
+    namesystem.getPersistenceManager().finalizeUpgrade();
+  }
+
 
   @Override
   public void refreshServiceAcl() throws IOException {
@@ -1557,7 +1559,7 @@ public File getFsImageName() throws IOException {
         System.exit(aborted ? 1 : 0);
         return null; // avoid javac warning
       case FINALIZE:
-        aborted = finalize(conf, true);
+        aborted = finalizeUpgrade(conf, true);
         System.exit(aborted ? 1 : 0);
         return null; // avoid javac warning
       case BACKUP:
