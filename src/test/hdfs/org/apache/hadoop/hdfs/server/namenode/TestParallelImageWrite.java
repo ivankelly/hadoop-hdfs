@@ -112,7 +112,8 @@ public class TestParallelImageWrite extends TestCase {
     List<Long> checksums = new ArrayList<Long>();
     while (iter.hasNext()) {
       StorageDirectory sd = iter.next();
-      File fsImage = FSImage.getImageFile(sd, NNStorage.NameNodeFile.IMAGE);
+      File fsImage = fsn.getPersistenceManager().getStorage().getImageFile(sd,
+          NNStorage.NameNodeFile.IMAGE);
       PureJavaCrc32 crc = new PureJavaCrc32();
       FileInputStream in = new FileInputStream(fsImage);
       byte[] buff = new byte[4096];
