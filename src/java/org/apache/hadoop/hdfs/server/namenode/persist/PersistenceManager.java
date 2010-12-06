@@ -182,9 +182,10 @@ public class PersistenceManager implements Closeable {
       isImgObsolete = false;
 
     boolean needToReturnImg = true;
-    if(storage.getNumStorageDirs(NameNodeDirType.IMAGE) == 0)
+    if(storage.getNumStorageDirs(NameNodeDirType.IMAGE) == 0) {
       // do not return image if there are no image directories
       needToReturnImg = false;
+    }
     CheckpointSignature sig = rollEditLog();
     editlog.logJSpoolStart(bnReg, nnReg);
     return new CheckpointCommand(sig, isImgObsolete, needToReturnImg);
@@ -360,8 +361,7 @@ public class PersistenceManager implements Closeable {
     ckptState = CheckpointStates.ROLLED_EDITS;
     // If checkpoint fails this should be the most recent image, therefore
     storage.incrementCheckpointTime();
-    //return new CheckpointSignature(null); //FIXME should pass NNStorage
-    return null;
+    return new CheckpointSignature(storage);
   }
 
 

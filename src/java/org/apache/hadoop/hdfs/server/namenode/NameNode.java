@@ -334,15 +334,12 @@ public class NameNode implements NamenodeProtocols, FSConstants {
   }
 
   NamenodeRegistration setRegistration() {
-    /* FIXME when you have a persistentmanager in this file
-       nodeRegistration = new NamenodeRegistration(
-        getHostPortString(rpcAddress),
-        getHostPortString(httpAddress),
-        getFSImage(), getRole(), getFSImage().getCheckpointTime());
+    nodeRegistration = new NamenodeRegistration(getHostPortString(rpcAddress),
+						getHostPortString(httpAddress),
+						storage, getRole(), 
+						storage.getCheckpointTime());
 
     return nodeRegistration;
-    */
-    return null;
   }
 
   /**

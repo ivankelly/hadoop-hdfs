@@ -128,7 +128,7 @@ public class BackupNode extends NameNode {
 
   @Override // NameNode
   protected FSNamesystem createNamesystem(Configuration conf, NNStorage storage) throws IOException {
-    BackupNodePersistenceManager persistenceManager = new BackupNodePersistenceManager(conf, storage);;
+    persistenceManager = new BackupNodePersistenceManager(conf, storage);;
     FSNamesystem namesystem = new FSNamesystem(conf, storage, persistenceManager);
     
     persistenceManager.recoverCreateRead();

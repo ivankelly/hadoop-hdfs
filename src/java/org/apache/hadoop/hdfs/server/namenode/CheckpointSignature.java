@@ -42,7 +42,7 @@ public class CheckpointSignature extends StorageInfo
 
   public CheckpointSignature() {}
 
-  CheckpointSignature(NNStorage storage) {
+  public CheckpointSignature(NNStorage storage) {
     super(storage);
     editsTime = storage.getEditsTime();
     checkpointTime = storage.getCheckpointTime();
@@ -51,7 +51,7 @@ public class CheckpointSignature extends StorageInfo
 
   }
 
-  CheckpointSignature(String str) {
+  public CheckpointSignature(String str) {
     String[] fields = str.split(FIELD_SEPARATOR);
     assert fields.length == 6 : "Must be 6 fields in CheckpointSignature";
     layoutVersion = Integer.valueOf(fields[0]);

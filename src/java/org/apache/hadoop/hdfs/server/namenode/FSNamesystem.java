@@ -4295,11 +4295,10 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
   throws IOException {
     writeLock();
     try {
-    LOG.info("Start checkpoint for " + bnReg.getAddress());
-    // FIXME get the persistence manager    NamenodeCommand cmd = .startCheckpoint(bnReg, nnReg);
-    getEditLog().logSync();
-    // return cmd;
-    return null; // FIXME
+      LOG.info("Start checkpoint for " + bnReg.getAddress());
+      NamenodeCommand cmd = persistenceManager.startCheckpoint(bnReg, nnReg);
+      getEditLog().logSync();
+      return cmd;
     } finally {
       writeUnlock();
     }
