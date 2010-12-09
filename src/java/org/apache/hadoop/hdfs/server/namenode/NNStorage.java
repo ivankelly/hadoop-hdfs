@@ -198,13 +198,17 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory>, Cl
    */
   
   public NNStorage(Configuration conf) throws IOException{
+    this(conf, true);
+  }
+  
+  public NNStorage(Configuration conf, boolean load) throws IOException{
     // FIXME: assert to avoid null values?
     super(NodeType.NAME_NODE);
     this.conf = conf;
     this.listeners = new ArrayList<StorageListener>();
 
-    loadStorages(conf);
-       
+    if (load )
+      loadStorages(conf);
   }
 
   
@@ -530,7 +534,6 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory>, Cl
   public File getImageFile(StorageDirectory sd, NameNodeFile type) {
     return new File(sd.getCurrentDir(), type.getName());
   }
-  
   
   public void clearStorageDirectories() throws IOException {
     close();

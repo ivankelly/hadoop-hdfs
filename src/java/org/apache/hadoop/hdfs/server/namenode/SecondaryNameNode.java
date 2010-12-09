@@ -39,6 +39,7 @@ import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants;
 import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
 import org.apache.hadoop.hdfs.server.common.JspHelper;
+import org.apache.hadoop.hdfs.server.common.Util;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.namenode.persist.SecondaryNodePersistenceManager;
@@ -124,8 +125,8 @@ public class SecondaryNameNode implements Runnable {
    */
   public SecondaryNameNode(Configuration conf)  throws IOException {
     try {
+      storage = new NNStorage(conf, false);
       initialize(conf);
-      storage = new NNStorage(conf);
     } catch(IOException e) {
       shutdown();
       throw e;
@@ -346,74 +347,45 @@ public class SecondaryNameNode implements Runnable {
         Boolean b = UserGroupInformation.getCurrentUser().doAs(
             new PrivilegedExceptionAction<Boolean>() {
   
-          @Override
-          //public Void run() throws Exception {
-          public Boolean run() throws Exception {
+            @Override
+            public Boolean run() throws Exception {
+              // get fsimage
+              String fileid;
+              Collection<File> list;
+              File[] srcNames;
+              boolean downloadImage = true;
+              if (sig.imageDigest.equals(persistenceManager.getStorage()
+                  .getImageDigest())) {
+                downloadImage = false;
+                LOG.info("Image has not changed. Will not download image.");
+              } else {
+                fileid = "getimage=1";
+                list = persistenceManager.getImageFilenames();
 
-	    persistenceManager.updateStorageTimes(sig.cTime, sig.checkpointTime);
-	    persistenceManager.getStorage().setImageDigest(sig.imageDigest);
-
-            //checkpointImage.cTime = sig.cTime;
-            //checkpointImage.checkpointTime = sig.checkpointTime;
-            //checkpointImage.imageDigest = sig.imageDigest;
-
-	    //HDFS-1458 
-	    /*
-          public Void run() throws Exception {
-	    persistenceManager.updateStorageTimes(sig.cTime, sig.checkpointTime);
-      
-            // get fsimage
-            String fileid = "getimage=1";
-            Collection<File> list = persistenceManager.getImageFilenames();
-            File[] srcNames = list.toArray(new File[list.size()]);
-            assert srcNames.length > 0 : "No checkpoint targets.";
-            TransferFsImage.getFileClient(fsName, fileid, srcNames, false);
-            LOG.info("Downloaded file " + srcNames[0].getName() + " size " +
-                     srcNames[0].length() + " bytes.");
-	    */
-
-	  //public Boolean run() throws Exception {
-            //checkpointImage.cTime = sig.cTime;
-            //checkpointImage.checkpointTime = sig.checkpointTime;
-                    
-            // get fsimage
-            String fileid;
-            Collection<File> list;
-            File[] srcNames;
-            boolean downloadImage = true;
-            if (sig.imageDigest.equals(persistenceManager.getStorage().getImageDigest())) {
-              downloadImage = false;
-              LOG.info("Image has not changed. Will not download image.");
-            } else {
-              fileid = "getimage=1";
-              //list = checkpointImage.getFiles(NameNodeFile.IMAGE,
-              //    NameNodeDirType.IMAGE);
-	      list = persistenceManager.getEditLogFilenames();
-
+                srcNames = list.toArray(new File[list.size()]);
+                assert srcNames.length > 0 : "No checkpoint targets.";
+                TransferFsImage.getFileClient(fsName, fileid, srcNames, false);
+                persistenceManager.getStorage().setImageDigest(sig.imageDigest);
+                persistenceManager.updateStorageTimes(sig.cTime,
+                    sig.checkpointTime);
+                LOG.info("Downloaded file " + srcNames[0].getName() + " size "
+                    + srcNames[0].length() + " bytes.");
+              }
+              
+              // get edits file
+              fileid = "getedit=1";
+              list = persistenceManager.getEditLogFilenames();
               srcNames = list.toArray(new File[list.size()]);
               assert srcNames.length > 0 : "No checkpoint targets.";
               TransferFsImage.getFileClient(fsName, fileid, srcNames, false);
-              //checkpointImage.imageDigest = sig.imageDigest;
-	      persistenceManager.getStorage().setImageDigest(sig.imageDigest);
-              LOG.info("Downloaded file " + srcNames[0].getName() + " size " +
-                  srcNames[0].length() + " bytes.");
-            }
-	    /*
-            // get edits file
-            fileid = "getedit=1";
-            list = persistenceManager.getEditLogFilenames();
-            srcNames = list.toArray(new File[list.size()]);;
-            assert srcNames.length > 0 : "No checkpoint targets.";
-            TransferFsImage.getFileClient(fsName, fileid, srcNames, false);
-            LOG.info("Downloaded file " + srcNames[0].getName() + " size " +
-                srcNames[0].length() + " bytes.");
-	    */
-        
-            persistenceManager.checkpointUploadDone();
-            return Boolean.valueOf(downloadImage);
+              LOG.info("Downloaded file " + srcNames[0].getName() + " size "
+                  + srcNames[0].length() + " bytes.");
 
-          }
-        });
+              persistenceManager.checkpointUploadDone();
+              return Boolean.valueOf(downloadImage);
+
+            }
+          });
         return b.booleanValue();
       } catch (InterruptedException e) {
         throw new RuntimeException(e);
@@ -477,7 +449,7 @@ public class SecondaryNameNode implements Runnable {
     }
 
     boolean loadImage = downloadCheckpointFiles(sig);   // Fetch fsimage and edits
-    doMerge(sig, loadImage);                   // Do the merge
+    doMerge(sig);                   // Do the merge
   
     //
     // Upload the new image into the NameNode. Then tell the Namenode
@@ -509,7 +481,7 @@ public class SecondaryNameNode implements Runnable {
    * current storage directory.
    */
 
-    private void doMerge(CheckpointSignature sig, boolean loadImage){
+    private void doMerge(CheckpointSignature sig){
   /* FIXME when the construction story is sorted out
   throws IOException {
     FSNamesystem namesystem = 
