@@ -3763,6 +3763,8 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     private int extension;
     /** Min replication required by safe mode. */
     private int safeReplication;
+    /** threshold for populating needed replication queues */
+    private double replQueueThreshold;
       
     // internal fields
     /** Time when threshold was reached.
@@ -3777,9 +3779,13 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     private int blockSafe;
     /** Number of blocks needed to satisfy safe mode threshold condition */
     private int blockThreshold;
+    /** Number of blocks needed before populating replication queues */
+    private int blockReplQueueThreshold;
     /** time of the last status printout */
     private long lastStatusReport = 0;
-      
+    /** flag indicating whether replication queues have been initialized */
+    private boolean initializedReplQueues = false;
+    
     /**
      * Creates SafeModeInfo when the name node enters
      * automatic safe mode at startup.
@@ -3794,6 +3800,10 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
       this.extension = conf.getInt(DFSConfigKeys.DFS_NAMENODE_SAFEMODE_EXTENSION_KEY, 0);
       this.safeReplication = conf.getInt(DFSConfigKeys.DFS_NAMENODE_REPLICATION_MIN_KEY, 
                                          DFSConfigKeys.DFS_NAMENODE_REPLICATION_MIN_DEFAULT);
+      // default to safe mode threshold (i.e., don't populate queues before leaving safe mode)
+      this.replQueueThreshold = 
+        conf.getFloat(DFSConfigKeys.DFS_NAMENODE_REPL_QUEUE_THRESHOLD_PCT_KEY,
+                      (float) threshold);
       this.blockTotal = 0; 
       this.blockSafe = 0;
     }
@@ -3811,6 +3821,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
       this.datanodeThreshold = Integer.MAX_VALUE;
       this.extension = Integer.MAX_VALUE;
       this.safeReplication = Short.MAX_VALUE + 1; // more than maxReplication
+      this.replQueueThreshold = 1.5f; // can never be reached
       this.blockTotal = -1;
       this.blockSafe = -1;
       this.reached = -1;
@@ -3833,6 +3844,13 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
       return this.reached >= 0;
     }
       
+    /**
+     * Check if we are populating replication queues.
+     */
+    synchronized boolean isPopulatingReplQueues() {
+      return initializedReplQueues;
+    }
+
     /**
      * Enter safe mode.
      */
@@ -3861,8 +3879,10 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
           return;
         }
       }
-      // verify blocks replications
-      blockManager.processMisReplicatedBlocks();
+      // if not done yet, initialize replication queues
+      if (!isPopulatingReplQueues()) {
+        initializeReplQueues();
+      }
       long timeInSafemode = now() - systemStart;
       NameNode.stateChangeLog.info("STATE* Leaving safe mode after " 
                                     + timeInSafemode/1000 + " secs.");
@@ -3878,6 +3898,26 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
                                    +clusterMap.getNumOfLeaves()+ " datanodes");
       NameNode.stateChangeLog.info("STATE* UnderReplicatedBlocks has "
                                    +blockManager.neededReplications.size()+" blocks");
+    }
+
+    /**
+     * Initialize replication queues.
+     */
+    synchronized void initializeReplQueues() {
+      LOG.info("initializing replication queues");
+      if (isPopulatingReplQueues()) {
+        LOG.warn("Replication queues already initialized.");
+      }
+      blockManager.processMisReplicatedBlocks();
+      initializedReplQueues = true;
+    }
+
+    /**
+     * Check whether we have reached the threshold for 
+     * initializing replication queues.
+     */
+    synchronized boolean canInitializeReplQueues() {
+      return blockSafe >= blockReplQueueThreshold;
     }
       
     /** 
@@ -3911,6 +3951,10 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     private void checkMode() {
       if (needEnter()) {
         enter();
+        // check if we are ready to initialize replication queues
+        if (canInitializeReplQueues() && !isPopulatingReplQueues()) {
+          initializeReplQueues();
+        }
         reportStatus("STATE* Safe mode ON.", false);
         return;
       }
@@ -3929,6 +3973,11 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
       smmthread = new Daemon(new SafeModeMonitor());
       smmthread.start();
       reportStatus("STATE* Safe mode extension entered.", true);
+
+      // check if we are ready to initialize replication queues
+      if (canInitializeReplQueues() && !isPopulatingReplQueues()) {
+        initializeReplQueues();
+      }
     }
       
     /**
@@ -3937,6 +3986,8 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     synchronized void setBlockTotal(int total) {
       this.blockTotal = total;
       this.blockThreshold = (int) (blockTotal * threshold);
+      this.blockReplQueueThreshold = 
+        (int) (((double) blockTotal) * replQueueThreshold);
       checkMode();
     }
       
@@ -4123,10 +4174,18 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
    * Check whether the name node is in safe mode.
    * @return true if safe mode is ON, false otherwise
    */
-  boolean isInSafeMode() {
+  synchronized boolean isInSafeMode() {
     if (safeMode == null)
       return false;
     return safeMode.isOn();
+  }
+
+  /**
+   * Check whether replication queues are populated.
+   */
+  synchronized boolean isPopulatingReplQueues() {
+    return (!isInSafeMode() ||
+            safeMode.isPopulatingReplQueues());
   }
     
   /**
@@ -4849,10 +4908,14 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
    * @throws IOException
    */
   Collection<CorruptFileBlockInfo> listCorruptFileBlocks(String path,
-      String startBlockAfter) throws AccessControlException, IOException {
+      String startBlockAfter) throws IOException {
 
     readLock();
     try {
+    if (!isPopulatingReplQueues()) {
+      throw new IOException("Cannot run listCorruptFileBlocks because " +
+                            "replication queues have not been initialized.");
+    }
     checkSuperuserPrivilege();
     long startBlockId = 0;
     // print a limited # of corrupt files per call
