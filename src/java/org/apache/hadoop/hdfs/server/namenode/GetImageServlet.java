@@ -38,6 +38,8 @@ import org.apache.hadoop.hdfs.util.DataTransferThrottler;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.StringUtils;
 
+import org.apache.hadoop.hdfs.server.namenode.persist.PersistenceManager;
+
 /**
  * This class is used in Namesystem's jetty to retrieve a file.
  * Typically used by the Secondary NameNode to retrieve image and
@@ -56,7 +58,10 @@ public class GetImageServlet extends HttpServlet {
     Map<String,String[]> pmap = request.getParameterMap();
     try {
       ServletContext context = getServletContext();
-      final FSImage nnImage = (FSImage)context.getAttribute("name.system.image");
+
+      final PersistenceManager persistenceManager = (PersistenceManager)context.getAttribute("name.system.persistenceManager");
+      final NNStorage storage = persistenceManager.getStorage();
+
       final TransferFsImage ff = new TransferFsImage(pmap, request, response);
       final Configuration conf = 
         (Configuration)getServletContext().getAttribute(JspHelper.CURRENT_CONF);
@@ -75,31 +80,36 @@ public class GetImageServlet extends HttpServlet {
         public Void run() throws Exception {
           if (ff.getImage()) {
             response.setHeader(TransferFsImage.CONTENT_LENGTH,
-                String.valueOf(nnImage.getFsImageName().length()));
+			       String.valueOf(storage.getFirstImageFile().length()));
             // send fsImage
             TransferFsImage.getFileServer(response.getOutputStream(),
-                nnImage.getFsImageName(),
-                getThrottler(conf)); 
+					  storage.getFirstImageFile(),
+					  getThrottler(conf)); 
           } else if (ff.getEdit()) {
             response.setHeader(TransferFsImage.CONTENT_LENGTH,
-                String.valueOf(nnImage.getFsEditName().length()));
+			       String.valueOf(storage.getFirstEditLogFile().length()));
             // send edits
             TransferFsImage.getFileServer(response.getOutputStream(),
-                nnImage.getFsEditName(),
-                getThrottler(conf));
+					  storage.getFirstEditLogFile(),
+					  getThrottler(conf));
+
           } else if (ff.putImage()) {
             // issue a HTTP get request to download the new fsimage 
-            nnImage.validateCheckpointUpload(ff.getToken());
-            nnImage.newImageDigest = ff.getNewChecksum();
+
+            persistenceManager.validateCheckpointUpload(ff.getToken());
+	    persistenceManager.getStorage().setNewImageDigest(ff.getNewChecksum());
+
             reloginIfNecessary().doAs(new PrivilegedExceptionAction<Void>() {
                 @Override
+
                 public Void run() throws Exception {
                   TransferFsImage.getFileClient(ff.getInfoServer(), "getimage=1", 
-                      nnImage.getFsImageNameCheckpoint());
+                      storage.getCheckpointFiles());
                   return null;
                 }
             });
-           nnImage.checkpointUploadDone();
+
+           persistenceManager.checkpointUploadDone();
           }
           return null;
         }

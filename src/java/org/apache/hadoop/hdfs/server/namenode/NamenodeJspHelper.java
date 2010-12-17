@@ -166,19 +166,16 @@ class NamenodeJspHelper {
 
     void generateConfReport(JspWriter out, NameNode nn,
         HttpServletRequest request) throws IOException {
-      FSNamesystem fsn = nn.getNamesystem();
-      FSImage fsImage = fsn.getFSImage();
-      List<Storage.StorageDirectory> removedStorageDirs = fsImage
-          .getRemovedStorageDirs();
+      NNStorage storage = nn.getStorage();;
+
+      List<Storage.StorageDirectory> removedStorageDirs = storage.getRemovedStorageDirs();
 
       // FS Image storage configuration
       out.print("<h3> " + nn.getRole() + " Storage: </h3>");
       out.print("<div id=\"dfstable\"> <table border=1 cellpadding=10 cellspacing=0 title=\"NameNode Storage\">\n"
               + "<thead><tr><td><b>Storage Directory</b></td><td><b>Type</b></td><td><b>State</b></td></tr></thead>");
 
-      StorageDirectory st = null;
-      for (Iterator<StorageDirectory> it = fsImage.dirIterator(); it.hasNext();) {
-        st = it.next();
+      for (StorageDirectory st : storage) {
         String dir = "" + st.getRoot();
         String type = "" + st.getStorageDirType();
         out.print("<tr><td>" + dir + "</td><td>" + type
@@ -187,7 +184,7 @@ class NamenodeJspHelper {
 
       long storageDirsSize = removedStorageDirs.size();
       for (int i = 0; i < storageDirsSize; i++) {
-        st = removedStorageDirs.get(i);
+        StorageDirectory st = removedStorageDirs.get(i);
         String dir = "" + st.getRoot();
         String type = "" + st.getStorageDirType();
         out.print("<tr><td>" + dir + "</td><td>" + type

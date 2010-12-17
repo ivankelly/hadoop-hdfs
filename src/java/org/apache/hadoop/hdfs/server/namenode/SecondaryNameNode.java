@@ -21,6 +21,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
+
 import java.security.PrivilegedAction;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
@@ -38,8 +39,10 @@ import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants;
 import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
 import org.apache.hadoop.hdfs.server.common.JspHelper;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
+import org.apache.hadoop.hdfs.server.common.Util;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
+import org.apache.hadoop.hdfs.server.namenode.persist.SecondaryNodePersistenceManager;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DFSUtil;
@@ -56,6 +59,8 @@ import org.apache.hadoop.security.authorize.AccessControlList;
 
 import org.apache.hadoop.util.Daemon;
 import org.apache.hadoop.util.StringUtils;
+
+import org.apache.hadoop.hdfs.server.common.Storage;
 
 /**********************************************************
  * The Secondary NameNode is a helper to the primary NameNode.
@@ -85,7 +90,7 @@ public class SecondaryNameNode implements Runnable {
   private volatile long lastCheckpointTime = 0;
 
   private String fsName;
-  private CheckpointStorage checkpointImage;
+  private SecondaryNodePersistenceManager persistenceManager;
 
   private NamenodeProtocol namenode;
   private Configuration conf;
@@ -100,6 +105,8 @@ public class SecondaryNameNode implements Runnable {
   private Collection<URI> checkpointEditsDirs;
   private long checkpointPeriod;    // in seconds
   private long checkpointSize;    // size (in MB) of current Edit Log
+  
+  private NNStorage storage;
 
   /** {@inheritDoc} */
   public String toString() {
@@ -113,22 +120,26 @@ public class SecondaryNameNode implements Runnable {
       + "\nCheckpoint Edits Dirs: " + checkpointEditsDirs;
   }
 
-  FSImage getFSImage() {
-    return checkpointImage;
-  }
-
   /**
    * Create a connection to the primary namenode.
    */
   public SecondaryNameNode(Configuration conf)  throws IOException {
     try {
+      storage = new NNStorage(conf, false);
       initialize(conf);
     } catch(IOException e) {
       shutdown();
       throw e;
     }
   }
-  
+
+  /** 
+   * Used by testing to check for file existence
+   */
+  public NNStorage getStorage() {
+    return this.storage;
+  }
+
   public static InetSocketAddress getHttpAddress(Configuration conf) {
     return NetUtils.createSocketAddr(conf.get(
         DFSConfigKeys.DFS_NAMENODE_SECONDARY_HTTP_ADDRESS_KEY,
@@ -161,13 +172,15 @@ public class SecondaryNameNode implements Runnable {
             NamenodeProtocol.versionID, nameNodeAddr, conf);
 
     // initialize checkpoint directories
+
+
+    // initialize checkpoint directories
     fsName = getInfoServer();
-    checkpointDirs = FSImage.getCheckpointDirs(conf,
-                                  "/tmp/hadoop/dfs/namesecondary");
-    checkpointEditsDirs = FSImage.getCheckpointEditsDirs(conf, 
-                                  "/tmp/hadoop/dfs/namesecondary");    
-    checkpointImage = new CheckpointStorage(conf);
-    checkpointImage.recoverCreate(checkpointDirs, checkpointEditsDirs);
+    checkpointDirs = NNUtils.getCheckpointDirs(conf,
+                              "/tmp/hadoop/dfs/namesecondary");
+    checkpointEditsDirs = NNUtils.getCheckpointEditsDirs(conf,
+                              "/tmp/hadoop/dfs/namesecondary");
+    persistenceManager = new SecondaryNodePersistenceManager(conf, storage);
 
     // Initialize other scheduling parameters from the configuration
     checkpointPeriod = conf.getLong(DFSConfigKeys.DFS_NAMENODE_CHECKPOINT_PERIOD_KEY, 
@@ -206,7 +219,7 @@ public class SecondaryNameNode implements Runnable {
           }
           
           infoServer.setAttribute("secondary.name.node", this);
-          infoServer.setAttribute("name.system.image", checkpointImage);
+          infoServer.setAttribute("name.system.persistenceManager", persistenceManager);
           infoServer.setAttribute(JspHelper.CURRENT_CONF, conf);
           infoServer.addInternalServlet("getimage", "/getimage",
               GetImageServlet.class, true);
@@ -245,7 +258,7 @@ public class SecondaryNameNode implements Runnable {
       LOG.warn("Exception shutting down SecondaryNameNode", e);
     }
     try {
-      if (checkpointImage != null) checkpointImage.close();
+      if (persistenceManager != null) persistenceManager.close();
     } catch(IOException e) {
       LOG.warn(StringUtils.stringifyException(e));
     }
@@ -312,6 +325,7 @@ public class SecondaryNameNode implements Runnable {
         LOG.error("Exception in doCheckpoint: ");
         LOG.error(StringUtils.stringifyException(e));
         e.printStackTrace();
+	persistenceManager.getStorage().setImageDigest(null);
       } catch (Throwable e) {
         LOG.error("Throwable Exception in doCheckpoint: ");
         LOG.error(StringUtils.stringifyException(e));
@@ -333,30 +347,27 @@ public class SecondaryNameNode implements Runnable {
   
           @Override
           public Void run() throws Exception {
-            checkpointImage.cTime = sig.cTime;
-            checkpointImage.checkpointTime = sig.checkpointTime;
-            checkpointImage.imageDigest = sig.imageDigest;
-        
             // get fsimage
             String fileid = "getimage=1";
-            Collection<File> list = checkpointImage.getFiles(NameNodeFile.IMAGE,
-                NameNodeDirType.IMAGE);
+            Collection<File> list = persistenceManager.getImageFilenames();
             File[] srcNames = list.toArray(new File[list.size()]);
+            
             assert srcNames.length > 0 : "No checkpoint targets.";
             TransferFsImage.getFileClient(fsName, fileid, srcNames);
-            LOG.info("Downloaded file " + srcNames[0].getName() + " size " +
-                     srcNames[0].length() + " bytes.");
-        
+            LOG.info("Downloaded file " + srcNames[0].getName() + " size "
+                     + srcNames[0].length() + " bytes.");
+            
             // get edits file
             fileid = "getedit=1";
-            list = getFSImage().getFiles(NameNodeFile.EDITS, NameNodeDirType.EDITS);
-            srcNames = list.toArray(new File[list.size()]);;
+            list = persistenceManager.getEditLogFilenames();
+            srcNames = list.toArray(new File[list.size()]);
             assert srcNames.length > 0 : "No checkpoint targets.";
             TransferFsImage.getFileClient(fsName, fileid, srcNames);
-            LOG.info("Downloaded file " + srcNames[0].getName() + " size " +
-                srcNames[0].length() + " bytes.");
-        
-            checkpointImage.checkpointUploadDone();
+            LOG.info("Downloaded file " + srcNames[0].getName() + " size "
+                     + srcNames[0].length() + " bytes.");
+            
+            persistenceManager.checkpointUploadDone();
+
             return null;
           }
         });
@@ -372,7 +383,7 @@ public class SecondaryNameNode implements Runnable {
     String fileid = "putimage=1&port=" + imagePort +
       "&machine=" + infoBindAddress + 
       "&token=" + sig.toString() +
-      "&newChecksum=" + checkpointImage.imageDigest;
+	"&newChecksum=" + storage.getImageDigest();
     LOG.info("Posted URL " + fsName + fileid);
     TransferFsImage.getFileClient(fsName, fileid, (File[])null);
   }
@@ -436,28 +447,29 @@ public class SecondaryNameNode implements Runnable {
     }
 
     namenode.rollFsImage(sig);
-    checkpointImage.endCheckpoint();
+    persistenceManager.endCheckpoint();
 
-    LOG.warn("Checkpoint done. New Image Size: " 
-              + checkpointImage.getFsImageName().length());
+
+    LOG.warn("Checkpoint done. New Image Size: " + persistenceManager.getCheckpointSize());
   }
 
   private void startCheckpoint() throws IOException {
-    checkpointImage.unlockAll();
-    checkpointImage.getEditLog().close();
-    checkpointImage.recoverCreate(checkpointDirs, checkpointEditsDirs);
-    checkpointImage.startCheckpoint();
+    persistenceManager.startCheckpoint();
   }
 
   /**
    * Merge downloaded image and edits and write the new image into
    * current storage directory.
    */
-  private void doMerge(CheckpointSignature sig) throws IOException {
+
+  private void doMerge(CheckpointSignature sig){
+  /* FIXME when the construction story is sorted out
+  throws IOException {
     FSNamesystem namesystem = 
             new FSNamesystem(checkpointImage, conf);
     assert namesystem.dir.fsImage == checkpointImage;
-    checkpointImage.doMerge(sig);
+    checkpointImage.doMerge(sig, loadImage);
+  */
   }
 
   /**
@@ -578,107 +590,5 @@ public class SecondaryNameNode implements Runnable {
     // Create a never ending deamon
     Daemon checkpointThread = new Daemon(new SecondaryNameNode(tconf)); 
     checkpointThread.start();
-  }
-
-  static class CheckpointStorage extends FSImage {
-    /**
-     */
-    CheckpointStorage(Configuration conf) throws IOException {
-      super(conf);
-    }
-
-    /**
-     * Analyze checkpoint directories.
-     * Create directories if they do not exist.
-     * Recover from an unsuccessful checkpoint is necessary. 
-     * 
-     * @param dataDirs
-     * @param editsDirs
-     * @throws IOException
-     */
-    void recoverCreate(Collection<URI> dataDirs,
-                       Collection<URI> editsDirs) throws IOException {
-      Collection<URI> tempDataDirs = new ArrayList<URI>(dataDirs);
-      Collection<URI> tempEditsDirs = new ArrayList<URI>(editsDirs);
-      this.storageDirs = new ArrayList<StorageDirectory>();
-      setStorageDirectories(tempDataDirs, tempEditsDirs);
-      for (Iterator<StorageDirectory> it = 
-                   dirIterator(); it.hasNext();) {
-        StorageDirectory sd = it.next();
-        boolean isAccessible = true;
-        try { // create directories if don't exist yet
-          if(!sd.getRoot().mkdirs()) {
-            // do nothing, directory is already created
-          }
-        } catch(SecurityException se) {
-          isAccessible = false;
-        }
-        if(!isAccessible)
-          throw new InconsistentFSStateException(sd.getRoot(),
-              "cannot access checkpoint directory.");
-        StorageState curState;
-        try {
-          curState = sd.analyzeStorage(HdfsConstants.StartupOption.REGULAR);
-          // sd is locked but not opened
-          switch(curState) {
-          case NON_EXISTENT:
-            // fail if any of the configured checkpoint dirs are inaccessible 
-            throw new InconsistentFSStateException(sd.getRoot(),
-                  "checkpoint directory does not exist or is not accessible.");
-          case NOT_FORMATTED:
-            break;  // it's ok since initially there is no current and VERSION
-          case NORMAL:
-            break;
-          default:  // recovery is possible
-            sd.doRecover(curState);
-          }
-        } catch (IOException ioe) {
-          sd.unlock();
-          throw ioe;
-        }
-      }
-    }
-
-    /**
-     * Prepare directories for a new checkpoint.
-     * <p>
-     * Rename <code>current</code> to <code>lastcheckpoint.tmp</code>
-     * and recreate <code>current</code>.
-     * @throws IOException
-     */
-    void startCheckpoint() throws IOException {
-      for(StorageDirectory sd : storageDirs) {
-        moveCurrent(sd);
-      }
-    }
-
-    void endCheckpoint() throws IOException {
-      for(StorageDirectory sd : storageDirs) {
-        moveLastCheckpoint(sd);
-      }
-    }
-
-    /**
-     * Merge image and edits, and verify consistency with the signature.
-     */
-    private void doMerge(CheckpointSignature sig) throws IOException {
-      getEditLog().open();
-      StorageDirectory sdName = null;
-      StorageDirectory sdEdits = null;
-      Iterator<StorageDirectory> it = null;
-      it = dirIterator(NameNodeDirType.IMAGE);
-      if (it.hasNext())
-        sdName = it.next();
-      it = dirIterator(NameNodeDirType.EDITS);
-      if (it.hasNext())
-        sdEdits = it.next();
-      if ((sdName == null) || (sdEdits == null))
-        throw new IOException("Could not locate checkpoint directories");
-      this.layoutVersion = -1; // to avoid assert in loadFSImage()
-      loadFSImage(FSImage.getImageFile(sdName, NameNodeFile.IMAGE));
-      loadFSEdits(sdEdits);
-      sig.validateStorageInfo(this);
-      saveNamespace(false);
-    }
   }
 }

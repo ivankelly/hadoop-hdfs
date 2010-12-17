@@ -54,7 +54,7 @@ public class FSEditLogLoader {
    * This is where we apply edits that we've been writing to disk all
    * along.
    */
-  int loadFSEdits(EditLogInputStream edits) throws IOException {
+  public int loadFSEdits(EditLogInputStream edits) throws IOException {
     DataInputStream in = edits.getDataInputStream();
     long startTime = now();
     int numEdits = loadFSEdits(in, true);
@@ -64,7 +64,7 @@ public class FSEditLogLoader {
     return numEdits;
   }
 
-  int loadFSEdits(DataInputStream in, boolean closeOnExit) throws IOException {
+  public int loadFSEdits(DataInputStream in, boolean closeOnExit) throws IOException {
     int numEdits = 0;
     int logVersion = 0;
 
@@ -101,8 +101,8 @@ public class FSEditLogLoader {
   }
 
   @SuppressWarnings("deprecation")
-  int loadEditRecords(int logVersion, DataInputStream in,
-      boolean closeOnExit) throws IOException {
+  public int loadEditRecords(int logVersion, DataInputStream in,
+                             boolean closeOnExit) throws IOException {
     FSDirectory fsDir = fsNamesys.dir;
     int numEdits = 0;
     String clientName = null;

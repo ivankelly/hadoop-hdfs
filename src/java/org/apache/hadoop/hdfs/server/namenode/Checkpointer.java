@@ -29,9 +29,10 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.CheckpointStates;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
+import org.apache.hadoop.hdfs.server.namenode.persist.PersistenceManager.CheckpointStates;
+import org.apache.hadoop.hdfs.server.namenode.persist.BackupNodePersistenceManager;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.protocol.CheckpointCommand;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeCommand;
@@ -63,10 +64,6 @@ class Checkpointer extends Daemon {
   private long checkpointSize;    // size (in MB) of current Edit Log
 
   private String infoBindAddress;
-
-  private BackupStorage getFSImage() {
-    return (BackupStorage)backupNode.getFSImage();
-  }
 
   private NamenodeProtocol getNamenode(){
     return backupNode.namenode;
@@ -104,7 +101,8 @@ class Checkpointer extends Daemon {
     infoBindAddress = fullInfoAddr.substring(0, fullInfoAddr.indexOf(":"));
     
     HttpServer httpServer = backupNode.httpServer;
-    httpServer.setAttribute("name.system.image", getFSImage());
+    
+    httpServer.setAttribute("name.system.persistenceManager", backupNode.getPersistenceManager());
     httpServer.setAttribute("name.conf", conf);
     httpServer.addInternalServlet("getimage", "/getimage", GetImageServlet.class);
 
@@ -170,8 +168,9 @@ class Checkpointer extends Daemon {
     // If BACKUP node has been loaded
     // get edits size from the local file. ACTIVE has the same.
     if(backupNode.isRole(NamenodeRole.BACKUP)
-        && getFSImage().getEditLog().isOpen())
+       && backupNode.getPersistenceManager().isEditLogOpen()) {
       return backupNode.journalSize();
+    }
     // Go to the ACTIVE node for its size
     return getNamenode().journalSize(backupNode.getRegistration());
   }
@@ -183,8 +182,8 @@ class Checkpointer extends Daemon {
   private void downloadCheckpoint(CheckpointSignature sig) throws IOException {
     // Retrieve image file
     String fileid = "getimage=1";
-    Collection<File> list = getFSImage().getFiles(NameNodeFile.IMAGE,
-        NameNodeDirType.IMAGE);
+    Collection<File> list = backupNode.getPersistenceManager().getImageFilenames();
+
     File[] files = list.toArray(new File[list.size()]);
     assert files.length > 0 : "No checkpoint targets.";
     String nnHttpAddr = backupNode.nnHttpAddress;
@@ -194,7 +193,7 @@ class Checkpointer extends Daemon {
 
     // Retrieve edits file
     fileid = "getedit=1";
-    list = getFSImage().getFiles(NameNodeFile.EDITS, NameNodeDirType.EDITS);
+    list = backupNode.getPersistenceManager().getEditLogFilenames();
     files = list.toArray(new File[list.size()]);
     assert files.length > 0 : "No checkpoint targets.";
     TransferFsImage.getFileClient(nnHttpAddr, fileid, files);
@@ -212,7 +211,7 @@ class Checkpointer extends Daemon {
     String fileid = "putimage=1&port=" + httpPort +
       "&machine=" + infoBindAddress +
       "&token=" + sig.toString() +
-      "&newChecksum=" + getFSImage().imageDigest.toString();
+	"&newChecksum=" + backupNode.getPersistenceManager().getStorage().getImageDigest().toString();
     LOG.info("Posted URL " + backupNode.nnHttpAddress + fileid);
     TransferFsImage.getFileClient(backupNode.nnHttpAddress, fileid, (File[])null);
   }
@@ -243,29 +242,32 @@ class Checkpointer extends Daemon {
       + FSConstants.LAYOUT_VERSION + " actual "+ sig.getLayoutVersion();
     assert !backupNode.isRole(NamenodeRole.CHECKPOINT) ||
       cpCmd.isImageObsolete() : "checkpoint node should always download image.";
-    backupNode.setCheckpointState(CheckpointStates.UPLOAD_START);
+    
+    backupNode.getPersistenceManager().setCheckpointState(CheckpointStates.UPLOAD_START);
+
     if(cpCmd.isImageObsolete()) {
       // First reset storage on disk and memory state
       backupNode.resetNamespace();
       downloadCheckpoint(sig);
     }
 
-    BackupStorage bnImage = getFSImage();
-    bnImage.loadCheckpoint(sig);
-    sig.validateStorageInfo(bnImage);
-    bnImage.saveCheckpoint();
+    BackupNodePersistenceManager persistenceManager = backupNode.getPersistenceManager();
+    persistenceManager.loadCheckpoint(sig);
+    // FIXME sig.validateStorageInfo(bnImage);
+    persistenceManager.saveCheckpoint();
 
     if(cpCmd.needToReturnImage())
       uploadCheckpoint(sig);
 
     getNamenode().endCheckpoint(backupNode.getRegistration(), sig);
 
-    bnImage.convergeJournalSpool();
+    persistenceManager.convergeJournalSpool();
     backupNode.setRegistration(); // keep registration up to date
-    if(backupNode.isRole(NamenodeRole.CHECKPOINT))
-        getFSImage().getEditLog().close();
+    if(backupNode.isRole(NamenodeRole.CHECKPOINT)) {
+      persistenceManager.closeEditLog();
+    }
     LOG.info("Checkpoint completed in "
         + (now() - startTime)/1000 + " seconds."
-        + " New Image Size: " + bnImage.getFsImageName().length());
+        + " New Image Size: " + persistenceManager.getCheckpointSize());
   }
 }

@@ -231,13 +231,9 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
           // update NameSpace in memory
           backupInputStream.setBytes(data);
 
-          // HDFS-1462
 	  FSEditLogLoader logLoader = new FSEditLogLoader(namesystem);
-          //logLoader.loadEditRecords(getLayoutVersion(),
-	  //          backupInputStream.getDataInputStream(), true);
-	  ///////////////////////////////////////////////////////////
-	  editlog.loadEditRecords(storage.getLayoutVersion(),
-                    backupInputStream.getDataInputStream(), true);
+          logLoader.loadEditRecords(storage.getLayoutVersion(),
+                                    backupInputStream.getDataInputStream(), true);
 
           namesystem.dir.updateCountForINodeWithQuota(); // inefficient!
           break;
@@ -360,9 +356,9 @@ public class BackupNodePersistenceManager extends CheckpointingPersistenceManage
       EditLogFileInputStream edits = new EditLogFileInputStream(jSpoolFile);
       DataInputStream in = edits.getDataInputStream();
 
-      //FSEditLogLoader logLoader = new FSEditLogLoader(namesystem);
-      //numEdits += logLoader.loadFSEdits(in, false);
-      numEdits += editlog.loadFSEdits(in, false);
+      FSEditLogLoader logLoader = new FSEditLogLoader(namesystem);
+      numEdits += logLoader.loadFSEdits(in, false);
+
       // first time reached the end of spool
       jsState = JSpoolState.WAIT;
       numEdits += editlog.loadEditRecords(storage.getLayoutVersion(), in, true);

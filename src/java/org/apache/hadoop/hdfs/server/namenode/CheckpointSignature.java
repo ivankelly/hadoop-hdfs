@@ -34,20 +34,24 @@ import org.apache.hadoop.io.WritableComparable;
 public class CheckpointSignature extends StorageInfo 
                       implements WritableComparable<CheckpointSignature> {
   private static final String FIELD_SEPARATOR = ":";
-  long editsTime = -1L;
-  long checkpointTime = -1L;
-  MD5Hash imageDigest = null;
+
+
+  public long editsTime = -1L;
+  public long checkpointTime = -1L;
+  public MD5Hash imageDigest = null;
 
   public CheckpointSignature() {}
 
-  CheckpointSignature(FSImage fsImage) {
-    super(fsImage);
-    editsTime = fsImage.getEditLog().getFsEditTime();
-    checkpointTime = fsImage.getCheckpointTime();
-    imageDigest = fsImage.imageDigest;
+  public CheckpointSignature(NNStorage storage) {
+    super(storage);
+    editsTime = storage.getEditsTime();
+    checkpointTime = storage.getCheckpointTime();
+
+    imageDigest = storage.imageDigest;
+
   }
 
-  CheckpointSignature(String str) {
+  public CheckpointSignature(String str) {
     String[] fields = str.split(FIELD_SEPARATOR);
     assert fields.length == 6 : "Must be 6 fields in CheckpointSignature";
     layoutVersion = Integer.valueOf(fields[0]);
@@ -75,10 +79,10 @@ public class CheckpointSignature extends StorageInfo
          +  imageDigest.toString();
   }
 
-  void validateStorageInfo(FSImage si) throws IOException {
+  public void validateStorageInfo(NNStorage si) throws IOException {
     if(layoutVersion != si.layoutVersion
         || namespaceID != si.namespaceID || cTime != si.cTime
-        || checkpointTime != si.checkpointTime ||
+       || checkpointTime != si.getCheckpointTime() ||
         !imageDigest.equals(si.imageDigest)) {
       // checkpointTime can change when the image is saved - do not compare
       throw new IOException("Inconsistent checkpoint fields.\n"

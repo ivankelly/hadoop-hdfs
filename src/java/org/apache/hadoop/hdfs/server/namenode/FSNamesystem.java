@@ -54,6 +54,7 @@ import org.apache.hadoop.net.NodeBase;
 import org.apache.hadoop.net.ScriptBasedMapping;
 import org.apache.hadoop.hdfs.server.namenode.LeaseManager.Lease;
 import org.apache.hadoop.hdfs.server.namenode.UnderReplicatedBlocks.BlockIterator;
+import org.apache.hadoop.hdfs.server.namenode.persist.PersistenceManager;
 import org.apache.hadoop.hdfs.server.protocol.BlocksWithLocations;
 import org.apache.hadoop.hdfs.server.protocol.DatanodeCommand;
 import org.apache.hadoop.hdfs.server.protocol.DatanodeRegistration;
@@ -187,6 +188,13 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
   // Stores the correct file name hierarchy
   //
   public FSDirectory dir;
+  public PersistenceManager persistenceManager;
+  public NNStorage storage;
+
+  // Distributed upgrade manager
+  // FIXME: make an accessor, shouldn't be public
+  public UpgradeManagerNamenode upgradeManager;
+
 
   BlockManager blockManager;
     
@@ -279,9 +287,30 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
   /**
    * FSNamesystem constructor.
    */
-  FSNamesystem(Configuration conf) throws IOException {
+  FSNamesystem(Configuration conf, NNStorage storage) throws IOException {
     try {
+      this.storage = storage;
       initialize(conf, null);
+    } catch(IOException e) {
+      LOG.error(getClass().getSimpleName() + " initialization failed.", e);
+      close();
+      throw e;
+    }
+  }
+
+  /**
+   * Create FSNamesystem for {@link BackupNode}.
+   * Should do everything that would be done for the NameNode,
+   * except for loading the image.
+   * 
+   * @param bnImage {@link BackupStorage}
+   * @param conf configuration
+   * @throws IOException
+   */
+  FSNamesystem(Configuration conf, NNStorage storage, PersistenceManager persistenceManager) throws IOException {
+    try {
+      this.storage = storage;
+      initialize(conf, persistenceManager);
     } catch(IOException e) {
       LOG.error(getClass().getSimpleName() + " initialization failed.", e);
       close();
@@ -292,29 +321,50 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
   /**
    * Initialize FSNamesystem.
    */
-  private void initialize(Configuration conf, FSImage fsImage)
+  private void initialize(Configuration conf, PersistenceManager persistenceManager)
       throws IOException {
+    this.storage.setFSNamesystem(this);
     this.systemStart = now();
     this.blockManager = new BlockManager(this, conf);
+    this.upgradeManager = new UpgradeManagerNamenode(this, storage);
     this.fsLock = new ReentrantReadWriteLock(true); // fair locking
     setConfigurationParameters(conf);
     dtSecretManager = createDelegationTokenSecretManager(conf);
     this.registerMBean(conf); // register the MBean for the FSNamesystemStutus
-    if(fsImage == null) {
-      this.dir = new FSDirectory(this, conf);
+
+    this.dir = new FSDirectory(this, conf);
+    if(persistenceManager == null) {
       StartupOption startOpt = NameNode.getStartupOption(conf);
-      this.dir.loadFSImage(getNamespaceDirs(conf),
-                           getNamespaceEditsDirs(conf), startOpt);
+      
+      this.persistenceManager = new PersistenceManager(conf, storage);
+      this.persistenceManager.setNamesystem(this);
+      if (startOpt == StartupOption.UPGRADE) {
+        this.persistenceManager.upgrade();
+      } else if (startOpt == StartupOption.ROLLBACK) {
+        this.persistenceManager.rollback();
+      }
+
+      boolean needsave = this.persistenceManager.load();
+
       long timeTakenToLoadFSImage = now() - systemStart;
       LOG.info("Finished loading FSImage in " + timeTakenToLoadFSImage + " msecs");
       NameNode.getNameNodeMetrics().fsImageLoadTime.set(
                                 (int) timeTakenToLoadFSImage);
+
+      if (needsave) {
+        this.persistenceManager.save();
+      }
     } else {
-      this.dir = new FSDirectory(fsImage, this, conf);
+      this.persistenceManager = persistenceManager;
+      this.persistenceManager.setNamesystem(this);
     }
+    
+    // tell FSDirectory it can start working
+    this.dir.setReady(); 
+
     this.safeMode = new SafeModeInfo(conf);
     this.hostsReader = new HostsFileReader(conf.get("dfs.hosts",""),
-                        conf.get("dfs.hosts.exclude",""));
+                                           conf.get("dfs.hosts.exclude",""));
     if (isBlockTokenEnabled) {
       blockTokenSecretManager = new BlockTokenSecretManager(true,
           blockKeyUpdateInterval, blockTokenLifetime);
@@ -326,7 +376,12 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
       dtSecretManager.startThreads();
     }
   }
+
+  public UpgradeManagerNamenode getUpgradeManager(){
+    return this.upgradeManager;     
+  }
   
+
   /**
    * Activate FSNamesystem daemons.
    */
@@ -420,37 +475,6 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
   }
 
   /**
-   * dirs is a list of directories where the filesystem directory state 
-   * is stored
-   */
-  FSNamesystem(FSImage fsImage, Configuration conf) throws IOException {
-    this.fsLock = new ReentrantReadWriteLock(true);
-    this.blockManager = new BlockManager(this, conf);
-    setConfigurationParameters(conf);
-    this.dir = new FSDirectory(fsImage, this, conf);
-    dtSecretManager = createDelegationTokenSecretManager(conf);
-  }
-
-  /**
-   * Create FSNamesystem for {@link BackupNode}.
-   * Should do everything that would be done for the NameNode,
-   * except for loading the image.
-   * 
-   * @param bnImage {@link BackupStorage}
-   * @param conf configuration
-   * @throws IOException
-   */
-  FSNamesystem(Configuration conf, BackupStorage bnImage) throws IOException {
-    try {
-      initialize(conf, bnImage);
-    } catch(IOException e) {
-      LOG.error(getClass().getSimpleName() + " initialization failed.", e);
-      close();
-      throw e;
-    }
-  }
-
-  /**
    * Initializes some of the members from configuration
    */
   private void setConfigurationParameters(Configuration conf) 
@@ -520,8 +544,8 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
   }
   
   NamespaceInfo getNamespaceInfo() {
-    return new NamespaceInfo(dir.fsImage.getNamespaceID(),
-                             dir.fsImage.getCTime(),
+    return new NamespaceInfo(storage.getNamespaceID(),
+                             storage.getCTime(),
                              getDistributedUpgradeVersion());
   }
 
@@ -548,7 +572,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
           lmthread.interrupt();
           lmthread.join(3000);
         }
-        dir.close();
+        persistenceManager.close();
       } catch (InterruptedException ie) {
       } catch (IOException ie) {
         LOG.error("Error closing FSDirectory", ie);
@@ -2640,7 +2664,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
    * @return registration ID
    */
   public String getRegistrationID() {
-    return Storage.getRegistrationID(dir.fsImage);
+    return Storage.getRegistrationID(storage);
   }
     
   /**
@@ -2980,14 +3004,6 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
           + nodeID.getName() + " storage " + key 
           + " is removed from datanodeMap.");
     }
-  }
-
-  FSImage getFSImage() {
-    return dir.fsImage;
-  }
-
-  FSEditLog getEditLog() {
-    return getFSImage().getEditLog();
   }
 
   /**
@@ -3389,7 +3405,9 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
       throw new IOException("Safe mode should be turned ON " +
                             "in order to create namespace image.");
     }
-    getFSImage().saveNamespace(true);
+
+    persistenceManager.save();
+
     LOG.info("New namespace image has been created.");
     } finally {
       writeUnlock();
@@ -3409,10 +3427,10 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     
     // if it is disabled - enable it and vice versa.
     if(arg.equals("check"))
-      return getFSImage().getRestoreFailedStorage();
+      return storage.getRestoreFailedStorage();
     
     boolean val = arg.equals("true");  // false if not
-    getFSImage().setRestoreFailedStorage(val);
+    storage.setRestoreFailedStorage(val);
     
     return val;
     } finally {
@@ -3502,7 +3520,11 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
    * Clamp the specified replication between the minimum and maximum
    * replication levels for this namesystem.
    */
+    //FIXME: HDFS-1462 moves this method here. Called from FSEditLogLoader
+    // we use it on NNStorage.
+    // This is just a wrapper arround storage
   short adjustReplication(short replication) {
+      /*
     short minReplication = getMinReplication();
     if (replication < minReplication) {
       replication = minReplication;
@@ -3512,7 +3534,9 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
       replication = maxReplication;
     }
     return replication;
-  }
+      */
+      return storage.adjustReplication(replication);
+    }
     
   /**
    * A immutable object that stores the number of live replicas and
@@ -3641,11 +3665,6 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     }
   }
     
-  void finalizeUpgrade() throws IOException {
-    checkSuperuserPrivilege();
-    getFSImage().finalizeUpgrade();
-  }
-
   /**
    * Checks if the node is not on the hosts list.  If it is not, then
    * it will be ignored.  If the node is in the hosts list, but is also 
@@ -4234,16 +4253,16 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
   long getEditLogSize() throws IOException {
     return getEditLog().getEditLogSize();
   }
-
-  CheckpointSignature rollEditLog() throws IOException {
+  
+  public CheckpointSignature rollEditLog() throws IOException {
     writeLock();
     try {
-    if (isInSafeMode()) {
-      throw new SafeModeException("Checkpoint not created",
-                                  safeMode);
-    }
-    LOG.info("Roll Edit Log from " + Server.getRemoteAddress());
-    return getFSImage().rollEditLog();
+      if (isInSafeMode()) {
+        throw new SafeModeException("Checkpoint not created",
+                                    safeMode);
+      }
+      LOG.info("Roll Edit Log from " + Server.getRemoteAddress());
+      return persistenceManager.rollEditLog();
     } finally {
       writeUnlock();
     }
@@ -4263,7 +4282,8 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
                                   safeMode);
     }
     LOG.info("Roll FSImage from " + Server.getRemoteAddress());
-    getFSImage().rollFSImage(sig, true);
+    //getFSImage().rollFSImage(sig, true);
+    persistenceManager.rollFSImage(sig, true);
     } finally {
       writeUnlock();
     }
@@ -4275,10 +4295,10 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
   throws IOException {
     writeLock();
     try {
-    LOG.info("Start checkpoint for " + bnReg.getAddress());
-    NamenodeCommand cmd = getFSImage().startCheckpoint(bnReg, nnReg);
-    getEditLog().logSync();
-    return cmd;
+      LOG.info("Start checkpoint for " + bnReg.getAddress());
+      NamenodeCommand cmd = persistenceManager.startCheckpoint(bnReg, nnReg);
+      getEditLog().logSync();
+      return cmd;
     } finally {
       writeUnlock();
     }
@@ -4288,8 +4308,9 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
                             CheckpointSignature sig) throws IOException {
     writeLock();
     try {
-    LOG.info("End checkpoint for " + registration.getAddress());
-    getFSImage().endCheckpoint(sig, registration.getRole());
+      LOG.info("End checkpoint for " + registration.getAddress());
+      // FIXME get the persistence manager 
+      persistenceManager.endCheckpoint(sig, registration.getRole());
     } finally {
       writeUnlock();
     }
@@ -4301,9 +4322,6 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
   private boolean isValidBlock(Block b) {
     return (blockManager.getINode(b) != null);
   }
-
-  // Distributed upgrade manager
-  final UpgradeManagerNamenode upgradeManager = new UpgradeManagerNamenode(this);
 
   UpgradeStatusReport distributedUpgradeProgress(UpgradeAction action 
                                                  ) throws IOException {
@@ -4322,7 +4340,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     return upgradeManager.getBroadcastCommand();
   }
 
-  boolean getDistributedUpgradeState() {
+  public boolean getDistributedUpgradeState() {
     return upgradeManager.getUpgradeState();
   }
 
@@ -4363,7 +4381,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     return checkPermission(path, false, null, null, null, null);
   }
 
-  private void checkSuperuserPrivilege() throws AccessControlException {
+  public void checkSuperuserPrivilege() throws AccessControlException {
     if (isPermissionEnabled) {
       FSPermissionChecker.checkSuperuserPrivilege(fsOwner, supergroup);
     }
@@ -4745,9 +4763,9 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
   throws IOException {
     writeLock();
     try {
-    if(getFSImage().getNamespaceID() != registration.getNamespaceID())
+    if(storage.getNamespaceID() != registration.getNamespaceID())
       throw new IOException("Incompatible namespaceIDs: " 
-          + " Namenode namespaceID = " + getFSImage().getNamespaceID() 
+          + " Namenode namespaceID = " + storage.getNamespaceID() 
           + "; " + registration.getRole() +
               " node namespaceID = " + registration.getNamespaceID());
     boolean regAllowed = getEditLog().checkBackupRegistration(registration);
@@ -4770,9 +4788,9 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
   throws IOException {
     writeLock();
     try {
-    if(getFSImage().getNamespaceID() != registration.getNamespaceID())
+    if(storage.getNamespaceID() != registration.getNamespaceID())
       throw new IOException("Incompatible namespaceIDs: " 
-          + " Namenode namespaceID = " + getFSImage().getNamespaceID() 
+          + " Namenode namespaceID = " + storage.getNamespaceID() 
           + "; " + registration.getRole() +
               " node namespaceID = " + registration.getNamespaceID());
     getEditLog().releaseBackupStream(registration);
@@ -5168,7 +5186,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
 
   @Override // NameNodeMXBean
   public boolean isUpgradeFinalized() {
-    return this.getFSImage().isUpgradeFinalized();
+    return persistenceManager.isUpgradeFinalized();
   }
 
   @Override // NameNodeMXBean
@@ -5264,5 +5282,13 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
 
   private long getDfsUsed(DatanodeDescriptor alivenode) {
     return alivenode.getDfsUsed();
+  }
+
+  public FSEditLog getEditLog() {
+    return persistenceManager.getEditLog();
+  }
+
+  public PersistenceManager getPersistenceManager() {
+    return persistenceManager;
   }
 }
