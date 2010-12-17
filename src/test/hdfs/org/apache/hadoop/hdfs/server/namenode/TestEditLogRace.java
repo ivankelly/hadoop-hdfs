@@ -38,8 +38,8 @@ import org.apache.hadoop.hdfs.protocol.FSConstants.SafeModeAction;
 import org.apache.hadoop.hdfs.server.namenode.EditLogFileInputStream;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 
 import static org.junit.Assert.*;
 import org.junit.Test;
@@ -176,8 +176,8 @@ public class TestEditLogRace {
       fileSys = cluster.getFileSystem();
       final FSNamesystem namesystem = cluster.getNamesystem();
 
-      FSImage fsimage = namesystem.getFSImage();
-      FSEditLog editLog = fsimage.getEditLog();
+      NNStorage storage = cluster.getNameNode().getStorage();
+      FSEditLog editLog = namesystem.getPersistenceManager().getEditLog();
 
       // set small size of flush buffer
       editLog.setBufferCapacity(2048);
@@ -195,7 +195,7 @@ public class TestEditLogRace {
         editLog.rollEditLog();
         LOG.info("Roll complete " + i + ".");
 
-        verifyEditLogs(namesystem, fsimage);
+        verifyEditLogs(namesystem, storage);
 
         LOG.info("Starting purge " + i + ".");
         editLog.purgeEditLog();
@@ -212,17 +212,18 @@ public class TestEditLogRace {
     }
   }
 
-  private void verifyEditLogs(FSNamesystem namesystem, FSImage fsimage)
+  private void verifyEditLogs(FSNamesystem namesystem, NNStorage storage)
     throws IOException {
     // Verify that we can read in all the transactions that we have written.
     // If there were any corruptions, it is likely that the reading in
     // of these transactions will throw an exception.
-    for (Iterator<StorageDirectory> it = 
-           fsimage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
-      File editFile = FSImage.getImageFile(it.next(), NameNodeFile.EDITS);
+    for (StorageDirectory sd : storage.iterable(NameNodeDirType.EDITS)) {
+      File editFile = storage.getImageFile(sd, NameNodeFile.EDITS);
       System.out.println("Verifying file: " + editFile);
-      int numEdits = new FSEditLogLoader(namesystem).loadFSEdits(
-        new EditLogFileInputStream(editFile));
+
+      int numEdits = new FSEditLogLoader(namesystem)
+        .loadFSEdits(new EditLogFileInputStream(editFile));
+
       System.out.println("Number of edits: " + numEdits);
     }
   }
@@ -244,8 +245,8 @@ public class TestEditLogRace {
       fileSys = cluster.getFileSystem();
       final FSNamesystem namesystem = cluster.getNamesystem();
 
-      FSImage fsimage = namesystem.getFSImage();
-      FSEditLog editLog = fsimage.getEditLog();
+      NNStorage storage = cluster.getNameNode().getStorage();
+      FSEditLog editLog = namesystem.getPersistenceManager().getEditLog();
 
       // set small size of flush buffer
       editLog.setBufferCapacity(2048);
@@ -264,14 +265,14 @@ public class TestEditLogRace {
         namesystem.enterSafeMode();
 
         // Verify edit logs before the save
-        verifyEditLogs(namesystem, fsimage);
+        verifyEditLogs(namesystem, storage);
 
         LOG.info("Save " + i + ": saving namespace");
         namesystem.saveNamespace();
         LOG.info("Save " + i + ": leaving safemode");
 
         // Verify that edit logs post save are also not corrupt
-        verifyEditLogs(namesystem, fsimage);
+        verifyEditLogs(namesystem, storage);
 
         namesystem.leaveSafeMode(false);
         LOG.info("Save " + i + ": complete");
@@ -321,11 +322,12 @@ public class TestEditLogRace {
     Configuration conf = getConf();
     NameNode.initMetrics(conf, NamenodeRole.ACTIVE);
     NameNode.format(conf);
-    final FSNamesystem namesystem = new FSNamesystem(conf);
+
+    NNStorage storage = new NNStorage(conf);
+    final FSNamesystem namesystem = new FSNamesystem(conf, storage);
 
     try {
-      FSImage fsimage = namesystem.getFSImage();
-      FSEditLog editLog = fsimage.getEditLog();
+      FSEditLog editLog = namesystem.getPersistenceManager().getEditLog();
 
       ArrayList<EditLogOutputStream> streams = editLog.getEditStreams();
       EditLogOutputStream spyElos = spy(streams.get(0));
@@ -392,7 +394,7 @@ public class TestEditLogRace {
       doAnEditThread.join();
       assertNull(deferredException.get());
 
-      verifyEditLogs(namesystem, fsimage);
+      verifyEditLogs(namesystem, storage);
     } finally {
       LOG.info("Closing namesystem");
       if(namesystem != null) namesystem.close();
@@ -411,12 +413,12 @@ public class TestEditLogRace {
     Configuration conf = getConf();
     NameNode.initMetrics(conf, NamenodeRole.ACTIVE);
     NameNode.format(conf);
-    final FSNamesystem namesystem = new FSNamesystem(conf);
+    NNStorage storage = new NNStorage(conf);
+    final FSNamesystem namesystem = new FSNamesystem(conf, storage);
 
     try {
-      FSImage fsimage = namesystem.getFSImage();
-      FSEditLog editLog = spy(fsimage.getEditLog());
-      fsimage.editLog = editLog;
+      FSEditLog editLog = spy(namesystem.getPersistenceManager().getEditLog());
+      namesystem.getPersistenceManager().setEditLog(editLog);
       
       final AtomicReference<Throwable> deferredException =
           new AtomicReference<Throwable>();
@@ -477,7 +479,7 @@ public class TestEditLogRace {
       doAnEditThread.join();
       assertNull(deferredException.get());
 
-      verifyEditLogs(namesystem, fsimage);
+      verifyEditLogs(namesystem, storage);
     } finally {
       LOG.info("Closing namesystem");
       if(namesystem != null) namesystem.close();

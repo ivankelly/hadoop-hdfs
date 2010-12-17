@@ -107,12 +107,13 @@ public class TestParallelImageWrite extends TestCase {
   }
   
   private void checkImages(FSNamesystem fsn) throws Exception {
-    Iterator<StorageDirectory> iter = fsn.
-            getFSImage().dirIterator(FSImage.NameNodeDirType.IMAGE);
+      Iterator<StorageDirectory> iter = fsn.getPersistenceManager().
+	getStorage().dirIterator(NNStorage.NameNodeDirType.IMAGE);
     List<Long> checksums = new ArrayList<Long>();
     while (iter.hasNext()) {
       StorageDirectory sd = iter.next();
-      File fsImage = FSImage.getImageFile(sd, FSImage.NameNodeFile.IMAGE);
+      File fsImage = fsn.getPersistenceManager().getStorage().getImageFile(sd,
+          NNStorage.NameNodeFile.IMAGE);
       PureJavaCrc32 crc = new PureJavaCrc32();
       FileInputStream in = new FileInputStream(fsImage);
       byte[] buff = new byte[4096];

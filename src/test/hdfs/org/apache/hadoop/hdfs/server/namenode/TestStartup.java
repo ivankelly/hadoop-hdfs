@@ -48,10 +48,14 @@ import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.protocol.FSConstants.SafeModeAction;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
+
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
+
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.MD5Hash;
+
+
 import org.apache.hadoop.util.StringUtils;
 
 /**
@@ -213,8 +217,8 @@ public class TestStartup extends TestCase {
       NameNode nn = cluster.getNameNode();
       assertNotNull(nn);	
       // Verify that image file sizes did not change.
-      FSImage image = nn.getFSImage();
-      verifyDifferentDirs(image, this.fsimageLength, this.editsLength);
+      NNStorage storage = nn.getStorage();
+      verifyDifferentDirs(storage, this.fsimageLength, this.editsLength);
     } finally {
       if(cluster != null)
         cluster.shutdown();
@@ -224,17 +228,14 @@ public class TestStartup extends TestCase {
   /**
    * verify that edits log and fsimage are in different directories and of a correct size
    */
-  private void verifyDifferentDirs(FSImage img, long expectedImgSize, long expectedEditsSize) {
-    StorageDirectory sd =null;
-    for (Iterator<StorageDirectory> it = img.dirIterator(); it.hasNext();) {
-      sd = it.next();
-
+  private void verifyDifferentDirs(NNStorage storage, long expectedImgSize, long expectedEditsSize) {
+    for (StorageDirectory sd : storage) {
       if(sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
-        File imf = FSImage.getImageFile(sd, NameNodeFile.IMAGE);
+        File imf = storage.getImageFile(sd, NameNodeFile.IMAGE);
         LOG.info("--image file " + imf.getAbsolutePath() + "; len = " + imf.length() + "; expected = " + expectedImgSize);
         assertEquals(expectedImgSize, imf.length());	
       } else if(sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-        File edf = FSImage.getImageFile(sd, NameNodeFile.EDITS);
+        File edf = storage.getImageFile(sd, NameNodeFile.EDITS);
         LOG.info("-- edits file " + edf.getAbsolutePath() + "; len = " + edf.length()  + "; expected = " + expectedEditsSize);
         assertEquals(expectedEditsSize, edf.length());	
       } else {
@@ -336,16 +337,15 @@ public class TestStartup extends TestCase {
 
 
       // now verify that image and edits are created in the different directories
-      FSImage image = nn.getFSImage();
-      StorageDirectory sd = image.getStorageDir(0); //only one
+      NNStorage storage = nn.getStorage();
+      StorageDirectory sd = storage.getStorageDir(0); //only one
       assertEquals(sd.getStorageDirType(), NameNodeDirType.IMAGE_AND_EDITS);
-      File imf = FSImage.getImageFile(sd, NameNodeFile.IMAGE);
-      File edf = FSImage.getImageFile(sd, NameNodeFile.EDITS);
+      File imf = storage.getImageFile(sd, NameNodeFile.IMAGE);
+      File edf = storage.getImageFile(sd, NameNodeFile.EDITS);
       LOG.info("--image file " + imf.getAbsolutePath() + "; len = " + imf.length());
       LOG.info("--edits file " + edf.getAbsolutePath() + "; len = " + edf.length());
 
-      FSImage chkpImage = sn.getFSImage();
-      verifyDifferentDirs(chkpImage, imf.length(), edf.length());
+      verifyDifferentDirs(sn.getStorage(), imf.length(), edf.length());
 
     } catch (IOException e) {
       fail(StringUtils.stringifyException(e));
@@ -442,10 +442,16 @@ public class TestStartup extends TestCase {
     namenode.setSafeMode(SafeModeAction.SAFEMODE_ENTER);
     namenode.saveNamespace();
 
-    FSImage image = namenode.getFSImage();
-    image.loadFSImage();
+    FSImage image = namenode.getNamesystem().getPersistenceManager().getFSImage();
 
-    File versionFile = image.getStorageDir(0).getVersionFile();
+    NNStorage storage = namenode.getNamesystem().getPersistenceManager().getStorage();
+
+    
+    image.loadFSImage(storage.getImageFile(storage.getStorageDir(0), NameNodeFile.IMAGE));
+
+    File versionFile = storage.getStorageDir(0).getVersionFile();
+    // FIXME, everythign broken here, refer to patch
+    //storage.getImageFile(imagedir.getDirectory(), NameNodeFile.IMAGE);
 
     RandomAccessFile file = new RandomAccessFile(versionFile, "rws");
     FileInputStream in = null;
@@ -458,12 +464,12 @@ public class TestStartup extends TestCase {
       props.load(in);
 
       // get the MD5 property and change it
-      String sMd5 = props.getProperty(FSImage.MESSAGE_DIGEST_PROPERTY);
+      String sMd5 = props.getProperty(storage.MESSAGE_DIGEST_PROPERTY);
       MD5Hash md5 = new MD5Hash(sMd5);
       byte[] bytes = md5.getDigest();
       bytes[0] += 1;
       md5 = new MD5Hash(bytes);
-      props.setProperty(FSImage.MESSAGE_DIGEST_PROPERTY, md5.toString());
+      props.setProperty(storage.MESSAGE_DIGEST_PROPERTY, md5.toString());
 
       // write the properties back to version file
       file.seek(0);
@@ -473,7 +479,9 @@ public class TestStartup extends TestCase {
       file.setLength(out.getChannel().position());
 
       // now load the image again
-      image.loadFSImage();
+      //image.loadFSImage();
+
+      image.loadFSImage(storage.getImageFile(storage.getStorageDir(0), NameNodeFile.IMAGE));
 
       fail("Expect to get a checksumerror");
     } catch(IOException e) {

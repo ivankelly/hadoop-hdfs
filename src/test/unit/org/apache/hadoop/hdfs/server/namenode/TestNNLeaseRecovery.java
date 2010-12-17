@@ -35,6 +35,7 @@ import org.apache.hadoop.hdfs.protocol.AlreadyBeingCreatedException;
 import org.apache.hadoop.hdfs.protocol.DatanodeID;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
+import org.apache.hadoop.hdfs.server.namenode.persist.PersistenceManager;
 import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.log4j.Level;
 import org.junit.After;
@@ -76,7 +77,8 @@ public class TestNNLeaseRecovery {
     FileSystem.setDefaultUri(conf, "hdfs://localhost:0");
     conf.set(DFSConfigKeys.DFS_NAMENODE_HTTP_ADDRESS_KEY, "0.0.0.0:0");
     NameNode.format(conf);
-    fsn = spy(new FSNamesystem(conf));
+    NNStorage storage = new NNStorage(conf);
+    fsn = spy(new FSNamesystem(conf, storage));
   }
 
   /**
@@ -406,10 +408,11 @@ public class TestNNLeaseRecovery {
     fsn.dir = fsDir;
     FSImage fsImage = mock(FSImage.class);
     FSEditLog editLog = mock(FSEditLog.class);
-                            
-    when(fsn.getFSImage()).thenReturn(fsImage);
-    when(fsn.getFSImage().getEditLog()).thenReturn(editLog);
-    fsn.getFSImage().setFSNamesystem(fsn);
+    
+    PersistenceManager persistenceManager = mock(PersistenceManager.class);
+    when(fsn.getPersistenceManager()).thenReturn(persistenceManager);
+    when(persistenceManager.getFSImage()).thenReturn(fsImage);
+    when(persistenceManager.getEditLog()).thenReturn(editLog);
     
     switch (fileBlocksNumber) {
       case 0:
