@@ -307,6 +307,8 @@ public class FSEditLog implements StorageListener {
    *  except fsimage.processIOError)
    */
   synchronized void processIOError(ArrayList<EditLogOutputStream> errorStreams) {
+    if (errorStreams == null) { return; }
+
     for (EditLogOutputStream s : errorStreams) {
       StorageDirectory sd = getStorageDirectoryForStream(s);
       try {
