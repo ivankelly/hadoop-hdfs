@@ -38,8 +38,11 @@ import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants;
 import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
 import org.apache.hadoop.hdfs.server.common.JspHelper;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.FSImage.NameNodeFile;
+import org.apache.hadoop.hdfs.server.common.Storage;
+import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
+import org.apache.hadoop.hdfs.server.common.Storage.StorageState;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DFSUtil;
@@ -333,13 +336,13 @@ public class SecondaryNameNode implements Runnable {
   
           @Override
           public Void run() throws Exception {
-            checkpointImage.cTime = sig.cTime;
-            checkpointImage.checkpointTime = sig.checkpointTime;
-            checkpointImage.imageDigest = sig.imageDigest;
+            checkpointImage.getStorage().cTime = sig.cTime;
+            checkpointImage.getStorage().checkpointTime = sig.checkpointTime;
+            checkpointImage.getStorage().imageDigest = sig.imageDigest;
         
             // get fsimage
             String fileid = "getimage=1";
-            Collection<File> list = checkpointImage.getFiles(NameNodeFile.IMAGE,
+            Collection<File> list = checkpointImage.getStorage().getFiles(NameNodeFile.IMAGE,
                 NameNodeDirType.IMAGE);
             File[] srcNames = list.toArray(new File[list.size()]);
             assert srcNames.length > 0 : "No checkpoint targets.";
@@ -349,7 +352,7 @@ public class SecondaryNameNode implements Runnable {
         
             // get edits file
             fileid = "getedit=1";
-            list = getFSImage().getFiles(NameNodeFile.EDITS, NameNodeDirType.EDITS);
+            list = getFSImage().getStorage().getFiles(NameNodeFile.EDITS, NameNodeDirType.EDITS);
             srcNames = list.toArray(new File[list.size()]);;
             assert srcNames.length > 0 : "No checkpoint targets.";
             TransferFsImage.getFileClient(fsName, fileid, srcNames);
@@ -372,7 +375,7 @@ public class SecondaryNameNode implements Runnable {
     String fileid = "putimage=1&port=" + imagePort +
       "&machine=" + infoBindAddress + 
       "&token=" + sig.toString() +
-      "&newChecksum=" + checkpointImage.imageDigest;
+      "&newChecksum=" + checkpointImage.getStorage().getImageDigest();
     LOG.info("Posted URL " + fsName + fileid);
     TransferFsImage.getFileClient(fsName, fileid, (File[])null);
   }
@@ -439,11 +442,11 @@ public class SecondaryNameNode implements Runnable {
     checkpointImage.endCheckpoint();
 
     LOG.warn("Checkpoint done. New Image Size: " 
-              + checkpointImage.getFsImageName().length());
+             + checkpointImage.getStorage().getFsImageName().length());
   }
 
   private void startCheckpoint() throws IOException {
-    checkpointImage.unlockAll();
+    checkpointImage.getStorage().unlockAll();
     checkpointImage.getEditLog().close();
     checkpointImage.recoverCreate(checkpointDirs, checkpointEditsDirs);
     checkpointImage.startCheckpoint();
@@ -600,10 +603,10 @@ public class SecondaryNameNode implements Runnable {
                        Collection<URI> editsDirs) throws IOException {
       Collection<URI> tempDataDirs = new ArrayList<URI>(dataDirs);
       Collection<URI> tempEditsDirs = new ArrayList<URI>(editsDirs);
-      this.storageDirs = new ArrayList<StorageDirectory>();
-      setStorageDirectories(tempDataDirs, tempEditsDirs);
+      storage.clearStorageDirectories();
+      storage.setStorageDirectories(tempDataDirs, tempEditsDirs);
       for (Iterator<StorageDirectory> it = 
-                   dirIterator(); it.hasNext();) {
+                   storage.dirIterator(); it.hasNext();) {
         StorageDirectory sd = it.next();
         boolean isAccessible = true;
         try { // create directories if don't exist yet
@@ -647,14 +650,14 @@ public class SecondaryNameNode implements Runnable {
      * @throws IOException
      */
     void startCheckpoint() throws IOException {
-      for(StorageDirectory sd : storageDirs) {
-        moveCurrent(sd);
+      for(StorageDirectory sd : storage) {
+        storage.moveCurrent(sd);
       }
     }
 
     void endCheckpoint() throws IOException {
-      for(StorageDirectory sd : storageDirs) {
-        moveLastCheckpoint(sd);
+      for(StorageDirectory sd : storage) {
+        storage.moveLastCheckpoint(sd);
       }
     }
 
@@ -666,16 +669,16 @@ public class SecondaryNameNode implements Runnable {
       StorageDirectory sdName = null;
       StorageDirectory sdEdits = null;
       Iterator<StorageDirectory> it = null;
-      it = dirIterator(NameNodeDirType.IMAGE);
+      it = storage.dirIterator(NameNodeDirType.IMAGE);
       if (it.hasNext())
         sdName = it.next();
-      it = dirIterator(NameNodeDirType.EDITS);
+      it = storage.dirIterator(NameNodeDirType.EDITS);
       if (it.hasNext())
         sdEdits = it.next();
       if ((sdName == null) || (sdEdits == null))
         throw new IOException("Could not locate checkpoint directories");
-      this.layoutVersion = -1; // to avoid assert in loadFSImage()
-      loadFSImage(FSImage.getImageFile(sdName, NameNodeFile.IMAGE));
+      this.storage.layoutVersion = -1; // to avoid assert in loadFSImage()
+      loadFSImage(storage.getImageFile(sdName, NameNodeFile.IMAGE));
       loadFSEdits(sdEdits);
       sig.validateStorageInfo(this);
       saveNamespace(false);

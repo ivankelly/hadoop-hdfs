@@ -75,17 +75,17 @@ public class GetImageServlet extends HttpServlet {
         public Void run() throws Exception {
           if (ff.getImage()) {
             response.setHeader(TransferFsImage.CONTENT_LENGTH,
-                String.valueOf(nnImage.getFsImageName().length()));
+                               String.valueOf(nnImage.getStorage().getFsImageName().length()));
             // send fsImage
             TransferFsImage.getFileServer(response.getOutputStream(),
-                nnImage.getFsImageName(),
+                                          nnImage.getStorage().getFsImageName(),
                 getThrottler(conf)); 
           } else if (ff.getEdit()) {
             response.setHeader(TransferFsImage.CONTENT_LENGTH,
-                String.valueOf(nnImage.getFsEditName().length()));
+                               String.valueOf(nnImage.getStorage().getFsEditName().length()));
             // send edits
             TransferFsImage.getFileServer(response.getOutputStream(),
-                nnImage.getFsEditName(),
+                                          nnImage.getStorage().getFsEditName(),
                 getThrottler(conf));
           } else if (ff.putImage()) {
             // issue a HTTP get request to download the new fsimage 
@@ -95,7 +95,7 @@ public class GetImageServlet extends HttpServlet {
                 @Override
                 public Void run() throws Exception {
                   TransferFsImage.getFileClient(ff.getInfoServer(), "getimage=1", 
-                      nnImage.getFsImageNameCheckpoint());
+                                                nnImage.getStorage().getFsImageNameCheckpoint());
                   return null;
                 }
             });

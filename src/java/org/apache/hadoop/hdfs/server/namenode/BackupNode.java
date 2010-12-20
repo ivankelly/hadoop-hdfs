@@ -238,8 +238,8 @@ public class BackupNode extends NameNode {
   boolean shouldCheckpointAtStartup() {
     FSImage fsImage = getFSImage();
     if(isRole(NamenodeRole.CHECKPOINT)) {
-      assert fsImage.getNumStorageDirs() > 0;
-      return ! fsImage.getStorageDir(0).getVersionFile().exists();
+      assert fsImage.getStorage().getNumStorageDirs() > 0;
+      return ! fsImage.getStorage().getStorageDir(0).getVersionFile().exists();
     }
     if(namesystem == null || namesystem.dir == null || getFSImage() == null)
       return true;
@@ -303,12 +303,12 @@ public class BackupNode extends NameNode {
   private void registerWith(NamespaceInfo nsInfo) throws IOException {
     BackupStorage bnImage = (BackupStorage)getFSImage();
     // verify namespaceID
-    if(bnImage.getNamespaceID() == 0) // new backup storage
-      bnImage.setStorageInfo(nsInfo);
-    else if(bnImage.getNamespaceID() != nsInfo.getNamespaceID())
+    if(bnImage.getStorage().getNamespaceID() == 0) // new backup storage
+      bnImage.getStorage().setStorageInfo(nsInfo);
+    else if(bnImage.getStorage().getNamespaceID() != nsInfo.getNamespaceID())
       throw new IOException("Incompatible namespaceIDs"
           + ": active node namespaceID = " + nsInfo.getNamespaceID() 
-          + "; backup node namespaceID = " + bnImage.getNamespaceID());
+          + "; backup node namespaceID = " + bnImage.getStorage().getNamespaceID());
 
     setRegistration();
     NamenodeRegistration nnReg = null;
