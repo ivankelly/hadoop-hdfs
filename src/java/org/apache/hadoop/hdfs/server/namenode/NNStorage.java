@@ -484,6 +484,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory>, Cl
     for (StorageListener listener : listeners) {
       listener.formatOccurred(sd);
     }
+    sd.write();
 
     LOG.info("Storage directory " + sd.getRoot()
              + " has been successfully formatted.");
