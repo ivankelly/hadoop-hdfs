@@ -132,7 +132,9 @@ public class FSImage implements StorageListener, Closeable {
     this.conf = new Configuration();
     
     storage = new NNStorage(conf);
-    storage.setUpgradeManager(ns.upgradeManager);
+    if (ns != null) {
+      storage.setUpgradeManager(ns.upgradeManager);
+    }
     storage.registerListener(this);
 
     this.editLog = new FSEditLog(this, storage);
@@ -147,10 +149,6 @@ public class FSImage implements StorageListener, Closeable {
     this();
     storage.setStorageDirectories(fsDirs, fsEditsDirs);
   }
-
-  /*DELETEMEpublic FSImage(StorageInfo storageInfo) {
-    super(NodeType.NAME_NODE, storageInfo);
-    }*/
 
   /**
    * Represents an Image (image and edit file).
@@ -171,6 +169,9 @@ public class FSImage implements StorageListener, Closeable {
 
   void setFSNamesystem(FSNamesystem ns) {
     namesystem = ns;
+    if (ns != null) {
+      storage.setUpgradeManager(ns.upgradeManager);
+    }
   }
 
   void setCheckpointDirectories(Collection<URI> dirs,
@@ -1092,6 +1093,7 @@ public class FSImage implements StorageListener, Closeable {
 
   synchronized public void close() throws IOException {
     getEditLog().close();
+    storage.close();
   }
 
   /**

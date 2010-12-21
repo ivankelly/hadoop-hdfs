@@ -77,7 +77,7 @@ import org.apache.hadoop.io.MD5Hash;
 public class NNStorage extends Storage implements Iterable<StorageDirectory>, Closeable {
   private static final Log LOG = LogFactory.getLog(NNStorage.class.getName());
 
-  private static final String MESSAGE_DIGEST_PROPERTY = "imageMD5Digest";
+  public static final String MESSAGE_DIGEST_PROPERTY = "imageMD5Digest";
 
   //
   // The filenames used for storing the images
@@ -125,7 +125,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory>, Cl
 
   private Configuration conf;
   private List<StorageListener> listeners;
-  private UpgradeManager upgradeManager;
+  private UpgradeManager upgradeManager = null;
   protected MD5Hash imageDigest = null;
 
   /**
@@ -619,6 +619,7 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory>, Cl
       imageDigest = MD5Hash.digest(
           new FileInputStream(getImageFile(sd, NameNodeFile.IMAGE)));
     }
+        
     props.setProperty(MESSAGE_DIGEST_PROPERTY, imageDigest.toString());
 
     writeCheckpointTime(sd);

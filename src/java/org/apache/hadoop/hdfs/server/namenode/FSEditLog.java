@@ -278,7 +278,11 @@ public class FSEditLog implements StorageListener {
     }
     ArrayList<StorageDirectory> errorDirs = new ArrayList<StorageDirectory>();
     for (EditLogOutputStream e : errorStreams) {
-      errorDirs.add(getStorageDirectoryForStream(e));
+      if (e.getType() == JournalType.FILE) {
+        errorDirs.add(getStorageDirectoryForStream(e));
+      } else {
+        disableStream(e);
+      }
     }
     try {
       storage.errorDirectories(errorDirs);
@@ -1200,6 +1204,21 @@ public class FSEditLog implements StorageListener {
     return null;
   }
 
+  private synchronized void disableStream(EditLogOutputStream stream) {
+    try { stream.close(); } catch (IOException e) {
+      // nothing to do.
+      LOG.warn("Failed to close eStream " + stream.getName()
+               + " before removing it (might be ok)");
+    }
+    editStreams.remove(stream);
+            
+    if (editStreams == null || editStreams.size() <= 0) {
+      String msg = "Fatal Error: All storage directories are inaccessible.";
+      LOG.fatal(msg, new IOException(msg));
+      Runtime.getRuntime().exit(-1);
+    }
+  }
+
   /**
    * Error Handling on a storageDirectory
    * 
@@ -1213,19 +1232,8 @@ public class FSEditLog implements StorageListener {
 
       StorageDirectory streamStorageDir = getStorageDirectoryForStream(eStream);
       if (sd == streamStorageDir) {
-	try { eStream.close(); } catch (IOException e) {
-	  // nothing to do.
-	  LOG.warn("Failed to close eStream " + eStream.getName()
-		   + " before removing it (might be ok)");
-	}
-	editStreams.remove(eStream);
+	disableStream(eStream);	
       }
-    }
-    
-    if (editStreams == null || editStreams.size() <= 0) {
-      String msg = "Fatal Error: All storage directories are inaccessible.";
-      LOG.fatal(msg, new IOException(msg));
-      Runtime.getRuntime().exit(-1);
     }
   }
 

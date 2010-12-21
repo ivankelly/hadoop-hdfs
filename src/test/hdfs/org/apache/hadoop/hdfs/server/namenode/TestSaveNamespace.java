@@ -79,6 +79,12 @@ public class TestSaveNamespace {
     MOVE_LAST_CHECKPOINT
   };
 
+  private static class FSImageAccessor {
+    public static void setStorage(FSImage image, NNStorage storage) {
+      image.storage = storage;
+    }
+  }
+
   private void saveNamespaceWithInjectedFault(Fault fault) throws IOException {
     Configuration conf = getConf();
     NameNode.initMetrics(conf, NamenodeRole.ACTIVE);
@@ -87,11 +93,17 @@ public class TestSaveNamespace {
 
     // Replace the FSImage with a spy
     FSImage originalImage = fsn.dir.fsImage;
+    NNStorage storage = originalImage.getStorage();
+    storage.close(); // unlock any directories that FSNamesystem's initialization may have locked
+
+    NNStorage spyStorage = spy(storage);
+    FSImageAccessor.setStorage(originalImage, spyStorage);
+
     FSImage spyImage = spy(originalImage);
-    spyImage.setStorageDirectories(
-        FSNamesystem.getNamespaceDirs(conf), 
-        FSNamesystem.getNamespaceEditsDirs(conf));
     fsn.dir.fsImage = spyImage;
+    
+    spyImage.getStorage().setStorageDirectories(FSNamesystem.getNamespaceDirs(conf), 
+                                                FSNamesystem.getNamespaceEditsDirs(conf));
 
     // inject fault
     switch(fault) {
@@ -103,12 +115,12 @@ public class TestSaveNamespace {
     case MOVE_CURRENT:
       // The spy throws a RuntimeException when calling moveCurrent()
       doThrow(new RuntimeException("Injected fault: moveCurrent")).
-        when(spyImage).moveCurrent((StorageDirectory)anyObject());
+        when(spyStorage).moveCurrent((StorageDirectory)anyObject());
       break;
     case MOVE_LAST_CHECKPOINT:
       // The spy throws a RuntimeException when calling moveLastCheckpoint()
       doThrow(new RuntimeException("Injected fault: moveLastCheckpoint")).
-        when(spyImage).moveLastCheckpoint((StorageDirectory)anyObject());
+        when(spyStorage).moveLastCheckpoint((StorageDirectory)anyObject());
       break;
     }
 
@@ -166,7 +178,7 @@ public class TestSaveNamespace {
     // Replace the FSImage with a spy
     final FSImage originalImage = fsn.dir.fsImage;
     FSImage spyImage = spy(originalImage);
-    spyImage.setStorageDirectories(
+    spyImage.getStorage().setStorageDirectories(
         FSNamesystem.getNamespaceDirs(conf), 
         FSNamesystem.getNamespaceEditsDirs(conf));
     fsn.dir.fsImage = spyImage;
