@@ -284,6 +284,7 @@ public class FSEditLog implements StorageListener {
         disableStream(e);
       }
     }
+
     try {
       storage.errorDirectories(errorDirs);
     } catch (IOException ioe) {
@@ -1226,14 +1227,20 @@ public class FSEditLog implements StorageListener {
   // StorageListener Interface
   @Override
   public synchronized void errorOccurred(StorageDirectory sd) throws IOException {
+    ArrayList<EditLogOutputStream> errorStreams = new ArrayList<EditLogOutputStream>();
+    
     for (EditLogOutputStream eStream : editStreams) {
       LOG.error("Unable to log edits to " + eStream.getName()
-          + "; removing it");
-
+                + "; removing it");
+      
       StorageDirectory streamStorageDir = getStorageDirectoryForStream(eStream);
       if (sd == streamStorageDir) {
-	disableStream(eStream);	
+        errorStreams.add(eStream);
       }
+    }
+    
+    for (EditLogOutputStream eStream : errorStreams) { 
+      disableStream(eStream);
     }
   }
 
