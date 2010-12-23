@@ -240,8 +240,8 @@ public class NNStorage extends Storage implements Iterable<StorageDirectory>, Cl
     return this.removedStorageDirs;
   }
 
-  public void setStorageDirectories(Collection<URI> fsNameDirs,
-                             Collection<URI> fsEditsDirs) throws IOException {
+  synchronized public void setStorageDirectories(Collection<URI> fsNameDirs,
+                                                 Collection<URI> fsEditsDirs) throws IOException {
     this.storageDirs = new ArrayList<StorageDirectory>();
     this.removedStorageDirs = new ArrayList<StorageDirectory>();
     
