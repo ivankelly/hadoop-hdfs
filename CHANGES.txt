@@ -412,6 +412,9 @@ Release 0.22.0 - Unreleased
     HDFS-613. TestBalancer and TestBlockTokenWithDFS fail Balancer assert.
     (Todd Lipcon via cos)
 
+    HDFS-1511. 98 Release Audit warnings on trunk and branch-0.22.
+    (jghoman)
+
 Release 0.21.1 - Unreleased
 
   IMPROVEMENTS
@@ -438,6 +441,11 @@ Release 0.21.1 - Unreleased
 
     HDFS-1292. Allow artifacts to be published to the staging Apache Nexus
     Maven Repository.  (Giridharan Kesavan via tomwhite)
+
+    HDFS-1206. TestFiHFlush fails intermittently. (cos)
+
+    HDFS-1548. Fault-injection tests are executed multiple times if invoked
+    with run-test-hdfs-fault-inject target (cos)
 
 Release 0.21.0 - 2010-08-13
 
@@ -1383,6 +1391,8 @@ Release 0.20.3 - Unreleased
 
     HDFS-132. Fix namenode to not report files deleted metrics for deletions
     done while replaying edits during startup. (suresh & shv)
+
+    HDFS-1406. TestCLI fails on Ubuntu with default /etc/hosts. (cos)
 
 Release 0.20.2 - Unreleased
 
