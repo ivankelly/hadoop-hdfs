@@ -1213,7 +1213,7 @@ public class FSEditLog implements StorageListener {
     }
     editStreams.remove(stream);
             
-    if (editStreams == null || editStreams.size() <= 0) {
+    if (editStreams.size() <= 0) {
       String msg = "Fatal Error: All storage directories are inaccessible.";
       LOG.fatal(msg, new IOException(msg));
       Runtime.getRuntime().exit(-1);
