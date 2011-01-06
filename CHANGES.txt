@@ -415,6 +415,11 @@ Release 0.22.0 - Unreleased
     HDFS-1511. 98 Release Audit warnings on trunk and branch-0.22.
     (jghoman)
 
+    HDFS-1560. dfs.data.dir permissions should default to 700. 
+    (Todd Lipcon via eli)
+
+    HDFS-1550. NPE when listing a file with no location. (hairong)
+
 Release 0.21.1 - Unreleased
 
   IMPROVEMENTS
@@ -447,7 +452,7 @@ Release 0.21.1 - Unreleased
     HDFS-1548. Fault-injection tests are executed multiple times if invoked
     with run-test-hdfs-fault-inject target (cos)
 
-Release 0.21.0 - 2010-08-13
+    HDFS-1552. Remove java5 dependencies from build. (cos) 
 
   INCOMPATIBLE CHANGES
 
