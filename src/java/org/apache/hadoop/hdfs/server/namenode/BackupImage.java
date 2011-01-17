@@ -39,11 +39,11 @@ import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.io.LongWritable;
 
 @InterfaceAudience.Private
-public class BackupStorage extends FSImage {
+public class BackupImage extends FSImage {
   // Names of the journal spool directory and the spool file
   private static final String STORAGE_JSPOOL_DIR = "jspool";
-  private static final String STORAGE_JSPOOL_FILE = 
-                                              NNStorage.NameNodeFile.EDITS_NEW.getName();
+  private static final String STORAGE_JSPOOL_FILE =
+    NNStorage.NameNodeFile.EDITS_NEW.getName();
 
   /** Backup input stream for loading edits into memory */
   private EditLogBackupInputStream backupInputStream;
@@ -59,7 +59,7 @@ public class BackupStorage extends FSImage {
 
   /**
    */
-  BackupStorage() {
+  BackupImage() {
     super();
     storage.setDisablePreUpgradableLayoutCheck(true);
     jsState = JSpoolState.OFF;
@@ -79,7 +79,8 @@ public class BackupStorage extends FSImage {
                          Collection<URI> editsDirs) throws IOException {
     storage.setStorageDirectories(imageDirs, editsDirs);
     storage.checkpointTime = 0L;
-    for(StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
       StorageState curState;
       try {
         curState = sd.analyzeStorage(HdfsConstants.StartupOption.REGULAR);
@@ -128,7 +129,8 @@ public class BackupStorage extends FSImage {
     // recover from unsuccessful checkpoint if necessary
     recoverCreateRead(storage.getImageDirectories(), storage.getEditsDirectories());
     // rename and recreate
-    for(StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
       // rename current to lastcheckpoint.tmp
       storage.moveCurrent(sd);
     }
@@ -155,7 +157,7 @@ public class BackupStorage extends FSImage {
       StorageDirectory sdEdits = itEdits.next();
       getFSDirectoryRootLock().writeLock();
       try { // load image under rootDir lock
-        loadFSImage(storage.getImageFile(sdName, NameNodeFile.IMAGE));
+        loadFSImage(storage.getStorageFile(sdName, NameNodeFile.IMAGE));
       } finally {
         getFSDirectoryRootLock().writeUnlock();
       }
@@ -263,7 +265,8 @@ public class BackupStorage extends FSImage {
     }
 
     // create journal spool directories
-    for(StorageDirectory sd : storage.iterable(NameNodeDirType.EDITS)) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
+      StorageDirectory sd = it.next();
       File jsDir = getJSpoolDir(sd);
       if (!jsDir.exists() && !jsDir.mkdirs()) {
         throw new IOException("Mkdirs failed to create "
@@ -362,7 +365,8 @@ public class BackupStorage extends FSImage {
     }
 
     // Rename lastcheckpoint.tmp to previous.checkpoint
-    for(StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
       storage.moveLastCheckpoint(sd);
     }
   }

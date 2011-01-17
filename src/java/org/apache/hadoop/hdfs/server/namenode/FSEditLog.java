@@ -192,7 +192,8 @@ public class FSEditLog implements StorageListener {
       editStreams = new ArrayList<EditLogOutputStream>();
     
     ArrayList<StorageDirectory> al = null;
-    for (StorageDirectory sd : storage.iterable(NameNodeDirType.EDITS)) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
+      StorageDirectory sd = it.next();
       File eFile = getEditFile(sd);
       try {
         addNewEditLogStream(eFile);
@@ -267,9 +268,6 @@ public class FSEditLog implements StorageListener {
 
   /**
    * The specified streams have IO errors. Close and remove them.
-   * If propagate is true - close related StorageDirectories.
-   * (is called with propagate value true from everywhere
-   *  except fsimage.processIOError)
    */
   synchronized void errorStreams(List<EditLogOutputStream> errorStreams) {
     
@@ -1196,7 +1194,8 @@ public class FSEditLog implements StorageListener {
   StorageDirectory getStorageDirectoryForStream(EditLogOutputStream es) {
     String parentStorageDir = ((EditLogFileOutputStream)es).getFile().getParentFile().getParentFile().getAbsolutePath();
 
-    for (StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
       FSNamesystem.LOG.info("comparing: " + parentStorageDir 
                             + " and " + sd.getRoot().getAbsolutePath()); 
       if (parentStorageDir.equals(sd.getRoot().getAbsolutePath()))
@@ -1247,7 +1246,7 @@ public class FSEditLog implements StorageListener {
   @Override
   public synchronized void formatOccurred(StorageDirectory sd) throws IOException {
     if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-      createEditLogFile(storage.getImageFile(sd, NameNodeFile.EDITS));
+      createEditLogFile(storage.getStorageFile(sd, NameNodeFile.EDITS));
     }
   };
   

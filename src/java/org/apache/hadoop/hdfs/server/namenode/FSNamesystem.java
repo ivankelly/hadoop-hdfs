@@ -436,11 +436,11 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
    * Should do everything that would be done for the NameNode,
    * except for loading the image.
    * 
-   * @param bnImage {@link BackupStorage}
+   * @param bnImage {@link BackupImage}
    * @param conf configuration
    * @throws IOException
    */
-  FSNamesystem(Configuration conf, BackupStorage bnImage) throws IOException {
+  FSNamesystem(Configuration conf, BackupImage bnImage) throws IOException {
     try {
       initialize(conf, bnImage);
     } catch(IOException e) {
@@ -4812,7 +4812,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
    * @throws IOException
    */
   void registerBackupNode(NamenodeRegistration registration)
-  throws IOException {
+    throws IOException {
     writeLock();
     try {
       if(getFSImage().getStorage().getNamespaceID() != registration.getNamespaceID())

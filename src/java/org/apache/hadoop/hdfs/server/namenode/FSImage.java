@@ -201,18 +201,18 @@ public class FSImage implements StorageListener, Closeable {
     // none of the data dirs exist
     if((dataDirs.size() == 0 || editsDirs.size() == 0) 
                              && startOpt != StartupOption.IMPORT)  
-      throw new IOException(
-        "All specified directories are not accessible or do not exist.");
+      throw new IOException("All specified directories are not accessible"
+                            + " or do not exist.");
     
     if(startOpt == StartupOption.IMPORT 
         && (checkpointDirs == null || checkpointDirs.isEmpty()))
       throw new IOException("Cannot import image from a checkpoint. "
-                          + "\"dfs.namenode.checkpoint.dir\" is not set." );
+                            + "\"dfs.namenode.checkpoint.dir\" is not set." );
 
     if(startOpt == StartupOption.IMPORT 
         && (checkpointEditsDirs == null || checkpointEditsDirs.isEmpty()))
       throw new IOException("Cannot import image from a checkpoint. "
-                          + "\"dfs.namenode.checkpoint.dir\" is not set." );
+                            + "\"dfs.namenode.checkpoint.dir\" is not set." );
     
     storage.setStorageDirectories(dataDirs, editsDirs);
     // 1. For each data directory calculate its state and 
@@ -220,7 +220,8 @@ public class FSImage implements StorageListener, Closeable {
     Map<StorageDirectory, StorageState> dataDirStates = 
              new HashMap<StorageDirectory, StorageState>();
     boolean isFormatted = false;
-    for (StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
       StorageState curState;
       try {
         curState = sd.analyzeStorage(startOpt);
@@ -245,7 +246,8 @@ public class FSImage implements StorageListener, Closeable {
         if (startOpt == StartupOption.IMPORT && isFormatted)
           // import of a checkpoint is allowed only into empty image directories
           throw new IOException("Cannot import image from a checkpoint. " 
-              + " NameNode already contains an image in " + sd.getRoot());
+                                + " NameNode already contains an image in " 
+                                + sd.getRoot());
       } catch (IOException ioe) {
         sd.unlock();
         throw ioe;
@@ -257,22 +259,22 @@ public class FSImage implements StorageListener, Closeable {
                      && startOpt != StartupOption.IMPORT)
       throw new IOException("NameNode is not formatted.");
     if (storage.getLayoutVersion() < Storage.LAST_PRE_UPGRADE_LAYOUT_VERSION) {
-      storage.checkVersionUpgradable(storage.getLayoutVersion());
+      NNStorage.checkVersionUpgradable(storage.getLayoutVersion());
     }
     if (startOpt != StartupOption.UPGRADE
         && storage.getLayoutVersion() < Storage.LAST_PRE_UPGRADE_LAYOUT_VERSION
         && storage.getLayoutVersion() != FSConstants.LAYOUT_VERSION)
-        throw new IOException(
-                              "\nFile system image contains an old layout version " 
-                              + storage.getLayoutVersion()
-                              + ".\nAn upgrade to version " + FSConstants.LAYOUT_VERSION
-                              + " is required.\nPlease restart NameNode with -upgrade option.");
+      throw new IOException("\nFile system image contains an old layout version " 
+                            + storage.getLayoutVersion()
+                            + ".\nAn upgrade to version " + FSConstants.LAYOUT_VERSION
+                            + " is required.\nPlease restart NameNode with -upgrade option.");
     // check whether distributed upgrade is reguired and/or should be continued
     storage.verifyDistributedUpgradeProgress(startOpt);
 
     // 2. Format unformatted dirs.
     storage.checkpointTime = 0L;
-    for (StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
       StorageState curState = dataDirStates.get(sd);
       switch(curState) {
       case NON_EXISTENT:
@@ -322,7 +324,8 @@ public class FSImage implements StorageListener, Closeable {
     }
     // Upgrade is allowed only if there are 
     // no previous fs states in any of the directories
-    for (StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
       if (sd.getPreviousDir().exists())
         throw new InconsistentFSStateException(sd.getRoot(),
                                                "previous fs state should not exist during upgrade. "
@@ -338,7 +341,8 @@ public class FSImage implements StorageListener, Closeable {
     int oldLV = storage.getLayoutVersion();
     storage.layoutVersion = FSConstants.LAYOUT_VERSION;
     storage.checkpointTime = now();
-    for (StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
       LOG.info("Upgrading image directory " + sd.getRoot()
                + ".\n   old LV = " + oldLV
                + "; old CTime = " + oldCTime
@@ -352,11 +356,11 @@ public class FSImage implements StorageListener, Closeable {
       assert !tmpDir.exists() : "prvious.tmp directory must not exist.";
       assert !editLog.isOpen() : "Edits log must not be open.";
       // rename current to tmp
-      storage.rename(curDir, tmpDir);
+      NNStorage.rename(curDir, tmpDir);
       // save new image
       saveCurrent(sd);
       // rename tmp to previous
-      storage.rename(tmpDir, prevDir);
+      NNStorage.rename(tmpDir, prevDir);
       isUpgradeFinalized = false;
       LOG.info("Upgrade of " + sd.getRoot() + " is complete.");
     }
@@ -371,7 +375,8 @@ public class FSImage implements StorageListener, Closeable {
     boolean canRollback = false;
     FSImage prevState = new FSImage(getFSNamesystem());
     prevState.getStorage().layoutVersion = FSConstants.LAYOUT_VERSION;
-    for (StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
       File prevDir = sd.getPreviousDir();
       if (!prevDir.exists()) {  // use current directory then
         LOG.info("Storage directory " + sd.getRoot()
@@ -389,7 +394,8 @@ public class FSImage implements StorageListener, Closeable {
 
     // Now that we know all directories are going to be consistent
     // Do rollback for each directory containing previous state
-    for (StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
       File prevDir = sd.getPreviousDir();
       if (!prevDir.exists())
         continue;
@@ -402,12 +408,12 @@ public class FSImage implements StorageListener, Closeable {
       // rename current to tmp
       File curDir = sd.getCurrentDir();
       assert curDir.exists() : "Current directory must exist.";
-      storage.rename(curDir, tmpDir);
+      NNStorage.rename(curDir, tmpDir);
       // rename previous to current
-      storage.rename(prevDir, curDir);
+      NNStorage.rename(prevDir, curDir);
 
       // delete tmp dir
-      storage.deleteDir(tmpDir);
+      NNStorage.deleteDir(tmpDir);
       LOG.info("Rollback of " + sd.getRoot()+ " is complete.");
     }
     isUpgradeFinalized = true;
@@ -430,8 +436,8 @@ public class FSImage implements StorageListener, Closeable {
     assert sd.getCurrentDir().exists() : "Current directory must exist.";
     final File tmpDir = sd.getFinalizedTmp();
     // rename previous to tmp and remove
-    storage.rename(prevDir, tmpDir);
-    storage.deleteDir(tmpDir);
+    NNStorage.rename(prevDir, tmpDir);
+    NNStorage.deleteDir(tmpDir);
     isUpgradeFinalized = true;
     LOG.info("Finalize upgrade for " + sd.getRoot()+ " is complete.");
   }
@@ -463,7 +469,8 @@ public class FSImage implements StorageListener, Closeable {
   }
 
   void finalizeUpgrade() throws IOException {
-    for (StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
       doFinalize(sd);
     }
   }
@@ -483,15 +490,15 @@ public class FSImage implements StorageListener, Closeable {
                                        StorageDirectory editsSD) 
                                        throws IOException {
     boolean needToSave = false;
-    File curFile = storage.getImageFile(nameSD, NameNodeFile.IMAGE);
-    File ckptFile = storage.getImageFile(nameSD, NameNodeFile.IMAGE_NEW);
+    File curFile = NNStorage.getStorageFile(nameSD, NameNodeFile.IMAGE);
+    File ckptFile = NNStorage.getStorageFile(nameSD, NameNodeFile.IMAGE_NEW);
 
     //
     // If we were in the midst of a checkpoint
     //
     if (ckptFile.exists()) {
       needToSave = true;
-      if (storage.getImageFile(editsSD, NameNodeFile.EDITS_NEW).exists()) {
+      if (NNStorage.getStorageFile(editsSD, NameNodeFile.EDITS_NEW).exists()) {
         //
         // checkpointing migth have uploaded a new
         // merged image, but we discard it here because we are
@@ -555,7 +562,8 @@ public class FSImage implements StorageListener, Closeable {
 
     // Process each of the storage directories to find the pair of
     // newest image file and edit file
-    for (StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
 
       // Was the file just formatted?
       if (!sd.getVersionFile().exists()) {
@@ -568,12 +576,12 @@ public class FSImage implements StorageListener, Closeable {
       
       // Determine if sd is image, edits or both
       if (sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
-        imageExists = storage.getImageFile(sd, NameNodeFile.IMAGE).exists();
+        imageExists = NNStorage.getStorageFile(sd, NameNodeFile.IMAGE).exists();
         imageDirs.add(sd.getRoot().getCanonicalPath());
       }
       
       if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-        editsExists = storage.getImageFile(sd, NameNodeFile.EDITS).exists();
+        editsExists = NNStorage.getStorageFile(sd, NameNodeFile.EDITS).exists();
         editsDirs.add(sd.getRoot().getCanonicalPath());
       }
       
@@ -637,7 +645,7 @@ public class FSImage implements StorageListener, Closeable {
     // Load in bits
     //
     latestNameSD.read();
-    needToSave |= loadFSImage(storage.getImageFile(latestNameSD, NameNodeFile.IMAGE));
+    needToSave |= loadFSImage(NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE));
     
     // Load latest edits
     if (latestNameCheckpointTime > latestEditsCheckpointTime)
@@ -691,11 +699,11 @@ public class FSImage implements StorageListener, Closeable {
     
     int numEdits = 0;
     EditLogFileInputStream edits = 
-      new EditLogFileInputStream(storage.getImageFile(sd, NameNodeFile.EDITS));
+      new EditLogFileInputStream(NNStorage.getStorageFile(sd, NameNodeFile.EDITS));
     
     numEdits = loader.loadFSEdits(edits);
     edits.close();
-    File editsNew = storage.getImageFile(sd, NameNodeFile.EDITS_NEW);
+    File editsNew = NNStorage.getStorageFile(sd, NameNodeFile.EDITS_NEW);
     
     if (editsNew.exists() && editsNew.length() > 0) {
       edits = new EditLogFileInputStream(editsNew);
@@ -794,7 +802,8 @@ public class FSImage implements StorageListener, Closeable {
       Collections.synchronizedList(new ArrayList<StorageDirectory>());
 
     // mv current -> lastcheckpoint.tmp
-    for (StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
       try {
         storage.moveCurrent(sd);
       } catch(IOException ie) {
@@ -805,7 +814,8 @@ public class FSImage implements StorageListener, Closeable {
 
     List<Thread> saveThreads = new ArrayList<Thread>();
     // save images into current
-    for (StorageDirectory sd : storage.iterable(NameNodeDirType.IMAGE)) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
+      StorageDirectory sd = it.next();
       FSImageSaver saver = new FSImageSaver(sd, errorSDs);
       Thread saveThread = new Thread(saver, saver.toString());
       saveThreads.add(saveThread);
@@ -824,7 +834,8 @@ public class FSImage implements StorageListener, Closeable {
     // The edits directories should be discarded during startup because their
     // checkpointTime is older than that of image directories.
     // recreate edits in current
-    for (final StorageDirectory sd : storage.iterable(NameNodeDirType.EDITS)) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
+      StorageDirectory sd = it.next();
       // if this directory already stores the image and edits, then it was
       // already processed in the earlier loop.
       if (sd.getStorageDirType() == NameNodeDirType.IMAGE_AND_EDITS) {
@@ -839,7 +850,8 @@ public class FSImage implements StorageListener, Closeable {
     waitForThreads(saveThreads);
 
     // mv lastcheckpoint.tmp -> previous.checkpoint
-    for (StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
       try {
         storage.moveLastCheckpoint(sd);
       } catch(IOException ie) {
@@ -862,9 +874,9 @@ public class FSImage implements StorageListener, Closeable {
     if (!curDir.exists() && !curDir.mkdir())
       throw new IOException("Cannot create directory " + curDir);
     if (dirType.isOfType(NameNodeDirType.IMAGE))
-      saveFSImage(storage.getImageFile(sd, NameNodeFile.IMAGE));
+      saveFSImage(NNStorage.getStorageFile(sd, NameNodeFile.IMAGE));
     if (dirType.isOfType(NameNodeDirType.EDITS))
-      editLog.createEditLogFile(storage.getImageFile(sd, NameNodeFile.EDITS));
+      editLog.createEditLogFile(NNStorage.getStorageFile(sd, NameNodeFile.EDITS));
     // write version and time files
     sd.write();
   }
@@ -888,8 +900,9 @@ public class FSImage implements StorageListener, Closeable {
       throw new IOException("Cannot roll fsImage before rolling edits log.");
     }
 
-    for (StorageDirectory sd : storage.iterable(NameNodeDirType.IMAGE)) {
-      File ckpt = storage.getImageFile(sd, NameNodeFile.IMAGE_NEW);
+    for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
+      StorageDirectory sd = it.next();
+      File ckpt = NNStorage.getStorageFile(sd, NameNodeFile.IMAGE_NEW);
       if (!ckpt.exists()) {
         throw new IOException("Checkpoint file " + ckpt +
                               " does not exist");
@@ -912,9 +925,10 @@ public class FSImage implements StorageListener, Closeable {
    */
   void renameCheckpoint() throws IOException {
     ArrayList<StorageDirectory> al = null;
-    for (StorageDirectory sd : storage.iterable(NameNodeDirType.IMAGE)) {
-      File ckpt = storage.getImageFile(sd, NameNodeFile.IMAGE_NEW);
-      File curFile = storage.getImageFile(sd, NameNodeFile.IMAGE);
+    for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
+      StorageDirectory sd = it.next();
+      File ckpt = NNStorage.getStorageFile(sd, NameNodeFile.IMAGE_NEW);
+      File curFile = NNStorage.getStorageFile(sd, NameNodeFile.IMAGE);
       // renameTo fails on Windows if the destination file 
       // already exists.
       if(LOG.isDebugEnabled()) {
@@ -943,17 +957,18 @@ public class FSImage implements StorageListener, Closeable {
     storage.setImageDigest(newImageDigest);
     
     ArrayList<StorageDirectory> al = null;
-    for (StorageDirectory sd : storage) {
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      StorageDirectory sd = it.next();
       // delete old edits if sd is the image only the directory
       if (!sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-        File editsFile = storage.getImageFile(sd, NameNodeFile.EDITS);
+        File editsFile = NNStorage.getStorageFile(sd, NameNodeFile.EDITS);
         if(editsFile.exists() && !editsFile.delete())
           throw new IOException("Cannot delete edits file " 
                                 + editsFile.getCanonicalPath());
       }
       // delete old fsimage if sd is the edits only the directory
       if (!sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
-        File imageFile = storage.getImageFile(sd, NameNodeFile.IMAGE);
+        File imageFile = NNStorage.getStorageFile(sd, NameNodeFile.IMAGE);
         if(imageFile.exists() && !imageFile.delete())
           throw new IOException("Cannot delete image file " 
                                 + imageFile.getCanonicalPath());
@@ -1148,12 +1163,12 @@ public class FSImage implements StorageListener, Closeable {
     if (sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
       sd.lock();
       try {
-	saveCurrent(sd);
+        saveCurrent(sd);
       } finally {
-	sd.unlock();
+        sd.unlock();
       }
       LOG.info("Storage directory " + sd.getRoot()
-	       + " has been successfully formatted.");
+               + " has been successfully formatted.");
     }
   };
   

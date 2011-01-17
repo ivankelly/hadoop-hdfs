@@ -219,7 +219,7 @@ public class TestEditLogRace {
     // of these transactions will throw an exception.
     for (Iterator<StorageDirectory> it = 
            fsimage.getStorage().dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
-      File editFile = fsimage.getStorage().getImageFile(it.next(), NameNodeFile.EDITS);
+      File editFile = fsimage.getStorage().getStorageFile(it.next(), NameNodeFile.EDITS);
       System.out.println("Verifying file: " + editFile);
       int numEdits = new FSEditLogLoader(namesystem).loadFSEdits(
         new EditLogFileInputStream(editFile));

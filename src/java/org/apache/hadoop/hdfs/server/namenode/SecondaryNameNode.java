@@ -407,7 +407,7 @@ public class SecondaryNameNode implements Runnable {
     if (sockAddr.getAddress().isAnyLocalAddress()) {
       if(UserGroupInformation.isSecurityEnabled()) {
         throw new IOException("Cannot use a wildcard address with security. " +
-        		"Must explicitly set bind address for Kerberos");
+                              "Must explicitly set bind address for Kerberos");
       }
       return fsName.getHost() + ":" + sockAddr.getPort();
     } else {
@@ -620,7 +620,7 @@ public class SecondaryNameNode implements Runnable {
                        Collection<URI> editsDirs) throws IOException {
       Collection<URI> tempDataDirs = new ArrayList<URI>(dataDirs);
       Collection<URI> tempEditsDirs = new ArrayList<URI>(editsDirs);
-      storage.clearStorageDirectories();
+      storage.close();
       storage.setStorageDirectories(tempDataDirs, tempEditsDirs);
       for (Iterator<StorageDirectory> it = 
                    storage.dirIterator(); it.hasNext();) {
@@ -667,13 +667,15 @@ public class SecondaryNameNode implements Runnable {
      * @throws IOException
      */
     void startCheckpoint() throws IOException {
-      for(StorageDirectory sd : storage) {
+      for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+        StorageDirectory sd = it.next();
         storage.moveCurrent(sd);
       }
     }
 
     void endCheckpoint() throws IOException {
-      for(StorageDirectory sd : storage) {
+      for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+        StorageDirectory sd = it.next();
         storage.moveLastCheckpoint(sd);
       }
     }
@@ -702,7 +704,7 @@ public class SecondaryNameNode implements Runnable {
         throw new IOException("Could not locate checkpoint edits");
       if (loadImage) {
         this.getStorage().layoutVersion = -1; // to avoid assert in loadFSImage()
-        loadFSImage(getStorage().getImageFile(sdName, NameNodeFile.IMAGE));
+        loadFSImage(getStorage().getStorageFile(sdName, NameNodeFile.IMAGE));
       }
       loadFSEdits(sdEdits);
       sig.validateStorageInfo(this);

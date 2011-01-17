@@ -63,8 +63,8 @@ class Checkpointer extends Daemon {
 
   private String infoBindAddress;
 
-  private BackupStorage getFSImage() {
-    return (BackupStorage)backupNode.getFSImage();
+  private BackupImage getFSImage() {
+    return (BackupImage)backupNode.getFSImage();
   }
 
   private NamenodeProtocol getNamenode(){
@@ -250,7 +250,7 @@ class Checkpointer extends Daemon {
       downloadCheckpoint(sig);
     }
 
-    BackupStorage bnImage = getFSImage();
+    BackupImage bnImage = getFSImage();
     bnImage.loadCheckpoint(sig);
     sig.validateStorageInfo(bnImage);
     bnImage.saveCheckpoint();

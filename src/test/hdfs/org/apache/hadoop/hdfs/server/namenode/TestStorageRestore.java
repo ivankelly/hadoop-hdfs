@@ -148,11 +148,11 @@ public class TestStorageRestore extends TestCase {
       StorageDirectory sd = it.next();
       
       if(sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
-        File imf = fs.getStorage().getImageFile(sd, NameNodeFile.IMAGE);
+        File imf = fs.getStorage().getStorageFile(sd, NameNodeFile.IMAGE);
         LOG.info("  image file " + imf.getAbsolutePath() + "; len = " + imf.length());  
       }
       if(sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-        File edf = fs.getStorage().getImageFile(sd, NameNodeFile.EDITS);
+        File edf = fs.getStorage().getStorageFile(sd, NameNodeFile.EDITS);
         LOG.info("  edits file " + edf.getAbsolutePath() + "; len = " + edf.length()); 
       }
     }

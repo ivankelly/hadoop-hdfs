@@ -124,7 +124,7 @@ public class BackupNode extends NameNode {
 
   @Override // NameNode
   protected void loadNamesystem(Configuration conf) throws IOException {
-    BackupStorage bnImage = new BackupStorage();
+    BackupImage bnImage = new BackupImage();
     this.namesystem = new FSNamesystem(conf, bnImage);
     bnImage.recoverCreateRead(FSNamesystem.getNamespaceDirs(conf),
                               FSNamesystem.getNamespaceEditsDirs(conf));
@@ -216,7 +216,7 @@ public class BackupNode extends NameNode {
     if(!nnRpcAddress.equals(nnReg.getAddress()))
       throw new IOException("Journal request from unexpected name-node: "
           + nnReg.getAddress() + " expecting " + nnRpcAddress);
-    BackupStorage bnImage = (BackupStorage)getFSImage();
+    BackupImage bnImage = (BackupImage)getFSImage();
     switch(jAction) {
       case (int)JA_IS_ALIVE:
         return;
@@ -301,7 +301,7 @@ public class BackupNode extends NameNode {
    * @throws IOException
    */
   private void registerWith(NamespaceInfo nsInfo) throws IOException {
-    BackupStorage bnImage = (BackupStorage)getFSImage();
+    BackupImage bnImage = (BackupImage)getFSImage();
     // verify namespaceID
     if(bnImage.getStorage().getNamespaceID() == 0) // new backup storage
       bnImage.getStorage().setStorageInfo(nsInfo);
@@ -343,7 +343,7 @@ public class BackupNode extends NameNode {
    * @throws IOException
    */
   void resetNamespace() throws IOException {
-    ((BackupStorage)getFSImage()).reset();
+    ((BackupImage)getFSImage()).reset();
   }
 
   /**
