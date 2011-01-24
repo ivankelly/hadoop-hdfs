@@ -14,6 +14,9 @@ Trunk (unreleased changes)
     HDFS-1482. Add listCorruptFileBlocks to DistributedFileSystem.
     (Patrick Kling via hairong)
 
+    HDFS-1448. Add a new tool Offline Edits Viewer (oev).  (Erik Steffl
+    via szetszwo)
+
   IMPROVEMENTS
 
     HDFS-1510. Added test-patch.properties required by test-patch.sh (nigel)
@@ -35,6 +38,14 @@ Trunk (unreleased changes)
     
     HDFS-1539. A config option for the datanode to fsycn a block file
     when block is completely written. (dhruba)
+
+    HDFS-1547. Improve decommission mechanism. (suresh)
+
+    HDFS-1586. Add InterfaceAudience and InterfaceStability annotations to 
+    MiniDFSCluster. (suresh)
+
+    HDFS-1588. Remove hardcoded strings for configuration keys, "dfs.hosts"
+    and "dfs.hosts.exlude". (Erik Steffl via suresh)
 
   OPTIMIZATIONS
 
@@ -60,6 +71,8 @@ Trunk (unreleased changes)
     more elegantly. (dhruba)
 
     HDFS-1463. Accesstime of a file is not updated in safeMode. (dhruba)
+
+    HDFS-1585. Fix build after HDFS-1547 (todd)
 
 Release 0.22.0 - Unreleased
 
@@ -487,6 +500,11 @@ Release 0.22.0 - Unreleased
 
     HDFS-884. DataNode throws IOException if all data directories are 
     unavailable. (Steve Loughran and shv)
+
+    HDFS-1572. Checkpointer should trigger checkpoint with specified period.
+    (jghoman)
+
+    HDFS-1561. BackupNode listens on the default host. (shv)
 
 Release 0.21.1 - Unreleased
 
