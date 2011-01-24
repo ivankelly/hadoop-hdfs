@@ -137,7 +137,7 @@ public class FSImage implements StorageListener, Closeable {
     }
     storage.registerListener(this);
 
-    this.editLog = new FSEditLog(this, storage);
+    this.editLog = new FSEditLog(storage);
     setFSNamesystem(ns);
   }
 
@@ -201,8 +201,8 @@ public class FSImage implements StorageListener, Closeable {
     // none of the data dirs exist
     if((dataDirs.size() == 0 || editsDirs.size() == 0) 
                              && startOpt != StartupOption.IMPORT)  
-      throw new IOException("All specified directories are not accessible"
-                            + " or do not exist.");
+      throw new IOException(
+          "All specified directories are not accessible or do not exist.");
     
     if(startOpt == StartupOption.IMPORT 
         && (checkpointDirs == null || checkpointDirs.isEmpty()))
@@ -246,8 +246,7 @@ public class FSImage implements StorageListener, Closeable {
         if (startOpt == StartupOption.IMPORT && isFormatted)
           // import of a checkpoint is allowed only into empty image directories
           throw new IOException("Cannot import image from a checkpoint. " 
-                                + " NameNode already contains an image in " 
-                                + sd.getRoot());
+              + " NameNode already contains an image in "+ sd.getRoot());
       } catch (IOException ioe) {
         sd.unlock();
         throw ioe;
@@ -264,15 +263,16 @@ public class FSImage implements StorageListener, Closeable {
     if (startOpt != StartupOption.UPGRADE
         && storage.getLayoutVersion() < Storage.LAST_PRE_UPGRADE_LAYOUT_VERSION
         && storage.getLayoutVersion() != FSConstants.LAYOUT_VERSION)
-      throw new IOException("\nFile system image contains an old layout version " 
-                            + storage.getLayoutVersion()
-                            + ".\nAn upgrade to version " + FSConstants.LAYOUT_VERSION
-                            + " is required.\nPlease restart NameNode with -upgrade option.");
+      throw new IOException(
+          "\nFile system image contains an old layout version " 
+          + storage.getLayoutVersion() + ".\nAn upgrade to version "
+          + FSConstants.LAYOUT_VERSION + " is required.\n"
+          + "Please restart NameNode with -upgrade option.");
     // check whether distributed upgrade is reguired and/or should be continued
     storage.verifyDistributedUpgradeProgress(startOpt);
 
     // 2. Format unformatted dirs.
-    storage.checkpointTime = 0L;
+    storage.setCheckpointTime(0L);
     for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
       StorageState curState = dataDirStates.get(sd);
@@ -328,8 +328,8 @@ public class FSImage implements StorageListener, Closeable {
       StorageDirectory sd = it.next();
       if (sd.getPreviousDir().exists())
         throw new InconsistentFSStateException(sd.getRoot(),
-                                               "previous fs state should not exist during upgrade. "
-                                               + "Finalize or rollback first.");
+            "previous fs state should not exist during upgrade. "
+            + "Finalize or rollback first.");
     }
 
     // load the latest image
@@ -340,7 +340,7 @@ public class FSImage implements StorageListener, Closeable {
     storage.cTime = now();  // generate new cTime for the state
     int oldLV = storage.getLayoutVersion();
     storage.layoutVersion = FSConstants.LAYOUT_VERSION;
-    storage.checkpointTime = now();
+    storage.setCheckpointTime(now());
     for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
       LOG.info("Upgrading image directory " + sd.getRoot()
@@ -384,13 +384,16 @@ public class FSImage implements StorageListener, Closeable {
         sd.read(); // read and verify consistency with other directories
         continue;
       }
-      StorageDirectory sdPrev = prevState.getStorage().new StorageDirectory(sd.getRoot());
-      sdPrev.read(sdPrev.getPreviousVersionFile());  // read and verify consistency of the prev dir
+      StorageDirectory sdPrev 
+        = prevState.getStorage().new StorageDirectory(sd.getRoot());
+
+      // read and verify consistency of the prev dir
+      sdPrev.read(sdPrev.getPreviousVersionFile());
       canRollback = true;
     }
     if (!canRollback)
-      throw new IOException("Cannot rollback. " 
-                            + "None of the storage directories contain previous fs state.");
+      throw new IOException("Cannot rollback. None of the storage "
+                            + "directories contain previous fs state.");
 
     // Now that we know all directories are going to be consistent
     // Do rollback for each directory containing previous state
@@ -462,7 +465,7 @@ public class FSImage implements StorageListener, Closeable {
     }
     // return back the real image
     realImage.getStorage().setStorageInfo(ckptImage.getStorage());
-    storage.checkpointTime = ckptImage.getStorage().checkpointTime;
+    storage.setCheckpointTime(ckptImage.getStorage().getCheckpointTime());
     fsNamesys.dir.fsImage = realImage;
     // and save it but keep the same checkpointTime
     saveNamespace(false);
@@ -645,7 +648,8 @@ public class FSImage implements StorageListener, Closeable {
     // Load in bits
     //
     latestNameSD.read();
-    needToSave |= loadFSImage(NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE));
+    needToSave |= loadFSImage(NNStorage.getStorageFile(latestNameSD,
+                                                       NameNodeFile.IMAGE));
     
     // Load latest edits
     if (latestNameCheckpointTime > latestEditsCheckpointTime)
@@ -676,7 +680,7 @@ public class FSImage implements StorageListener, Closeable {
     } else if (!storage.getImageDigest().equals(readImageMd5)) {
       throw new IOException("Image file " + curFile +
           " is corrupt with MD5 checksum of " + readImageMd5 +
-                            " but expecting " + storage.getImageDigest());
+          " but expecting " + storage.getImageDigest());
     }
 
     storage.namespaceID = loader.getLoadedNamespaceID();
@@ -698,8 +702,9 @@ public class FSImage implements StorageListener, Closeable {
     FSEditLogLoader loader = new FSEditLogLoader(namesystem);
     
     int numEdits = 0;
-    EditLogFileInputStream edits = 
-      new EditLogFileInputStream(NNStorage.getStorageFile(sd, NameNodeFile.EDITS));
+    EditLogFileInputStream edits =
+      new EditLogFileInputStream(NNStorage.getStorageFile(sd,
+                                                          NameNodeFile.EDITS));
     
     numEdits = loader.loadFSEdits(edits);
     edits.close();
@@ -797,7 +802,7 @@ public class FSImage implements StorageListener, Closeable {
 
     editLog.close();
     if(renewCheckpointTime)
-      storage.checkpointTime = now();
+      storage.setCheckpointTime(now());
     List<StorageDirectory> errorSDs =
       Collections.synchronizedList(new ArrayList<StorageDirectory>());
 
@@ -814,7 +819,8 @@ public class FSImage implements StorageListener, Closeable {
 
     List<Thread> saveThreads = new ArrayList<Thread>();
     // save images into current
-    for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
+    for (Iterator<StorageDirectory> it
+           = storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
       StorageDirectory sd = it.next();
       FSImageSaver saver = new FSImageSaver(sd, errorSDs);
       Thread saveThread = new Thread(saver, saver.toString());
@@ -825,7 +831,7 @@ public class FSImage implements StorageListener, Closeable {
     saveThreads.clear();
 
     // -NOTE-
-    // If NN has image-only and edits-only storage directories and fails here 
+    // If NN has image-only and edits-only storage directories and fails here
     // the image will have the latest namespace state.
     // During startup the image-only directories will recover by discarding
     // lastcheckpoint.tmp, while
@@ -834,7 +840,8 @@ public class FSImage implements StorageListener, Closeable {
     // The edits directories should be discarded during startup because their
     // checkpointTime is older than that of image directories.
     // recreate edits in current
-    for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
+    for (Iterator<StorageDirectory> it
+           = storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
       StorageDirectory sd = it.next();
       // if this directory already stores the image and edits, then it was
       // already processed in the earlier loop.
@@ -876,7 +883,8 @@ public class FSImage implements StorageListener, Closeable {
     if (dirType.isOfType(NameNodeDirType.IMAGE))
       saveFSImage(NNStorage.getStorageFile(sd, NameNodeFile.IMAGE));
     if (dirType.isOfType(NameNodeDirType.EDITS))
-      editLog.createEditLogFile(NNStorage.getStorageFile(sd, NameNodeFile.EDITS));
+      editLog.createEditLogFile(NNStorage.getStorageFile(sd,
+                                                         NameNodeFile.EDITS));
     // write version and time files
     sd.write();
   }
@@ -900,7 +908,8 @@ public class FSImage implements StorageListener, Closeable {
       throw new IOException("Cannot roll fsImage before rolling edits log.");
     }
 
-    for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
+    for (Iterator<StorageDirectory> it 
+           = storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
       StorageDirectory sd = it.next();
       File ckpt = NNStorage.getStorageFile(sd, NameNodeFile.IMAGE_NEW);
       if (!ckpt.exists()) {
@@ -925,14 +934,16 @@ public class FSImage implements StorageListener, Closeable {
    */
   void renameCheckpoint() throws IOException {
     ArrayList<StorageDirectory> al = null;
-    for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
+    for (Iterator<StorageDirectory> it 
+           = storage.dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
       StorageDirectory sd = it.next();
       File ckpt = NNStorage.getStorageFile(sd, NameNodeFile.IMAGE_NEW);
       File curFile = NNStorage.getStorageFile(sd, NameNodeFile.IMAGE);
       // renameTo fails on Windows if the destination file 
       // already exists.
       if(LOG.isDebugEnabled()) {
-        LOG.debug("renaming  " + ckpt.getAbsolutePath() + " to "  + curFile.getAbsolutePath());
+        LOG.debug("renaming  " + ckpt.getAbsolutePath() 
+                  + " to " + curFile.getAbsolutePath());
       }
       if (!ckpt.renameTo(curFile)) {
         if (!curFile.delete() || !ckpt.renameTo(curFile)) {
@@ -950,10 +961,11 @@ public class FSImage implements StorageListener, Closeable {
   /**
    * Updates version and fstime files in all directories (fsimage and edits).
    */
-  void resetVersion(boolean renewCheckpointTime, MD5Hash newImageDigest) throws IOException {
+  void resetVersion(boolean renewCheckpointTime, MD5Hash newImageDigest) 
+      throws IOException {
     storage.layoutVersion = FSConstants.LAYOUT_VERSION;
     if(renewCheckpointTime)
-      storage.checkpointTime = now();
+      storage.setCheckpointTime(now());
     storage.setImageDigest(newImageDigest);
     
     ArrayList<StorageDirectory> al = null;
@@ -1050,7 +1062,7 @@ public class FSImage implements StorageListener, Closeable {
             && bnReg.getCTime() > storage.getCTime())
         || (bnReg.getLayoutVersion() == storage.getLayoutVersion()
             && bnReg.getCTime() == storage.getCTime()
-            && bnReg.getCheckpointTime() > storage.checkpointTime))
+            && bnReg.getCheckpointTime() > storage.getCheckpointTime()))
       // remote node has newer image age
       msg = "Name node " + bnReg.getAddress()
             + " has newer image layout version: LV = " +bnReg.getLayoutVersion()
@@ -1058,7 +1070,7 @@ public class FSImage implements StorageListener, Closeable {
             + " checkpointTime = " + bnReg.getCheckpointTime()
             + ". Current version: LV = " + storage.getLayoutVersion()
             + " cTime = " + storage.getCTime()
-            + " checkpointTime = " + storage.checkpointTime;
+            + " checkpointTime = " + storage.getCheckpointTime();
     if(msg != null) {
       LOG.error(msg);
       return new NamenodeCommand(NamenodeProtocol.ACT_SHUTDOWN);
@@ -1066,7 +1078,7 @@ public class FSImage implements StorageListener, Closeable {
     boolean isImgObsolete = true;
     if(bnReg.getLayoutVersion() == storage.getLayoutVersion()
         && bnReg.getCTime() == storage.getCTime()
-        && bnReg.getCheckpointTime() == storage.checkpointTime)
+        && bnReg.getCheckpointTime() == storage.getCheckpointTime())
       isImgObsolete = false;
     boolean needToReturnImg = true;
     if(storage.getNumStorageDirs(NameNodeDirType.IMAGE) == 0)
@@ -1124,7 +1136,7 @@ public class FSImage implements StorageListener, Closeable {
 
   /**
    * Retrieve checkpoint dirs from configuration.
-   *  
+   *
    * @param conf the Configuration
    * @param defaultValue a default value for the attribute, if null
    * @return a Collection of URIs representing the values in 
@@ -1147,8 +1159,8 @@ public class FSImage implements StorageListener, Closeable {
       dirNames.add(defaultName);
     }
     return Util.stringCollectionAsURIs(dirNames);
-  }  
-  
+  }
+
   public NNStorage getStorage() {
     return storage;
   }
@@ -1171,7 +1183,7 @@ public class FSImage implements StorageListener, Closeable {
                + " has been successfully formatted.");
     }
   };
-  
+
   @Override
   public void directoryAvailable(StorageDirectory sd) throws IOException {
     // do nothing

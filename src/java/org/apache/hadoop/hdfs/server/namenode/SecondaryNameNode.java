@@ -340,20 +340,21 @@ public class SecondaryNameNode implements Runnable {
           @Override
           public Boolean run() throws Exception {
             checkpointImage.getStorage().cTime = sig.cTime;
-            checkpointImage.getStorage().checkpointTime = sig.checkpointTime;
-                    
+            checkpointImage.getStorage().setCheckpointTime(sig.checkpointTime);
+
             // get fsimage
             String fileid;
             Collection<File> list;
             File[] srcNames;
             boolean downloadImage = true;
-            if (sig.imageDigest.equals(checkpointImage.getStorage().imageDigest)) {
+            if (sig.imageDigest.equals(
+                    checkpointImage.getStorage().imageDigest)) {
               downloadImage = false;
               LOG.info("Image has not changed. Will not download image.");
             } else {
               fileid = "getimage=1";
-              list = checkpointImage.getStorage().getFiles(NameNodeFile.IMAGE,
-                                                           NameNodeDirType.IMAGE);
+              list = checkpointImage.getStorage().getFiles(
+                  NameNodeFile.IMAGE, NameNodeDirType.IMAGE);
               srcNames = list.toArray(new File[list.size()]);
               assert srcNames.length > 0 : "No checkpoint targets.";
               TransferFsImage.getFileClient(fsName, fileid, srcNames, false);
@@ -364,7 +365,8 @@ public class SecondaryNameNode implements Runnable {
         
             // get edits file
             fileid = "getedit=1";
-            list = getFSImage().getStorage().getFiles(NameNodeFile.EDITS, NameNodeDirType.EDITS);
+            list = getFSImage().getStorage().getFiles(
+                NameNodeFile.EDITS, NameNodeDirType.EDITS);
             srcNames = list.toArray(new File[list.size()]);;
             assert srcNames.length > 0 : "No checkpoint targets.";
             TransferFsImage.getFileClient(fsName, fileid, srcNames, false);
@@ -667,14 +669,16 @@ public class SecondaryNameNode implements Runnable {
      * @throws IOException
      */
     void startCheckpoint() throws IOException {
-      for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      for (Iterator<StorageDirectory> it
+             = storage.dirIterator(); it.hasNext();) {
         StorageDirectory sd = it.next();
         storage.moveCurrent(sd);
       }
     }
 
     void endCheckpoint() throws IOException {
-      for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+      for (Iterator<StorageDirectory> it
+             = storage.dirIterator(); it.hasNext();) {
         StorageDirectory sd = it.next();
         storage.moveLastCheckpoint(sd);
       }
@@ -703,7 +707,8 @@ public class SecondaryNameNode implements Runnable {
       if (sdEdits == null)
         throw new IOException("Could not locate checkpoint edits");
       if (loadImage) {
-        this.getStorage().layoutVersion = -1; // to avoid assert in loadFSImage()
+        // to avoid assert in loadFSImage()
+        this.getStorage().layoutVersion = -1;
         loadFSImage(getStorage().getStorageFile(sdName, NameNodeFile.IMAGE));
       }
       loadFSEdits(sdEdits);

@@ -181,7 +181,8 @@ class NamenodeJspHelper {
               + "<thead><tr><td><b>Storage Directory</b></td><td><b>Type</b></td><td><b>State</b></td></tr></thead>");
 
       StorageDirectory st = null;
-      for (Iterator<StorageDirectory> it = fsImage.getStorage().dirIterator(); it.hasNext();) {
+      for (Iterator<StorageDirectory> it 
+             = fsImage.getStorage().dirIterator(); it.hasNext();) {
         st = it.next();
         String dir = "" + st.getRoot();
         String type = "" + st.getStorageDirType();

@@ -70,7 +70,7 @@ public class BackupImage extends FSImage {
    * Recover from incomplete checkpoints if required.<br>
    * Read VERSION and fstime files if exist.<br>
    * Do not load image or edits.
-   * 
+   *
    * @param imageDirs list of image directories as URI.
    * @param editsDirs list of edits directories URI.
    * @throws IOException if the node should shutdown.
@@ -78,7 +78,7 @@ public class BackupImage extends FSImage {
   void recoverCreateRead(Collection<URI> imageDirs,
                          Collection<URI> editsDirs) throws IOException {
     storage.setStorageDirectories(imageDirs, editsDirs);
-    storage.checkpointTime = 0L;
+    storage.setCheckpointTime(0L);
     for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
       StorageState curState;
@@ -87,7 +87,7 @@ public class BackupImage extends FSImage {
         // sd is locked but not opened
         switch(curState) {
         case NON_EXISTENT:
-          // fail if any of the configured storage dirs are inaccessible 
+          // fail if any of the configured storage dirs are inaccessible
           throw new InconsistentFSStateException(sd.getRoot(),
                 "checkpoint directory does not exist or is not accessible.");
         case NOT_FORMATTED:
@@ -127,7 +127,8 @@ public class BackupImage extends FSImage {
     // unlock, close and rename storage directories
     storage.unlockAll();
     // recover from unsuccessful checkpoint if necessary
-    recoverCreateRead(storage.getImageDirectories(), storage.getEditsDirectories());
+    recoverCreateRead(storage.getImageDirectories(),
+                      storage.getEditsDirectories());
     // rename and recreate
     for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
@@ -149,8 +150,10 @@ public class BackupImage extends FSImage {
 
     FSDirectory fsDir = getFSNamesystem().dir;
     if(fsDir.isEmpty()) {
-      Iterator<StorageDirectory> itImage = storage.dirIterator(NameNodeDirType.IMAGE);
-      Iterator<StorageDirectory> itEdits = storage.dirIterator(NameNodeDirType.EDITS);
+      Iterator<StorageDirectory> itImage
+        = storage.dirIterator(NameNodeDirType.IMAGE);
+      Iterator<StorageDirectory> itEdits
+        = storage.dirIterator(NameNodeDirType.EDITS);
       if(!itImage.hasNext() || ! itEdits.hasNext())
         throw new IOException("Could not locate checkpoint directories");
       StorageDirectory sdName = itImage.next();
@@ -167,7 +170,7 @@ public class BackupImage extends FSImage {
     // set storage fields
     storage.setStorageInfo(sig);
     storage.setImageDigest(sig.imageDigest);
-    storage.checkpointTime = sig.checkpointTime;
+    storage.setCheckpointTime(sig.checkpointTime);
   }
 
   /**
@@ -194,9 +197,9 @@ public class BackupImage extends FSImage {
    * Journal writer journals new meta-data state.
    * <ol>
    * <li> If Journal Spool state is OFF then journal records (edits)
-   * are applied directly to meta-data state in memory and are written 
+   * are applied directly to meta-data state in memory and are written
    * to the edits file(s).</li>
-   * <li> If Journal Spool state is INPROGRESS then records are only 
+   * <li> If Journal Spool state is INPROGRESS then records are only
    * written to edits.new file, which is called Spooling.</li>
    * <li> Journal Spool state WAIT blocks journaling until the
    * Journal Spool reader finalizes merging of the spooled data and
@@ -246,7 +249,7 @@ public class BackupImage extends FSImage {
   /**
    * Start journal spool.
    * Switch to writing into edits.new instead of edits.
-   * 
+   *
    * edits.new for spooling is in separate directory "spool" rather than in
    * "current" because the two directories should be independent.
    * While spooling a checkpoint can happen and current will first
@@ -265,7 +268,8 @@ public class BackupImage extends FSImage {
     }
 
     // create journal spool directories
-    for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
+    for (Iterator<StorageDirectory> it
+           = storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
       StorageDirectory sd = it.next();
       File jsDir = getJSpoolDir(sd);
       if (!jsDir.exists() && !jsDir.mkdirs()) {
@@ -304,7 +308,7 @@ public class BackupImage extends FSImage {
       assert op == NamenodeProtocol.JA_CHECKPOINT_TIME;
       LongWritable lw = new LongWritable();
       lw.readFields(in);
-      storage.setCheckpointTime(lw.get());
+      storage.setCheckpointTimeInStorage(lw.get());
     } finally {
       backupInputStream.clear();
     }
@@ -319,14 +323,15 @@ public class BackupImage extends FSImage {
    * <ul>
    * <li> reads remaining journal records if any,</li>
    * <li> renames edits.new to edits,</li>
-   * <li> sets {@link JSpoolState} to OFF,</li> 
+   * <li> sets {@link JSpoolState} to OFF,</li>
    * <li> and notifies the journaling thread.</li>
    * </ul>
    * Journaling resumes with applying new journal records to the memory state,
    * and writing them into edits file(s).
    */
   void convergeJournalSpool() throws IOException {
-    Iterator<StorageDirectory> itEdits = storage.dirIterator(NameNodeDirType.EDITS);
+    Iterator<StorageDirectory> itEdits
+      = storage.dirIterator(NameNodeDirType.EDITS);
     if(! itEdits.hasNext())
       throw new IOException("Could not locate checkpoint directories");
     StorageDirectory sdEdits = itEdits.next();
@@ -342,13 +347,14 @@ public class BackupImage extends FSImage {
 
       // first time reached the end of spool
       jsState = JSpoolState.WAIT;
-      numEdits += logLoader.loadEditRecords(storage.getLayoutVersion(), in, true);
+      numEdits += logLoader.loadEditRecords(storage.getLayoutVersion(),
+                                            in, true);
       getFSNamesystem().dir.updateCountForINodeWithQuota();
       edits.close();
     }
 
-    FSImage.LOG.info("Edits file " + jSpoolFile.getCanonicalPath() 
-        + " of size " + jSpoolFile.length() + " edits # " + numEdits 
+    FSImage.LOG.info("Edits file " + jSpoolFile.getCanonicalPath()
+        + " of size " + jSpoolFile.length() + " edits # " + numEdits
         + " loaded in " + (now()-startTime)/1000 + " seconds.");
 
     // rename spool edits.new to edits making it in sync with the active node

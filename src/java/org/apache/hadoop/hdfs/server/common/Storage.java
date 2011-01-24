@@ -785,6 +785,11 @@ public abstract class Storage extends StorageInfo {
                             + from.getCanonicalPath() + " to " + to.getCanonicalPath());
   }
 
+  /**
+   * Delete a file from the local filesystem.
+   * @param dir The directory to delete
+   * @throws IOException
+   */
   public static void deleteDir(File dir) throws IOException {
     if (!FileUtil.fullyDelete(dir))
       throw new IOException("Failed to delete " + dir.getCanonicalPath());

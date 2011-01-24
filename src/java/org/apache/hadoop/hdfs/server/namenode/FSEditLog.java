@@ -103,7 +103,6 @@ public class FSEditLog implements StorageListener {
   private volatile int sizeOutputFlushBuffer = 512*1024;
 
   private ArrayList<EditLogOutputStream> editStreams = null;
-  private FSImage fsimage = null;
 
   // a monotonically increasing counter that represents transactionIds.
   private long txid = 0;
@@ -143,8 +142,7 @@ public class FSEditLog implements StorageListener {
     }
   };
 
-  FSEditLog(FSImage image, NNStorage storage) {
-    fsimage = image;
+  FSEditLog(NNStorage storage) {
     isSyncRunning = false;
     this.storage = storage;
     this.storage.registerListener(this);
@@ -192,7 +190,8 @@ public class FSEditLog implements StorageListener {
       editStreams = new ArrayList<EditLogOutputStream>();
     
     ArrayList<StorageDirectory> al = null;
-    for (Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
+    for (Iterator<StorageDirectory> it 
+         = storage.dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
       StorageDirectory sd = it.next();
       File eFile = getEditFile(sd);
       try {
@@ -1211,7 +1210,7 @@ public class FSEditLog implements StorageListener {
                + " before removing it (might be ok)");
     }
     editStreams.remove(stream);
-            
+
     if (editStreams.size() <= 0) {
       String msg = "Fatal Error: All storage directories are inaccessible.";
       LOG.fatal(msg, new IOException(msg));
@@ -1221,37 +1220,41 @@ public class FSEditLog implements StorageListener {
 
   /**
    * Error Handling on a storageDirectory
-   * 
+   *
    */
   // StorageListener Interface
   @Override
-  public synchronized void errorOccurred(StorageDirectory sd) throws IOException {
-    ArrayList<EditLogOutputStream> errorStreams = new ArrayList<EditLogOutputStream>();
-    
+  public synchronized void errorOccurred(StorageDirectory sd)
+      throws IOException {
+    ArrayList<EditLogOutputStream> errorStreams
+      = new ArrayList<EditLogOutputStream>();
+
     for (EditLogOutputStream eStream : editStreams) {
       LOG.error("Unable to log edits to " + eStream.getName()
                 + "; removing it");
-      
+
       StorageDirectory streamStorageDir = getStorageDirectoryForStream(eStream);
       if (sd == streamStorageDir) {
         errorStreams.add(eStream);
       }
     }
-    
-    for (EditLogOutputStream eStream : errorStreams) { 
+
+    for (EditLogOutputStream eStream : errorStreams) {
       disableStream(eStream);
     }
   }
 
   @Override
-  public synchronized void formatOccurred(StorageDirectory sd) throws IOException {
+  public synchronized void formatOccurred(StorageDirectory sd)
+      throws IOException {
     if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-      createEditLogFile(storage.getStorageFile(sd, NameNodeFile.EDITS));
+      createEditLogFile(NNStorage.getStorageFile(sd, NameNodeFile.EDITS));
     }
   };
-  
+
   @Override
-  public synchronized void directoryAvailable(StorageDirectory sd) throws IOException {
+  public synchronized void directoryAvailable(StorageDirectory sd)
+      throws IOException {
     if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
       File eFile = getEditFile(sd);
       addNewEditLogStream(eFile);

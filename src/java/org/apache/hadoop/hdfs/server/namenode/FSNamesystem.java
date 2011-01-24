@@ -4815,12 +4815,13 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     throws IOException {
     writeLock();
     try {
-      if(getFSImage().getStorage().getNamespaceID() != registration.getNamespaceID())
-        throw new IOException("Incompatible namespaceIDs: " 
-                              + " Namenode namespaceID = "
-                              + getFSImage().getStorage().getNamespaceID() 
-                              + "; " + registration.getRole() +
-                              " node namespaceID = " + registration.getNamespaceID());
+      if(getFSImage().getStorage().getNamespaceID() 
+         != registration.getNamespaceID())
+        throw new IOException("Incompatible namespaceIDs: "
+            + " Namenode namespaceID = "
+            + getFSImage().getStorage().getNamespaceID() + "; "
+            + registration.getRole() +
+            " node namespaceID = " + registration.getNamespaceID());
       boolean regAllowed = getEditLog().checkBackupRegistration(registration);
       if(!regAllowed)
         throw new IOException("Registration is not allowed. " +
@@ -4841,12 +4842,13 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
     throws IOException {
     writeLock();
     try {
-      if(getFSImage().getStorage().getNamespaceID() != registration.getNamespaceID())
-        throw new IOException("Incompatible namespaceIDs: " 
-                              + " Namenode namespaceID = " 
-                              + getFSImage().getStorage().getNamespaceID() 
-                              + "; " + registration.getRole() +
-                              " node namespaceID = " + registration.getNamespaceID());
+      if(getFSImage().getStorage().getNamespaceID()
+         != registration.getNamespaceID())
+        throw new IOException("Incompatible namespaceIDs: "
+            + " Namenode namespaceID = "
+            + getFSImage().getStorage().getNamespaceID() + "; "
+            + registration.getRole() +
+            " node namespaceID = " + registration.getNamespaceID());
       getEditLog().releaseBackupStream(registration);
     } finally {
       writeUnlock();

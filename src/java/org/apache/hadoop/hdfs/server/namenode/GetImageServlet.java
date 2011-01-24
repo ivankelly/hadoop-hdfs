@@ -76,14 +76,16 @@ public class GetImageServlet extends HttpServlet {
         public Void run() throws Exception {
           if (ff.getImage()) {
             response.setHeader(TransferFsImage.CONTENT_LENGTH,
-                               String.valueOf(nnImage.getStorage().getFsImageName().length()));
+                               String.valueOf(nnImage.getStorage()
+                                              .getFsImageName().length()));
             // send fsImage
             TransferFsImage.getFileServer(response.getOutputStream(),
                                           nnImage.getStorage().getFsImageName(),
                 getThrottler(conf)); 
           } else if (ff.getEdit()) {
             response.setHeader(TransferFsImage.CONTENT_LENGTH,
-                               String.valueOf(nnImage.getStorage().getFsEditName().length()));
+                               String.valueOf(nnImage.getStorage()
+                                              .getFsEditName().length()));
             // send edits
             TransferFsImage.getFileServer(response.getOutputStream(),
                                           nnImage.getStorage().getFsEditName(),

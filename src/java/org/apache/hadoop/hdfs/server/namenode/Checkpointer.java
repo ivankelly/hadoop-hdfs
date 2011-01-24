@@ -182,8 +182,8 @@ class Checkpointer extends Daemon {
   private void downloadCheckpoint(CheckpointSignature sig) throws IOException {
     // Retrieve image file
     String fileid = "getimage=1";
-    Collection<File> list = getFSImage().getStorage().getFiles(NameNodeFile.IMAGE,
-        NameNodeDirType.IMAGE);
+    Collection<File> list = getFSImage()
+      .getStorage().getFiles(NameNodeFile.IMAGE, NameNodeDirType.IMAGE);
     File[] files = list.toArray(new File[list.size()]);
     assert files.length > 0 : "No checkpoint targets.";
     String nnHttpAddr = backupNode.nnHttpAddress;
@@ -193,7 +193,8 @@ class Checkpointer extends Daemon {
 
     // Retrieve edits file
     fileid = "getedit=1";
-    list = getFSImage().getStorage().getFiles(NameNodeFile.EDITS, NameNodeDirType.EDITS);
+    list = getFSImage()
+      .getStorage().getFiles(NameNodeFile.EDITS, NameNodeDirType.EDITS);
     files = list.toArray(new File[list.size()]);
     assert files.length > 0 : "No checkpoint targets.";
     TransferFsImage.getFileClient(nnHttpAddr, fileid, files, false);

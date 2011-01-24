@@ -125,7 +125,7 @@ class UpgradeManagerNamenode extends UpgradeManager {
       isFinalized = fsimage.isUpgradeFinalized();
       if(isFinalized) // upgrade is finalized
         return null;  // nothing to report
-      return new UpgradeStatusReport(fsimage.getStorage().getLayoutVersion(), 
+      return new UpgradeStatusReport(fsimage.getStorage().getLayoutVersion(),
                                      (short)101, isFinalized);
     }
     UpgradeObjectNamenode curUO = (UpgradeObjectNamenode)currentUpgrades.first();
