@@ -57,7 +57,7 @@ import org.apache.hadoop.io.MD5Hash;
  * the NameNode.
  */
 @InterfaceAudience.Private
-class NNStorage extends Storage implements Closeable {
+public class NNStorage extends Storage implements Closeable {
   private static final Log LOG = LogFactory.getLog(NNStorage.class.getName());
 
   static final String MESSAGE_DIGEST_PROPERTY = "imageMD5Digest";
@@ -153,7 +153,7 @@ class NNStorage extends Storage implements Closeable {
    * Construct the NNStorage.
    * @param conf Namenode configuration.
    */
-  NNStorage(Configuration conf) {
+  public NNStorage(Configuration conf) {
     super(NodeType.NAME_NODE);
 
     storageDirs = new CopyOnWriteArrayList<StorageDirectory>();
