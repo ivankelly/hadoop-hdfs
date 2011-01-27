@@ -95,6 +95,11 @@ public class TestSaveNamespace {
     MOVE_LAST_CHECKPOINT
   };
 
+  /** 
+   * Accessor class to allow us to set the storage on
+   * FSImage. Allows us to avoid having this code available
+   * in the production code.
+   */
   private static class FSImageAccessor {
     public static void setStorage(FSImage image, NNStorage storage) {
       image.storage = storage;

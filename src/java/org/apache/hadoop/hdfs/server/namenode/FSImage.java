@@ -61,7 +61,7 @@ import org.apache.hadoop.hdfs.server.common.HdfsConstants.StartupOption;
 import org.apache.hadoop.hdfs.server.namenode.JournalStream.JournalType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
-import org.apache.hadoop.hdfs.server.namenode.NNStorage.StorageListener;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NNStorageListener;
 import org.apache.hadoop.hdfs.server.protocol.CheckpointCommand;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeCommand;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
@@ -75,7 +75,7 @@ import org.apache.hadoop.hdfs.DFSConfigKeys;
  */
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
-public class FSImage implements StorageListener, Closeable {
+public class FSImage implements NNStorageListener, Closeable {
   protected static final Log LOG = LogFactory.getLog(FSImage.class.getName());
 
   private static final SimpleDateFormat DATE_FORM =
@@ -1165,12 +1165,12 @@ public class FSImage implements StorageListener, Closeable {
     return storage;
   }
 
-  @Override
+  @Override // NNStorageListener
   public void errorOccurred(StorageDirectory sd) throws IOException {
     // do nothing,
   }
 
-  @Override
+  @Override // NNStorageListener
   public void formatOccurred(StorageDirectory sd) throws IOException {
     if (sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
       sd.lock();
@@ -1184,7 +1184,7 @@ public class FSImage implements StorageListener, Closeable {
     }
   };
 
-  @Override
+  @Override // NNStorageListener
   public void directoryAvailable(StorageDirectory sd) throws IOException {
     // do nothing
   }

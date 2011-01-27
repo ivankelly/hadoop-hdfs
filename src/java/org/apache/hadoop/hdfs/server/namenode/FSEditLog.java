@@ -38,7 +38,7 @@ import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
-import org.apache.hadoop.hdfs.server.namenode.NNStorage.StorageListener;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NNStorageListener;
 import org.apache.hadoop.hdfs.server.namenode.JournalStream.JournalType;
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
@@ -57,7 +57,7 @@ import static org.apache.hadoop.hdfs.server.namenode.FSEditLogOpCodes.*;
  */
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
-public class FSEditLog implements StorageListener {
+public class FSEditLog implements NNStorageListener {
 
   static final String NO_JOURNAL_STREAMS_WARNING = "!!! WARNING !!!" +
       " File system changes are not persistent. No journal streams.";
@@ -1189,8 +1189,8 @@ public class FSEditLog implements StorageListener {
    * Error Handling on a storageDirectory
    *
    */
-  // StorageListener Interface
-  @Override
+  // NNStorageListener Interface
+  @Override // NNStorageListener
   public synchronized void errorOccurred(StorageDirectory sd)
       throws IOException {
     ArrayList<EditLogOutputStream> errorStreams
@@ -1211,7 +1211,7 @@ public class FSEditLog implements StorageListener {
     }
   }
 
-  @Override
+  @Override // NNStorageListener
   public synchronized void formatOccurred(StorageDirectory sd)
       throws IOException {
     if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
@@ -1219,7 +1219,7 @@ public class FSEditLog implements StorageListener {
     }
   };
 
-  @Override
+  @Override // NNStorageListener
   public synchronized void directoryAvailable(StorageDirectory sd)
       throws IOException {
     if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {

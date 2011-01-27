@@ -38,6 +38,11 @@ import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.io.LongWritable;
 
+/**
+ * Extention of FSImage for the backup node.
+ * This class handles the setup of the journaling 
+ * spool on the backup namenode.
+ */
 @InterfaceAudience.Private
 public class BackupImage extends FSImage {
   // Names of the journal spool directory and the spool file
@@ -160,7 +165,7 @@ public class BackupImage extends FSImage {
       StorageDirectory sdEdits = itEdits.next();
       getFSDirectoryRootLock().writeLock();
       try { // load image under rootDir lock
-        loadFSImage(storage.getStorageFile(sdName, NameNodeFile.IMAGE));
+        loadFSImage(NNStorage.getStorageFile(sdName, NameNodeFile.IMAGE));
       } finally {
         getFSDirectoryRootLock().writeUnlock();
       }

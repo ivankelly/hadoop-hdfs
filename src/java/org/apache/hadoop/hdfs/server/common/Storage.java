@@ -786,7 +786,8 @@ public abstract class Storage extends StorageInfo {
   }
 
   /**
-   * Delete a file from the local filesystem.
+   * Recursively delete all the content of the directory first and then 
+   * the directory itself from the local filesystem.
    * @param dir The directory to delete
    * @throws IOException
    */
