@@ -139,6 +139,7 @@ public class NNStorage extends Storage implements Closeable {
    * flag that controls if we try to restore failed storages
    */
   private boolean restoreFailedStorage = false;
+  private Object restorationLock = new Object();
   private boolean disablePreUpgradableLayoutCheck = false;
 
   private long checkpointTime = -1L;  // The age of the image
@@ -221,7 +222,7 @@ public class NNStorage extends Storage implements Closeable {
       return; //nothing to restore
 
     /* We don't want more than one thread trying to restore at a time */
-    synchronized (this.removedStorageDirs) {
+    synchronized (this.restorationLock) {
       LOG.info("NNStorage.attemptRestoreRemovedStorage: check removed(failed) "+
                "storarge. removedStorages size = " + removedStorageDirs.size());
       for(Iterator<StorageDirectory> it
