@@ -47,6 +47,8 @@ Trunk (unreleased changes)
     HDFS-1588. Remove hardcoded strings for configuration keys, "dfs.hosts"
     and "dfs.hosts.exlude". (Erik Steffl via suresh)
 
+    HDFS-1335. HDFS side change of HADDOP-6904: RPC compatibility. (hairong)
+
   OPTIMIZATIONS
 
     HDFS-1458. Improve checkpoint performance by avoiding unnecessary image
@@ -1464,7 +1466,10 @@ Release 0.21.1 - Unreleased
 
     HDFS-1267. fuse-dfs does not compile. (Devaraj Das via tomwhite)
 
-Release 0.20.3 - Unreleased
+    HDFS-1598.  Directory listing on hftp:// does not show .*.crc files.
+    (szetszwo)
+
+Release 0.20.3 - 2011-1-5
 
   IMPROVEMENTS
 
@@ -1487,7 +1492,7 @@ Release 0.20.3 - Unreleased
 
     HDFS-1406. TestCLI fails on Ubuntu with default /etc/hosts. (cos)
 
-Release 0.20.2 - Unreleased
+Release 0.20.2 - 2009-09-01
 
   IMPROVEMENTS
 
