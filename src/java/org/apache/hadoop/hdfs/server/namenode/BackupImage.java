@@ -39,7 +39,7 @@ import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.io.LongWritable;
 
 /**
- * Extention of FSImage for the backup node.
+ * Extension of FSImage for the backup node.
  * This class handles the setup of the journaling 
  * spool on the backup namenode.
  */

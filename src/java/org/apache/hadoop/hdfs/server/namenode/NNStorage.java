@@ -187,6 +187,7 @@ public class NNStorage extends Storage implements Closeable {
 
   @Override // Closeable
   public void close() throws IOException {
+    listeners.clear();
     unlockAll();
     storageDirs.clear();
   }
@@ -198,7 +199,7 @@ public class NNStorage extends Storage implements Closeable {
    * @param val Whether restoration attempt should be made.
    */
   void setRestoreFailedStorage(boolean val) {
-    LOG.info("set restore failed storage to " + val);
+    LOG.warn("set restore failed storage to " + val);
     restoreFailedStorage=val;
   }
 

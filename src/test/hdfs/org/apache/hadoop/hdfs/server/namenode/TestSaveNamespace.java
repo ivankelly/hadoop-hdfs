@@ -220,7 +220,7 @@ public class TestSaveNamespace {
       assertTrue("Savenamespace should have marked one directory as bad." +
                  " But found " + spyStorage.getRemovedStorageDirs().size() +
                  " bad directories.", 
-		 spyStorage.getRemovedStorageDirs().size() == 1);
+                   spyStorage.getRemovedStorageDirs().size() == 1);
 
       // The next call to savenamespace should try inserting the
       // erroneous directory back to fs.name.dir. This command should
