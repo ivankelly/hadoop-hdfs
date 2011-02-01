@@ -95,17 +95,6 @@ public class TestSaveNamespace {
     MOVE_LAST_CHECKPOINT
   };
 
-  /** 
-   * Accessor class to allow us to set the storage on
-   * FSImage. Allows us to avoid having this code available
-   * in the production code.
-   */
-  private static class FSImageAccessor {
-    public static void setStorage(FSImage image, NNStorage storage) {
-      image.storage = storage;
-    }
-  }
-
   private void saveNamespaceWithInjectedFault(Fault fault) throws IOException {
     Configuration conf = getConf();
     NameNode.initMetrics(conf, NamenodeRole.ACTIVE);
@@ -118,7 +107,7 @@ public class TestSaveNamespace {
     storage.close(); // unlock any directories that FSNamesystem's initialization may have locked
 
     NNStorage spyStorage = spy(storage);
-    FSImageAccessor.setStorage(originalImage, spyStorage);
+    originalImage.storage = spyStorage;
 
     FSImage spyImage = spy(originalImage);
     fsn.dir.fsImage = spyImage;
@@ -195,7 +184,7 @@ public class TestSaveNamespace {
     storage.close(); // unlock any directories that FSNamesystem's initialization may have locked
 
     NNStorage spyStorage = spy(storage);
-    FSImageAccessor.setStorage(originalImage, spyStorage);
+    originalImage.storage = spyStorage;
 
     FSImage spyImage = spy(originalImage);
     fsn.dir.fsImage = spyImage;
