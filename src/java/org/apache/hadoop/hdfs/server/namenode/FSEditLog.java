@@ -231,8 +231,8 @@ public class FSEditLog implements NNStorageListener {
   /**
    * The specified streams have IO errors. Close and remove them.
    */
-  synchronized void errorStreams(List<EditLogOutputStream> errorStreams) {
-    
+  synchronized
+  void disableAndErrorStreams(List<EditLogOutputStream> errorStreams) {
     if (errorStreams == null || errorStreams.size() == 0) {
       return;                       // nothing to do
     }
@@ -319,7 +319,7 @@ public class FSEditLog implements NNStorageListener {
           errorStreams.add(eStream);
         }
       }
-      errorStreams(errorStreams);
+      disableAndErrorStreams(errorStreams);
       recordTransaction(start);
       
       // check if it is time to schedule an automatic sync
@@ -511,7 +511,7 @@ public class FSEditLog implements NNStorageListener {
         }
       }
       long elapsed = now() - start;
-      errorStreams(errorStreams);
+      disableAndErrorStreams(errorStreams);
   
       if (metrics != null) // Metrics non-null only when used inside name node
         metrics.syncs.inc(elapsed);
@@ -778,7 +778,7 @@ public class FSEditLog implements NNStorageListener {
         al.add(es);
       }
     }
-    if(al!=null) errorStreams(al);
+    if(al!=null) disableAndErrorStreams(al);
     return size;
   }
   
@@ -849,7 +849,7 @@ public class FSEditLog implements NNStorageListener {
         errorStreams.add(eStream);
       }
     }
-    errorStreams(errorStreams);
+    disableAndErrorStreams(errorStreams);
   }
 
   /**
@@ -928,7 +928,7 @@ public class FSEditLog implements NNStorageListener {
         errorStreams.add(eStream);
       }
     }
-    errorStreams(errorStreams);
+    disableAndErrorStreams(errorStreams);
   }
 
   /**
@@ -1016,7 +1016,7 @@ public class FSEditLog implements NNStorageListener {
         errorStreams.add(eStream);
       }
     }
-    errorStreams(errorStreams);
+    disableAndErrorStreams(errorStreams);
     recordTransaction(start);
   }
 
@@ -1112,7 +1112,7 @@ public class FSEditLog implements NNStorageListener {
     }
     assert backupNode == null || backupNode.isRole(NamenodeRole.BACKUP) :
       "Not a backup node corresponds to a backup stream";
-    errorStreams(errorStreams);
+    disableAndErrorStreams(errorStreams);
   }
 
   synchronized boolean checkBackupRegistration(
@@ -1139,7 +1139,7 @@ public class FSEditLog implements NNStorageListener {
     }
     assert backupNode == null || backupNode.isRole(NamenodeRole.BACKUP) :
       "Not a backup node corresponds to a backup stream";
-    errorStreams(errorStreams);
+    disableAndErrorStreams(errorStreams);
     return regAllowed;
   }
   
@@ -1152,9 +1152,9 @@ public class FSEditLog implements NNStorageListener {
   }
 
   /**
-   * get an editStream corresponding to a sd
-   * @param es - stream to remove
-   * @return the matching stream
+   * Get the StorageDirectory for a stream
+   * @param es Stream whose StorageDirectory we wish to know
+   * @return the matching StorageDirectory
    */
   StorageDirectory getStorageDirectoryForStream(EditLogOutputStream es) {
     String parentStorageDir = ((EditLogFileOutputStream)es).getFile().getParentFile().getParentFile().getAbsolutePath();
