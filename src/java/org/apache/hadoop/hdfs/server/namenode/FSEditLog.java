@@ -168,7 +168,7 @@ public class FSEditLog implements NNStorageListener {
       }
     }
     
-    if(al != null) storage.errorDirectories(al);
+    if(al != null) storage.reportErrorsOnDirectories(al);
   }
   
   
@@ -212,7 +212,7 @@ public class FSEditLog implements NNStorageListener {
         errorStreams.add(eStream);
       }
     }
-    errorStreams(errorStreams);
+    disableAndReportErrorOnStreams(errorStreams);
     editStreams.clear();
   }
 
@@ -232,7 +232,7 @@ public class FSEditLog implements NNStorageListener {
    * The specified streams have IO errors. Close and remove them.
    */
   synchronized
-  void disableAndErrorStreams(List<EditLogOutputStream> errorStreams) {
+  void disableAndReportErrorOnStreams(List<EditLogOutputStream> errorStreams) {
     if (errorStreams == null || errorStreams.size() == 0) {
       return;                       // nothing to do
     }
@@ -246,7 +246,7 @@ public class FSEditLog implements NNStorageListener {
     }
 
     try {
-      storage.errorDirectories(errorDirs);
+      storage.reportErrorsOnDirectories(errorDirs);
     } catch (IOException ioe) {
       LOG.error("Problem erroring streams " + ioe);
     }
@@ -319,7 +319,7 @@ public class FSEditLog implements NNStorageListener {
           errorStreams.add(eStream);
         }
       }
-      disableAndErrorStreams(errorStreams);
+      disableAndReportErrorOnStreams(errorStreams);
       recordTransaction(start);
       
       // check if it is time to schedule an automatic sync
@@ -511,7 +511,7 @@ public class FSEditLog implements NNStorageListener {
         }
       }
       long elapsed = now() - start;
-      disableAndErrorStreams(errorStreams);
+      disableAndReportErrorOnStreams(errorStreams);
   
       if (metrics != null) // Metrics non-null only when used inside name node
         metrics.syncs.inc(elapsed);
@@ -778,7 +778,7 @@ public class FSEditLog implements NNStorageListener {
         al.add(es);
       }
     }
-    if(al!=null) disableAndErrorStreams(al);
+    if(al!=null) disableAndReportErrorOnStreams(al);
     return size;
   }
   
@@ -849,7 +849,7 @@ public class FSEditLog implements NNStorageListener {
         errorStreams.add(eStream);
       }
     }
-    disableAndErrorStreams(errorStreams);
+    disableAndReportErrorOnStreams(errorStreams);
   }
 
   /**
@@ -928,7 +928,7 @@ public class FSEditLog implements NNStorageListener {
         errorStreams.add(eStream);
       }
     }
-    disableAndErrorStreams(errorStreams);
+    disableAndReportErrorOnStreams(errorStreams);
   }
 
   /**
@@ -1016,7 +1016,7 @@ public class FSEditLog implements NNStorageListener {
         errorStreams.add(eStream);
       }
     }
-    disableAndErrorStreams(errorStreams);
+    disableAndReportErrorOnStreams(errorStreams);
     recordTransaction(start);
   }
 
@@ -1112,7 +1112,7 @@ public class FSEditLog implements NNStorageListener {
     }
     assert backupNode == null || backupNode.isRole(NamenodeRole.BACKUP) :
       "Not a backup node corresponds to a backup stream";
-    disableAndErrorStreams(errorStreams);
+    disableAndReportErrorOnStreams(errorStreams);
   }
 
   synchronized boolean checkBackupRegistration(
@@ -1139,7 +1139,7 @@ public class FSEditLog implements NNStorageListener {
     }
     assert backupNode == null || backupNode.isRole(NamenodeRole.BACKUP) :
       "Not a backup node corresponds to a backup stream";
-    disableAndErrorStreams(errorStreams);
+    disableAndReportErrorOnStreams(errorStreams);
     return regAllowed;
   }
   

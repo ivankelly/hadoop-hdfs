@@ -136,7 +136,7 @@ public class TestStorageRestore extends TestCase {
       }
     }
     // simulate an error
-    fi.getStorage().errorDirectories(al);
+    fi.getStorage().reportErrorsOnDirectories(al);
   }
   
   /**

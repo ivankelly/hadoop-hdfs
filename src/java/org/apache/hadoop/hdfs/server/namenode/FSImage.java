@@ -855,7 +855,7 @@ public class FSImage implements NNStorageListener, Closeable {
         errorSDs.add(sd);
       }
     }
-    storage.errorDirectories(errorSDs);
+    storage.reportErrorsOnDirectories(errorSDs);
     if(!editLog.isOpen()) editLog.open();
     ckptState = CheckpointStates.UPLOAD_DONE;
   }
@@ -944,7 +944,7 @@ public class FSImage implements NNStorageListener, Closeable {
         }
       }
     }
-    if(al != null) storage.errorDirectories(al);
+    if(al != null) storage.reportErrorsOnDirectories(al);
   }
 
   /**
@@ -983,7 +983,7 @@ public class FSImage implements NNStorageListener, Closeable {
         al.add(sd);       
       }
     }
-    if(al != null) storage.errorDirectories(al);
+    if(al != null) storage.reportErrorsOnDirectories(al);
     ckptState = FSImage.CheckpointStates.START;
   }
 

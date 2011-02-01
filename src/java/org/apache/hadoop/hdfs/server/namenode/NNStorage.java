@@ -211,9 +211,9 @@ public class NNStorage extends Storage implements Closeable {
   }
 
   /**
-   * See if any of removed storages iw "writable" again, and can be returned
-   * into service. If saveNamespace is set, then this methdod is being
-   * called form saveNamespace.
+   * See if any of removed storages is "writable" again, and can be returned
+   * into service. If saveNamespace is set, then this method is being
+   * called from saveNamespace.
    *
    * @param saveNamespace Whether method is being called from saveNamespace()
    */
@@ -379,7 +379,7 @@ public class NNStorage extends Storage implements Closeable {
    * i.e. Image or edit log storage.
    *
    * @param dirType Purpose of locations requested.
-   * @throw IOException
+   * @throws IOException
    */
   Collection<URI> getDirectories(NameNodeDirType dirType)
       throws IOException {
@@ -849,41 +849,43 @@ public class NNStorage extends Storage implements Closeable {
   }
 
   /**
-   * Error a list for directories.
+   * Marks a list of directories as having experienced an error.
+   *
    * @param sds A list of storage directories to mark as errored.
-   * @throw IOException
+   * @throws IOException
    */
-  void errorDirectories(List<StorageDirectory> sds) throws IOException {
+  void reportErrorsOnDirectories(List<StorageDirectory> sds) throws IOException {
     for (StorageDirectory sd : sds) {
-      errorDirectory(sd);
+      reportErrorsOnDirectory(sd);
     }
   }
 
   /**
-   * Errors a directories. Notifies listeners that the directory is no longer
+   * Reports that a directory has experienced an error.
+   * Notifies listeners that the directory is no longer
    * available.
    *
-   * Synchronized due to modifiations to removedStorageDirs and storageDirs.
-   *
    * @param sd A storage directory to mark as errored.
-   * @throw IOException
+   * @throws IOException
    */
-  void errorDirectory(StorageDirectory sd)
-    throws IOException {
+  void reportErrorsOnDirectory(StorageDirectory sd)
+      throws IOException {
+    LOG.warn("Error reported on storage directory " + sd);
+
     String lsd = listStorageDirectories();
-    LOG.info("current list of storage dirs:" + lsd);
+    LOG.debug("current list of storage dirs:" + lsd);
 
     for (NNStorageListener listener : listeners) {
       listener.errorOccurred(sd);
     }
 
-    LOG.info("about to remove corresponding storage:"
+    LOG.info("About to remove corresponding storage: "
              + sd.getRoot().getAbsolutePath());
     try {
       sd.unlock();
     } catch (Exception e) {
-      LOG.info("Unable to unlock bad storage directory : "
-               +  sd.getRoot().getPath());
+      LOG.info("Unable to unlock bad storage directory: "
+               +  sd.getRoot().getPath(), e);
     }
 
     if (this.storageDirs.remove(sd)) {
@@ -892,6 +894,6 @@ public class NNStorage extends Storage implements Closeable {
     incrementCheckpointTime();
 
     lsd = listStorageDirectories();
-    LOG.info("at the end current list of storage dirs:" + lsd);
+    LOG.debug("at the end current list of storage dirs:" + lsd);
   }
 }
