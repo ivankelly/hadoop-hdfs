@@ -71,6 +71,8 @@ class FSImageFormat {
     private int imgVersion;
     /** The namespace ID of the loaded file */
     private int imgNamespaceID;
+    /** The transaction ID of the last edit represented by the loaded file */
+    private long imgTxId;
     /** The MD5 sum of the loaded file */
     private MD5Hash imgDigest;
 
@@ -104,6 +106,11 @@ class FSImageFormat {
     int getLoadedNamespaceID() {
       checkLoaded();
       return imgNamespaceID;
+    }
+    
+    long getLoadedImageTxId() {
+      checkLoaded();
+      return imgTxId;
     }
 
     /**
@@ -165,6 +172,15 @@ class FSImageFormat {
           long genstamp = in.readLong();
           namesystem.setGenerationStamp(genstamp); 
         }
+        
+        // read the transaction ID of the last edit represented by
+        // this image
+        if (imgVersion <= -28) {
+          imgTxId = in.readLong();
+        } else {
+          imgTxId = 0;
+        }
+        
 
         // read compression related info
         FSImageCompression compression;
@@ -475,6 +491,8 @@ class FSImageFormat {
         out.writeInt(sourceNamesystem.getFSImage().getStorage().getNamespaceID()); // TODO bad dependency
         out.writeLong(fsDir.rootDir.numItemsInTree());
         out.writeLong(sourceNamesystem.getGenerationStamp());
+        long txid = sourceNamesystem.getEditLog().getLastWrittenTxId();
+        out.writeLong(txid);
 
         // write compression info and set up compressed stream
         out = compression.writeHeaderAndWrapStream(fos);

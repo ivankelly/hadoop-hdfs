@@ -55,6 +55,7 @@ public class BackupImage extends FSImage {
 
   /** Is journal spooling in progress */
   volatile JSpoolState jsState;
+  private int lastAppliedTxId = 0;
 
   static enum JSpoolState {
     OFF,
@@ -227,7 +228,8 @@ public class BackupImage extends FSImage {
           backupInputStream.setBytes(data);
           FSEditLogLoader logLoader = new FSEditLogLoader(namesystem);
           logLoader.loadEditRecords(storage.getLayoutVersion(),
-                    backupInputStream.getDataInputStream(), true);
+              backupInputStream.getDataInputStream(), true,
+              lastAppliedTxId + 1);
           getFSNamesystem().dir.updateCountForINodeWithQuota(); // inefficient!
           break;
         case INPROGRESS:
@@ -348,12 +350,17 @@ public class BackupImage extends FSImage {
       EditLogFileInputStream edits = new EditLogFileInputStream(jSpoolFile);
       DataInputStream in = edits.getDataInputStream();
       FSEditLogLoader logLoader = new FSEditLogLoader(namesystem);
-      numEdits += logLoader.loadFSEdits(in, false);
+      int loaded = logLoader.loadFSEdits(in, false, lastAppliedTxId + 1);
+      lastAppliedTxId += loaded;
+      numEdits += loaded;
 
       // first time reached the end of spool
       jsState = JSpoolState.WAIT;
-      numEdits += logLoader.loadEditRecords(storage.getLayoutVersion(),
-                                            in, true);
+      loaded = logLoader.loadEditRecords(storage.getLayoutVersion(), 
+                                         in, true, lastAppliedTxId + 1);
+      numEdits += loaded;
+      lastAppliedTxId += loaded;
+
       getFSNamesystem().dir.updateCountForINodeWithQuota();
       edits.close();
     }

@@ -306,12 +306,12 @@ public class FSEditLog implements NNStorageListener {
       if(getNumEditStreams() == 0)
         throw new java.lang.IllegalStateException(NO_JOURNAL_STREAMS_WARNING);
       ArrayList<EditLogOutputStream> errorStreams = null;
-      long start = now();
+      long start = beginTransaction();
       for(EditLogOutputStream eStream : editStreams) {
         if(!eStream.isOperationSupported(opCode.getOpCode()))
           continue;
         try {
-          eStream.write(opCode.getOpCode(), writables);
+          eStream.write(opCode.getOpCode(), txid, writables);
         } catch (IOException ie) {
           LOG.error("logEdit: removing "+ eStream.getName(), ie);
           if(errorStreams == null)
@@ -320,7 +320,7 @@ public class FSEditLog implements NNStorageListener {
         }
       }
       disableAndReportErrorOnStreams(errorStreams);
-      recordTransaction(start);
+      endTransaction(start);
       
       // check if it is time to schedule an automatic sync
       if (!shouldForceSync()) {
@@ -371,7 +371,8 @@ public class FSEditLog implements NNStorageListener {
     return false;
   }
   
-  private void recordTransaction(long start) {
+  private long beginTransaction() {
+    assert Thread.holdsLock(this);
     // get a new transactionId
     txid++;
 
@@ -380,7 +381,12 @@ public class FSEditLog implements NNStorageListener {
     //
     TransactionId id = myTransactionId.get();
     id.txid = txid;
-
+    return now();
+  }
+  
+  private void endTransaction(long start) {
+    assert Thread.holdsLock(this);
+    
     // update statistics
     long end = now();
     numTransactions++;
@@ -389,6 +395,21 @@ public class FSEditLog implements NNStorageListener {
       metrics.transactions.inc((end-start));
   }
 
+  /**
+   * Return the transaction ID of the last transaction written to the log.
+   */
+  synchronized long getLastWrittenTxId() {
+    return txid;
+  }
+  
+  /**
+   * Set the transaction ID to use for the next transaction written.
+   */
+  synchronized void setNextTxId(long nextTxid) {
+    assert synctxid <= txid;
+    txid = nextTxid - 1;
+  }
+  
   /**
    * Blocks until all ongoing edits have been synced to disk.
    * This differs from logSync in that it waits for edits that have been
@@ -784,12 +805,14 @@ public class FSEditLog implements NNStorageListener {
   
   /**
    * Closes the current edit log and opens edits.new. 
+   * @return the transaction id that will be used as the first transaction
+   *         in the new log
    */
-  synchronized void rollEditLog() throws IOException {
+  synchronized long rollEditLog() throws IOException {
     waitForSyncToFinish();
     Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS);
     if(!it.hasNext()) 
-      return;
+      return getLastWrittenTxId() + 1;
     //
     // If edits.new already exists in some directory, verify it
     // exists in all directories.
@@ -802,13 +825,14 @@ public class FSEditLog implements NNStorageListener {
               + "should " + (alreadyExists ? "" : "not ") + "exist.");
     }
     if(alreadyExists)
-      return; // nothing to do, edits.new exists!
+      return getLastWrittenTxId() + 1; // nothing to do, edits.new exists!
 
     // check if any of failed storage is now available and put it back
     storage.attemptRestoreRemovedStorage();
 
     divertFileStreams(
         Storage.STORAGE_DIR_CURRENT + "/" + NameNodeFile.EDITS_NEW.getName());
+    return getLastWrittenTxId() + 1;
   }
 
   /**
@@ -1014,7 +1038,7 @@ public class FSEditLog implements NNStorageListener {
     if(getNumEditStreams() == 0)
       throw new java.lang.IllegalStateException(NO_JOURNAL_STREAMS_WARNING);
     ArrayList<EditLogOutputStream> errorStreams = null;
-    long start = now();
+    long start = beginTransaction();
     for(EditLogOutputStream eStream : editStreams) {
       try {
         eStream.write(data, 0, length);
@@ -1026,7 +1050,7 @@ public class FSEditLog implements NNStorageListener {
       }
     }
     disableAndReportErrorOnStreams(errorStreams);
-    recordTransaction(start);
+    endTransaction(start);
   }
 
   /**

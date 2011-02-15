@@ -78,6 +78,12 @@ public class FSImage implements NNStorageListener, Closeable {
   private boolean isUpgradeFinalized = false;
   protected MD5Hash newImageDigest = null;
 
+  /**
+   * TxId of the last transaction that was included in the most recent fsimage file.
+   * This does not include any transactions that have since been written to the edit log.
+   */
+  protected long checkpointTxId;
+
   protected NNStorage storage = null;
 
   /**
@@ -163,6 +169,13 @@ public class FSImage implements NNStorageListener, Closeable {
     }
   }
 
+  /**
+   * Return the transaction ID of the last checkpoint.
+   */
+  long getCheckpointTxId() {
+    return checkpointTxId;
+  }
+ 
   void setCheckpointDirectories(Collection<URI> dirs,
                                 Collection<URI> editsDirs) {
     checkpointDirs = dirs;
@@ -644,8 +657,9 @@ public class FSImage implements NNStorageListener, Closeable {
     if (latestNameCheckpointTime > latestEditsCheckpointTime)
       // the image is already current, discard edits
       needToSave |= true;
-    else // latestNameCheckpointTime == latestEditsCheckpointTime
-      needToSave |= (loadFSEdits(latestEditsSD) > 0);
+    else { // latestNameCheckpointTime == latestEditsCheckpointTime
+      needToSave |= loadFSEdits(latestEditsSD);
+    }
     
     return needToSave;
   }
@@ -674,7 +688,8 @@ public class FSImage implements NNStorageListener, Closeable {
 
     storage.namespaceID = loader.getLoadedNamespaceID();
     storage.layoutVersion = loader.getLoadedImageVersion();
-
+    this.checkpointTxId = loader.getLoadedImageTxId();
+  
     boolean needToSave =
       loader.getLoadedImageVersion() != FSConstants.LAYOUT_VERSION;
     return needToSave;
@@ -684,31 +699,35 @@ public class FSImage implements NNStorageListener, Closeable {
    * Load and merge edits from two edits files
    * 
    * @param sd storage directory
-   * @return number of edits loaded
+   * @return true if the image should be re-saved
    * @throws IOException
    */
-  int loadFSEdits(StorageDirectory sd) throws IOException {
+  boolean loadFSEdits(StorageDirectory sd) throws IOException {
     FSEditLogLoader loader = new FSEditLogLoader(namesystem);
     
-    int numEdits = 0;
     EditLogFileInputStream edits =
       new EditLogFileInputStream(NNStorage.getStorageFile(sd,
                                                           NameNodeFile.EDITS));
-    
-    numEdits = loader.loadFSEdits(edits);
+    long startingTxId = checkpointTxId + 1;
+    long numLoaded = loader.loadFSEdits(edits, startingTxId);
+    startingTxId += numLoaded;
+
     edits.close();
     File editsNew = NNStorage.getStorageFile(sd, NameNodeFile.EDITS_NEW);
     
     if (editsNew.exists() && editsNew.length() > 0) {
       edits = new EditLogFileInputStream(editsNew);
-      numEdits += loader.loadFSEdits(edits);
+      numLoaded += loader.loadFSEdits(edits, startingTxId);
       edits.close();
     }
     
     // update the counts.
     getFSNamesystem().dir.updateCountForINodeWithQuota();    
     
-    return numEdits;
+    // update the txid for the edit log
+    editLog.setNextTxId(checkpointTxId + numLoaded + 1);
+    
+    return loader.needsResave() || numLoaded > 0;
   }
 
   /**
@@ -719,6 +738,7 @@ public class FSImage implements NNStorageListener, Closeable {
     FSImageCompression compression = FSImageCompression.createCompression(conf);
     saver.save(newFile, getFSNamesystem(), compression);
     storage.setImageDigest(saver.getSavedDigest());
+    checkpointTxId = editLog.getLastWrittenTxId();
   }
 
   /**
