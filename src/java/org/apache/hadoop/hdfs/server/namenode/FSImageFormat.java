@@ -67,10 +67,6 @@ class FSImageFormat {
     /** Set to true once a file has been loaded using this loader. */
     private boolean loaded = false;
 
-    /** The image version of the loaded file */
-    private int imgVersion;
-    /** The namespace ID of the loaded file */
-    private int imgNamespaceID;
     /** The transaction ID of the last edit represented by the loaded file */
     private long imgTxId;
     /** The MD5 sum of the loaded file */
@@ -82,15 +78,6 @@ class FSImageFormat {
     }
 
     /**
-     * Return the version number of the image that has been loaded.
-     * @throws IllegalStateException if load() has not yet been called.
-     */
-    int getLoadedImageVersion() {
-      checkLoaded();
-      return imgVersion;
-    }
-    
-    /**
      * Return the MD5 checksum of the image that has been loaded.
      * @throws IllegalStateException if load() has not yet been called.
      */
@@ -99,15 +86,6 @@ class FSImageFormat {
       return imgDigest;
     }
 
-    /**
-     * Return the namespace ID of the image that has been loaded.
-     * @throws IllegalStateException if load() has not yet been called.
-     */
-    int getLoadedNamespaceID() {
-      checkLoaded();
-      return imgNamespaceID;
-    }
-    
     long getLoadedImageTxId() {
       checkLoaded();
       return imgTxId;
@@ -159,13 +137,13 @@ class FSImageFormat {
          * it should not contain version and namespace fields
          */
         // read image version: first appeared in version -1
-        imgVersion = in.readInt();
+        long imgVersion = in.readInt();
 
         // read namespaceID: first appeared in version -2
-        imgNamespaceID = in.readInt();
+        in.readInt();
 
         // read number of files
-        long numFiles = readNumFiles(in);
+        long numFiles = readNumFiles(in, imgVersion);
 
         // read in the last generation stamp.
         if (imgVersion <= -12) {
@@ -195,15 +173,15 @@ class FSImageFormat {
 
         // load all inodes
         LOG.info("Number of files = " + numFiles);
-        loadFullNameINodes(numFiles, in);
+        loadFullNameINodes(numFiles, in, imgVersion);
 
         // load datanode info
-        this.loadDatanodes(in);
+        this.loadDatanodes(in, imgVersion);
 
         // load Files Under Construction
-        this.loadFilesUnderConstruction(in);
+        this.loadFilesUnderConstruction(in, imgVersion);
 
-        this.loadSecretManagerState(in);
+        this.loadSecretManagerState(in, imgVersion);
 
         // make sure to read to the end of file
         int eof = in.read();
@@ -239,14 +217,14 @@ class FSImageFormat {
    * @throws IOException if any error occurs
    */
   private void loadFullNameINodes(long numFiles,
-      DataInputStream in) throws IOException {
+      DataInputStream in, long imgVersion) throws IOException {
     byte[][] pathComponents;
     byte[][] parentPath = {{}};      
     FSDirectory fsDir = namesystem.dir;
     INodeDirectory parentINode = fsDir.rootDir;
     for (long i = 0; i < numFiles; i++) {
       pathComponents = FSImageSerialization.readPathComponents(in);
-      INode newNode = loadINode(in);
+      INode newNode = loadINode(in, imgVersion);
 
       if (isRoot(pathComponents)) { // it is the root
         // update the root's attributes
@@ -271,8 +249,8 @@ class FSImageFormat {
    * @param in data input stream from which image is read
    * @return an inode
    */
-  private INode loadINode(DataInputStream in)
-  throws IOException {
+  private INode loadINode(DataInputStream in, long imgVersion)
+      throws IOException {
     long modificationTime = 0;
     long atime = 0;
     long blockSize = 0;
@@ -342,7 +320,7 @@ class FSImageFormat {
           modificationTime, atime, nsQuota, dsQuota, blockSize);
     }
 
-    private void loadDatanodes(DataInputStream in) throws IOException {
+    private void loadDatanodes(DataInputStream in, long imgVersion) throws IOException {
       if (imgVersion > -3) // pre datanode image version
         return;
       if (imgVersion <= -12) {
@@ -355,7 +333,7 @@ class FSImageFormat {
       }
     }
 
-    private void loadFilesUnderConstruction(DataInputStream in)
+    private void loadFilesUnderConstruction(DataInputStream in, long imgVersion)
     throws IOException {
       FSDirectory fsDir = namesystem.dir;
       if (imgVersion > -13) // pre lease image version
@@ -383,7 +361,7 @@ class FSImageFormat {
       }
     }
 
-    private void loadSecretManagerState(DataInputStream in) throws IOException {
+    private void loadSecretManagerState(DataInputStream in, long imgVersion) throws IOException {
       if (imgVersion > -23) {
         //SecretManagerState is not available.
         //This must not happen if security is turned on.
@@ -393,7 +371,7 @@ class FSImageFormat {
     }
 
 
-    private long readNumFiles(DataInputStream in) throws IOException {
+    private long readNumFiles(DataInputStream in, long imgVersion) throws IOException {
       if (imgVersion <= -16) {
         return in.readLong();
       } else {

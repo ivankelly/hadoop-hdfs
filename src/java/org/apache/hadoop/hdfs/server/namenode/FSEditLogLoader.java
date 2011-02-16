@@ -43,20 +43,11 @@ import org.apache.hadoop.security.token.delegation.DelegationKey;
 
 public class FSEditLogLoader {
   private final FSNamesystem fsNamesys;
-  private boolean needsResave = false;
 
   public FSEditLogLoader(FSNamesystem fsNamesys) {
     this.fsNamesys = fsNamesys;
   }
   
-  /**
-   * @return true if the edit log is from a prior version and thus
-   * should force the image to be re-saved
-   */
-  boolean needsResave() {
-    return needsResave;
-  }
-    
   /**
    * Load an edit log, and apply the changes to the in-memory structure
    * This is where we apply edits that we've been writing to disk all
@@ -108,9 +99,6 @@ public class FSEditLogLoader {
         in.close();
     }
     
-    if (logVersion != FSConstants.LAYOUT_VERSION) { // other version
-      needsResave  = true;
-    }
     return numEdits;
   }
 

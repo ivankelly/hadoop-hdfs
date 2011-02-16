@@ -78,12 +78,6 @@ public class FSImage implements NNStorageListener, Closeable {
   private boolean isUpgradeFinalized = false;
   protected MD5Hash newImageDigest = null;
 
-  /**
-   * TxId of the last transaction that was included in the most recent fsimage file.
-   * This does not include any transactions that have since been written to the edit log.
-   */
-  protected long checkpointTxId;
-
   protected NNStorage storage = null;
 
   /**
@@ -167,13 +161,6 @@ public class FSImage implements NNStorageListener, Closeable {
     if (ns != null) {
       storage.setUpgradeManager(ns.upgradeManager);
     }
-  }
-
-  /**
-   * Return the transaction ID of the last checkpoint.
-   */
-  long getCheckpointTxId() {
-    return checkpointTxId;
   }
  
   void setCheckpointDirectories(Collection<URI> dirs,
@@ -649,17 +636,22 @@ public class FSImage implements NNStorageListener, Closeable {
     //
     // Load in bits
     //
+    latestEditsSD.read();
+    long editsVersion = storage.getLayoutVersion();
     latestNameSD.read();
-    needToSave |= loadFSImage(NNStorage.getStorageFile(latestNameSD,
-                                                       NameNodeFile.IMAGE));
+    long imageVersion = storage.getLayoutVersion();
+
+    loadFSImage(NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE));
     
     // Load latest edits
-    if (latestNameCheckpointTime > latestEditsCheckpointTime)
+    if (latestNameCheckpointTime > latestEditsCheckpointTime) {
       // the image is already current, discard edits
       needToSave |= true;
-    else { // latestNameCheckpointTime == latestEditsCheckpointTime
+    } else { // latestNameCheckpointTime == latestEditsCheckpointTime
       needToSave |= loadFSEdits(latestEditsSD);
     }
+    needToSave |= (editsVersion != FSConstants.LAYOUT_VERSION 
+                    || imageVersion != FSConstants.LAYOUT_VERSION);
     
     return needToSave;
   }
@@ -669,11 +661,10 @@ public class FSImage implements NNStorageListener, Closeable {
    * filenames and blocks.  Return whether we should
    * "re-save" and consolidate the edit-logs
    */
-  boolean loadFSImage(File curFile) throws IOException {
+  void loadFSImage(File curFile) throws IOException {
     FSImageFormat.Loader loader = new FSImageFormat.Loader(
         conf, getFSNamesystem());
     loader.load(curFile);
-
 
     // Check that the image digest we loaded matches up with what
     // we expected
@@ -685,14 +676,7 @@ public class FSImage implements NNStorageListener, Closeable {
           " is corrupt with MD5 checksum of " + readImageMd5 +
           " but expecting " + storage.getImageDigest());
     }
-
-    storage.namespaceID = loader.getLoadedNamespaceID();
-    storage.layoutVersion = loader.getLoadedImageVersion();
-    this.checkpointTxId = loader.getLoadedImageTxId();
-  
-    boolean needToSave =
-      loader.getLoadedImageVersion() != FSConstants.LAYOUT_VERSION;
-    return needToSave;
+    storage.setCheckpointTxId(loader.getLoadedImageTxId());
   }
 
   /**
@@ -708,7 +692,7 @@ public class FSImage implements NNStorageListener, Closeable {
     EditLogFileInputStream edits =
       new EditLogFileInputStream(NNStorage.getStorageFile(sd,
                                                           NameNodeFile.EDITS));
-    long startingTxId = checkpointTxId + 1;
+    long startingTxId = storage.getCheckpointTxId() + 1;
     long numLoaded = loader.loadFSEdits(edits, startingTxId);
     startingTxId += numLoaded;
 
@@ -725,9 +709,9 @@ public class FSImage implements NNStorageListener, Closeable {
     getFSNamesystem().dir.updateCountForINodeWithQuota();    
     
     // update the txid for the edit log
-    editLog.setNextTxId(checkpointTxId + numLoaded + 1);
+    editLog.setNextTxId(storage.getCheckpointTxId() + numLoaded + 1);
     
-    return loader.needsResave() || numLoaded > 0;
+    return numLoaded > 0;
   }
 
   /**
@@ -738,7 +722,7 @@ public class FSImage implements NNStorageListener, Closeable {
     FSImageCompression compression = FSImageCompression.createCompression(conf);
     saver.save(newFile, getFSNamesystem(), compression);
     storage.setImageDigest(saver.getSavedDigest());
-    checkpointTxId = editLog.getLastWrittenTxId();
+    storage.setCheckpointTxId(editLog.getLastWrittenTxId());
   }
 
   /**

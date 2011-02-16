@@ -808,11 +808,11 @@ public class FSEditLog implements NNStorageListener {
    * @return the transaction id that will be used as the first transaction
    *         in the new log
    */
-  synchronized long rollEditLog() throws IOException {
+  synchronized void rollEditLog() throws IOException {
     waitForSyncToFinish();
     Iterator<StorageDirectory> it = storage.dirIterator(NameNodeDirType.EDITS);
     if(!it.hasNext()) 
-      return getLastWrittenTxId() + 1;
+      return;
     //
     // If edits.new already exists in some directory, verify it
     // exists in all directories.
@@ -825,14 +825,13 @@ public class FSEditLog implements NNStorageListener {
               + "should " + (alreadyExists ? "" : "not ") + "exist.");
     }
     if(alreadyExists)
-      return getLastWrittenTxId() + 1; // nothing to do, edits.new exists!
+      return; // nothing to do, edits.new exists!
 
     // check if any of failed storage is now available and put it back
     storage.attemptRestoreRemovedStorage();
 
     divertFileStreams(
         Storage.STORAGE_DIR_CURRENT + "/" + NameNodeFile.EDITS_NEW.getName());
-    return getLastWrittenTxId() + 1;
   }
 
   /**

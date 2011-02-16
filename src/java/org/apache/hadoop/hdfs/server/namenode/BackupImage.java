@@ -154,6 +154,11 @@ public class BackupImage extends FSImage {
     if(!editLog.isOpen())
       editLog.open();
 
+    // set storage fields
+    storage.setStorageInfo(sig);
+    storage.setImageDigest(sig.getImageDigest());
+    storage.setCheckpointTime(sig.checkpointTime);
+
     FSDirectory fsDir = getFSNamesystem().dir;
     if(fsDir.isEmpty()) {
       Iterator<StorageDirectory> itImage
@@ -164,6 +169,7 @@ public class BackupImage extends FSImage {
         throw new IOException("Could not locate checkpoint directories");
       StorageDirectory sdName = itImage.next();
       StorageDirectory sdEdits = itEdits.next();
+
       getFSDirectoryRootLock().writeLock();
       try { // load image under rootDir lock
         loadFSImage(NNStorage.getStorageFile(sdName, NameNodeFile.IMAGE));
@@ -172,11 +178,6 @@ public class BackupImage extends FSImage {
       }
       loadFSEdits(sdEdits);
     }
-
-    // set storage fields
-    storage.setStorageInfo(sig);
-    storage.setImageDigest(sig.imageDigest);
-    storage.setCheckpointTime(sig.checkpointTime);
   }
 
   /**

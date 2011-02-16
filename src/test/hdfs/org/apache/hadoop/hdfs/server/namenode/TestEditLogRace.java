@@ -194,7 +194,11 @@ public class TestEditLogRace {
         } catch (InterruptedException e) {}
 
         LOG.info("Starting roll " + i + ".");
-        long nextTxId = editLog.rollEditLog();
+        long nextTxId = 0L;
+        synchronized (editLog) {
+          editLog.rollEditLog();
+          nextTxId = editLog.getLastWrittenTxId() + 1;
+        }
         LOG.info("Roll " + i + " complete before txid " + nextTxId);
 
         verifyEditLogs(namesystem, fsimage, previousLogTxId);
@@ -268,15 +272,18 @@ public class TestEditLogRace {
 
         // Verify edit logs before the save
         // They should start with the first edit after the checkpoint
-        verifyEditLogs(namesystem, fsimage, fsimage.getCheckpointTxId() + 1);
+        verifyEditLogs(namesystem, fsimage, 
+                       fsimage.getStorage().getCheckpointTxId() + 1);
 
         LOG.info("Save " + i + ": saving namespace");
         namesystem.saveNamespace();
         LOG.info("Save " + i + ": leaving safemode");
 
         // Verify that edit logs post save are also not corrupt
-        verifyEditLogs(namesystem, fsimage, fsimage.getCheckpointTxId() + 1);
-        assertEquals(fsimage.getCheckpointTxId(), editLog.getLastWrittenTxId());
+        verifyEditLogs(namesystem, fsimage, 
+                       fsimage.getStorage().getCheckpointTxId() + 1);
+        assertEquals(fsimage.getStorage().getCheckpointTxId(), 
+                     editLog.getLastWrittenTxId());
 
         namesystem.leaveSafeMode(false);
         LOG.info("Save " + i + ": complete");
