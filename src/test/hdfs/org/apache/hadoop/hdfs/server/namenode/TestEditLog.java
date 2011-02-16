@@ -142,7 +142,8 @@ public class TestEditLog extends TestCase {
     FSEditLogLoader loader = new FSEditLogLoader(namesys);
     EditLogInputStream mockStream = Mockito.mock(EditLogInputStream.class);
     ByteArrayInputStream bais = new ByteArrayInputStream(data);
-    Mockito.doReturn(new DataInputStream(bais)).when(mockStream).getDataInputStream();
+    Mockito.doReturn(new DataInputStream(bais))
+      .when(mockStream).getDataInputStream();
     
     return loader.loadFSEdits(mockStream, 1);
   }
@@ -217,7 +218,8 @@ public class TestEditLog extends TestCase {
         FSEditLogLoader loader = new FSEditLogLoader(namesystem);
         File editFile = NNStorage.getStorageFile(it.next(), NameNodeFile.EDITS);
         System.out.println("Verifying file: " + editFile);
-        int numEdits = loader.loadFSEdits(new EditLogFileInputStream(editFile), 1);
+        int numEdits = loader.loadFSEdits(
+            new EditLogFileInputStream(editFile), 1);
         int numLeases = namesystem.leaseManager.countLease();
         System.out.println("Number of outstanding leases " + numLeases);
         assertEquals(0, numLeases);

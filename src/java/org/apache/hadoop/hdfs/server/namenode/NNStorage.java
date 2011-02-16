@@ -146,8 +146,9 @@ public class NNStorage extends Storage implements Closeable {
   private long checkpointTime = -1L;  // The age of the image
 
   /**
-   * TxId of the last transaction that was included in the most recent fsimage file.
-   * This does not include any transactions that have since been written to the edit log.
+   * TxId of the last transaction that was included in the most
+   * recent fsimage file. This does not include any transactions
+   * that have since been written to the edit log.
    */
   protected long checkpointTxId;
 

@@ -320,7 +320,8 @@ class FSImageFormat {
           modificationTime, atime, nsQuota, dsQuota, blockSize);
     }
 
-    private void loadDatanodes(DataInputStream in, long imgVersion) throws IOException {
+    private void loadDatanodes(DataInputStream in, long imgVersion)
+        throws IOException {
       if (imgVersion > -3) // pre datanode image version
         return;
       if (imgVersion <= -12) {
@@ -361,7 +362,8 @@ class FSImageFormat {
       }
     }
 
-    private void loadSecretManagerState(DataInputStream in, long imgVersion) throws IOException {
+    private void loadSecretManagerState(DataInputStream in, long imgVersion)
+        throws IOException {
       if (imgVersion > -23) {
         //SecretManagerState is not available.
         //This must not happen if security is turned on.
@@ -370,8 +372,8 @@ class FSImageFormat {
       namesystem.loadSecretManagerState(in);
     }
 
-
-    private long readNumFiles(DataInputStream in, long imgVersion) throws IOException {
+    private long readNumFiles(DataInputStream in, long imgVersion)
+        throws IOException {
       if (imgVersion <= -16) {
         return in.readLong();
       } else {
@@ -466,7 +468,8 @@ class FSImageFormat {
       DataOutputStream out = new DataOutputStream(fos);
       try {
         out.writeInt(FSConstants.LAYOUT_VERSION);
-        out.writeInt(sourceNamesystem.getFSImage().getStorage().getNamespaceID()); // TODO bad dependency
+        out.writeInt(sourceNamesystem.getFSImage()
+                     .getStorage().getNamespaceID()); // TODO bad dependency
         out.writeLong(fsDir.rootDir.numItemsInTree());
         out.writeLong(sourceNamesystem.getGenerationStamp());
         long txid = sourceNamesystem.getEditLog().getLastWrittenTxId();

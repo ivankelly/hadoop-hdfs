@@ -219,7 +219,8 @@ public class TestEditLogRace {
     }
   }
 
-  private void verifyEditLogs(FSNamesystem namesystem, FSImage fsimage, long startingTxId)
+  private void verifyEditLogs(FSNamesystem namesystem, FSImage fsimage, 
+                              long startingTxId)
     throws IOException {
     // Verify that we can read in all the transactions that we have written.
     // If there were any corruptions, it is likely that the reading in
@@ -229,7 +230,8 @@ public class TestEditLogRace {
       File editFile = fsimage.getStorage().getStorageFile(it.next(), NameNodeFile.EDITS);
       System.out.println("Verifying file: " + editFile);
       FSEditLogLoader loader = new FSEditLogLoader(namesystem);
-      int numEdits = loader.loadFSEdits(new EditLogFileInputStream(editFile), startingTxId);
+      int numEdits = loader.loadFSEdits(new EditLogFileInputStream(editFile), 
+                                        startingTxId);
       System.out.println("Number of edits: " + numEdits);
     }
   }

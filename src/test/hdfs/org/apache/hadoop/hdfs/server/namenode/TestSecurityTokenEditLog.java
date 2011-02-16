@@ -141,7 +141,8 @@ public class TestSecurityTokenEditLog extends TestCase {
         FSEditLogLoader loader = new FSEditLogLoader(namesystem);
         File editFile = fsimage.getStorage().getStorageFile(it.next(), NameNodeFile.EDITS);
         System.out.println("Verifying file: " + editFile);
-        int numEdits = loader.loadFSEdits(new EditLogFileInputStream(editFile), 1);
+        int numEdits = loader.loadFSEdits(
+            new EditLogFileInputStream(editFile), 1);
         assertTrue("Verification for " + editFile + " failed. " +
                    "Expected " + (NUM_THREADS * opsPerTrans * NUM_TRANSACTIONS + numKeys) + " transactions. "+
                    "Found " + numEdits + " transactions.",
