@@ -55,7 +55,7 @@ public class BackupImage extends FSImage {
 
   /** Is journal spooling in progress */
   volatile JSpoolState jsState;
-  private int lastAppliedTxId = 0;
+  private long lastAppliedTxId = 0;
 
   static enum JSpoolState {
     OFF,
@@ -177,6 +177,7 @@ public class BackupImage extends FSImage {
         getFSDirectoryRootLock().writeUnlock();
       }
       loadFSEdits(sdEdits);
+      lastAppliedTxId = getEditLog().getLastWrittenTxId();
     }
   }
 
@@ -352,12 +353,13 @@ public class BackupImage extends FSImage {
       DataInputStream in = edits.getDataInputStream();
       FSEditLogLoader logLoader = new FSEditLogLoader(namesystem);
       int loaded = logLoader.loadFSEdits(in, false, lastAppliedTxId + 1);
+
       lastAppliedTxId += loaded;
       numEdits += loaded;
 
       // first time reached the end of spool
       jsState = JSpoolState.WAIT;
-      loaded = logLoader.loadEditRecords(storage.getLayoutVersion(), 
+      loaded = logLoader.loadEditRecords(storage.getLayoutVersion(),
                                          in, true, lastAppliedTxId + 1);
       numEdits += loaded;
       lastAppliedTxId += loaded;

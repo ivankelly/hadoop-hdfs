@@ -306,7 +306,14 @@ public class FSEditLog implements NNStorageListener {
       if(getNumEditStreams() == 0)
         throw new java.lang.IllegalStateException(NO_JOURNAL_STREAMS_WARNING);
       ArrayList<EditLogOutputStream> errorStreams = null;
-      long start = beginTransaction();
+
+      // Only start a new transaction for OPs which will be persisted to disk.
+      // Obviously this excludes control op codes.
+      long start = now();
+      if (opCode.getOpCode() < FSEditLogOpCodes.OP_JSPOOL_START.getOpCode()) {
+        start = beginTransaction();
+      }
+
       for(EditLogOutputStream eStream : editStreams) {
         if(!eStream.isOperationSupported(opCode.getOpCode()))
           continue;
