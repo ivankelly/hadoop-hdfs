@@ -40,6 +40,7 @@ import org.apache.hadoop.fs.permission.PermissionStatus;
 import org.apache.hadoop.hdfs.DFSUtil;
 import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.hdfs.server.common.GenerationStamp;
+import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
 import org.apache.hadoop.io.MD5Hash;
 import org.apache.hadoop.io.Text;
 
@@ -138,12 +139,16 @@ class FSImageFormat {
          */
         // read image version: first appeared in version -1
         long imgVersion = in.readInt();
+        if(getLayoutVersion() != imgVersion)
+          throw new InconsistentFSStateException(curFile, 
+              "imgVersion " + imgVersion +
+              " expected to be " + getLayoutVersion());
 
         // read namespaceID: first appeared in version -2
         in.readInt();
 
         // read number of files
-        long numFiles = readNumFiles(in, imgVersion);
+        long numFiles = readNumFiles(in);
 
         // read in the last generation stamp.
         if (imgVersion <= -12) {
@@ -173,15 +178,15 @@ class FSImageFormat {
 
         // load all inodes
         LOG.info("Number of files = " + numFiles);
-        loadFullNameINodes(numFiles, in, imgVersion);
+        loadFullNameINodes(numFiles, in);
 
         // load datanode info
-        this.loadDatanodes(in, imgVersion);
+        this.loadDatanodes(in);
 
         // load Files Under Construction
-        this.loadFilesUnderConstruction(in, imgVersion);
+        this.loadFilesUnderConstruction(in);
 
-        this.loadSecretManagerState(in, imgVersion);
+        this.loadSecretManagerState(in);
 
         // make sure to read to the end of file
         int eof = in.read();
@@ -217,14 +222,14 @@ class FSImageFormat {
    * @throws IOException if any error occurs
    */
   private void loadFullNameINodes(long numFiles,
-      DataInputStream in, long imgVersion) throws IOException {
+      DataInputStream in) throws IOException {
     byte[][] pathComponents;
     byte[][] parentPath = {{}};      
     FSDirectory fsDir = namesystem.dir;
     INodeDirectory parentINode = fsDir.rootDir;
     for (long i = 0; i < numFiles; i++) {
       pathComponents = FSImageSerialization.readPathComponents(in);
-      INode newNode = loadINode(in, imgVersion);
+      INode newNode = loadINode(in);
 
       if (isRoot(pathComponents)) { // it is the root
         // update the root's attributes
@@ -249,12 +254,13 @@ class FSImageFormat {
    * @param in data input stream from which image is read
    * @return an inode
    */
-  private INode loadINode(DataInputStream in, long imgVersion)
+  private INode loadINode(DataInputStream in)
       throws IOException {
     long modificationTime = 0;
     long atime = 0;
     long blockSize = 0;
     
+    long imgVersion = getLayoutVersion();
     short replication = in.readShort();
     replication = namesystem.adjustReplication(replication);
     modificationTime = in.readLong();
@@ -320,8 +326,10 @@ class FSImageFormat {
           modificationTime, atime, nsQuota, dsQuota, blockSize);
     }
 
-    private void loadDatanodes(DataInputStream in, long imgVersion)
+    private void loadDatanodes(DataInputStream in)
         throws IOException {
+      long imgVersion = getLayoutVersion();
+
       if (imgVersion > -3) // pre datanode image version
         return;
       if (imgVersion <= -12) {
@@ -334,9 +342,10 @@ class FSImageFormat {
       }
     }
 
-    private void loadFilesUnderConstruction(DataInputStream in, long imgVersion)
+    private void loadFilesUnderConstruction(DataInputStream in)
     throws IOException {
       FSDirectory fsDir = namesystem.dir;
+      long imgVersion = getLayoutVersion();
       if (imgVersion > -13) // pre lease image version
         return;
       int size = in.readInt();
@@ -362,8 +371,10 @@ class FSImageFormat {
       }
     }
 
-    private void loadSecretManagerState(DataInputStream in, long imgVersion)
+    private void loadSecretManagerState(DataInputStream in)
         throws IOException {
+      long imgVersion = getLayoutVersion();
+
       if (imgVersion > -23) {
         //SecretManagerState is not available.
         //This must not happen if security is turned on.
@@ -372,8 +383,14 @@ class FSImageFormat {
       namesystem.loadSecretManagerState(in);
     }
 
-    private long readNumFiles(DataInputStream in, long imgVersion)
+    private long getLayoutVersion() {
+      return namesystem.getFSImage().getStorage().getLayoutVersion();
+    }
+
+    private long readNumFiles(DataInputStream in)
         throws IOException {
+      long imgVersion = getLayoutVersion();
+
       if (imgVersion <= -16) {
         return in.readLong();
       } else {
