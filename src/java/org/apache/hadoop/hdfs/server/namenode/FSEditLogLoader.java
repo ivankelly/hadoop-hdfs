@@ -57,9 +57,10 @@ public class FSEditLogLoader {
    * This is where we apply edits that we've been writing to disk all
    * along.
    */
-  int loadFSEdits(EditLogInputStream edits) throws IOException {
+  int loadFSEdits(EditLogInputStream edits, long expectedStartingTxId) 
+      throws IOException {
     long startTime = now();
-    int numEdits = loadFSEdits(edits, true);
+    int numEdits = loadFSEdits(edits, true, expectedStartingTxId);
     FSImage.LOG.info("Edits file " + edits.getName() 
         + " of size " + edits.length() + " edits # " + numEdits 
         + " loaded in " + (now()-startTime)/1000 + " seconds.");
@@ -98,7 +99,8 @@ public class FSEditLogLoader {
     return logVersion;
   }
   
-  int loadFSEdits(EditLogInputStream edits, boolean closeOnExit) throws IOException {
+  int loadFSEdits(EditLogInputStream edits, boolean closeOnExit, long expectedStartingTxId) 
+      throws IOException {
     BufferedInputStream bin = new BufferedInputStream(edits);
     DataInputStream in = new DataInputStream(bin);
     
@@ -113,19 +115,19 @@ public class FSEditLogLoader {
         in = new DataInputStream(new CheckedInputStream(bin, checksum));
       }
 
-      numEdits = loadEditRecords(logVersion, in, checksum, false);
+      numEdits = loadEditRecords(logVersion, in, checksum, false, expectedStartingTxId);
     } finally {
       if(closeOnExit)
         in.close();
     }
-    if (logVersion != FSConstants.LAYOUT_VERSION) // other version
-      numEdits++; // save this image asap
+    
     return numEdits;
   }
 
   @SuppressWarnings("deprecation")
   int loadEditRecords(int logVersion, DataInputStream in,
-      Checksum checksum, boolean closeOnExit) throws IOException {
+                      Checksum checksum, boolean closeOnExit, long expectedStartingTxId) 
+      throws IOException {
     FSDirectory fsDir = fsNamesys.dir;
     int numEdits = 0;
     String clientName = null;
@@ -140,6 +142,8 @@ public class FSEditLogLoader {
         numOpUpdateMasterKey = 0, numOpOther = 0;
 
     try {
+      long txId = expectedStartingTxId - 1;
+
       while (true) {
         long timestamp = 0;
         long mtime = 0;
@@ -160,6 +164,17 @@ public class FSEditLogLoader {
         } catch (EOFException e) {
           break; // no more transactions
         }
+
+        if (logVersion <= -31) {
+          // Read the txid
+          long thisTxId = in.readLong();
+          if (thisTxId != txId + 1) {
+            throw new IOException("Expected transaction ID " +
+                (txId + 1) + " but got " + thisTxId);
+          }
+          txId = thisTxId;
+        }
+        
         numEdits++;
         switch (opCode) {
         case OP_ADD:

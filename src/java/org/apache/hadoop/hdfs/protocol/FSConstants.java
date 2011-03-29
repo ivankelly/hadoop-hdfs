@@ -88,7 +88,7 @@ public interface FSConstants {
   // Version is reflected in the data storage file.
   // Versions are negative.
   // Decrement LAYOUT_VERSION to define a new version.
-  public static final int LAYOUT_VERSION = -30;
+  public static final int LAYOUT_VERSION = -31;
   // Current version: 
-  // -30: store only last component of a path in image
+  // -31: add persistent transaction IDs
 }

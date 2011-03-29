@@ -120,7 +120,7 @@ class ImageLoaderCurrent implements ImageLoader {
   protected final DateFormat dateFormat = 
                                       new SimpleDateFormat("yyyy-MM-dd HH:mm");
   private static int [] versions = 
-    {-16, -17, -18, -19, -20, -21, -22, -23, -24, -25, -26, -27, -28, -30};
+    {-16, -17, -18, -19, -20, -21, -22, -23, -24, -25, -26, -27, -28, -30, -31};
   private int imageVersion = 0;
 
   /* (non-Javadoc)
@@ -154,6 +154,10 @@ class ImageLoaderCurrent implements ImageLoader {
       long numInodes = in.readLong();
 
       v.visit(ImageElement.GENERATION_STAMP, in.readLong());
+
+      if (imageVersion <= -31) {
+        v.visit(ImageElement.TRANSACTION_ID, in.readLong());
+      }
 
       if (imageVersion <= -25) {
         boolean isCompressed = in.readBoolean();
