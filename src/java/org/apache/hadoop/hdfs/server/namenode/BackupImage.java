@@ -26,6 +26,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.zip.CheckedInputStream;
 import java.util.zip.Checksum;
+import java.util.List;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants;
@@ -179,7 +180,9 @@ public class BackupImage extends FSImage {
       } finally {
         getFSDirectoryRootLock().writeUnlock();
       }
-      loadFSEdits(sdEdits);
+      List<File> editsFiles =
+        FSImageOldStorageInspector.getEditsInStorageDir(sdEdits);
+      loadEdits(editsFiles);
       lastAppliedTxId = getEditLog().getLastWrittenTxId();
     }
   }
