@@ -25,7 +25,6 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -69,9 +68,6 @@ import com.google.common.base.Joiner;
 @InterfaceStability.Evolving
 public class FSImage implements NNStorageListener, Closeable {
   protected static final Log LOG = LogFactory.getLog(FSImage.class.getName());
-
-  private static final SimpleDateFormat DATE_FORM =
-      new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
   private static final int FIRST_TXNID_BASED_LAYOUT_VERSION=-29;
   
@@ -348,7 +344,8 @@ public class FSImage implements NNStorageListener, Closeable {
     storage.cTime = now();  // generate new cTime for the state
     int oldLV = storage.getLayoutVersion();
     storage.layoutVersion = FSConstants.LAYOUT_VERSION;
-        for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
+
+    for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
       LOG.info("Upgrading image directory " + sd.getRoot()
                + ".\n   old LV = " + oldLV
@@ -808,10 +805,10 @@ public class FSImage implements NNStorageListener, Closeable {
     if(al != null) storage.reportErrorsOnDirectories(al);
   }
 
-
   CheckpointSignature rollEditLog() throws IOException {
     getEditLog().rollEditLog();
     // If checkpoint fails this should be the most recent image, therefore
+
     return new CheckpointSignature(this);
   }
 
@@ -820,7 +817,12 @@ public class FSImage implements NNStorageListener, Closeable {
    * namenode.
    */
   void validateCheckpointUpload(CheckpointSignature sig) throws IOException { 
-    // verify token
+    long expectedTxId = getEditLog().getLastWrittenTxId();
+    if (sig.lastLogRollTxId != expectedTxId) {
+      throw new IOException("Namenode has an edit log corresponding to txid " +
+          expectedTxId + " but new checkpoint was created using editlog " +
+          "ending at txid " + sig.lastLogRollTxId + ". Checkpoint Aborted.");
+    }
     sig.validateStorageInfo(this);
   }
 

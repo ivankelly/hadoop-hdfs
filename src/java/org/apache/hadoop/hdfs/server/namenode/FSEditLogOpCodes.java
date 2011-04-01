@@ -57,10 +57,7 @@ public enum FSEditLogOpCodes {
   OP_START_LOG_SEGMENT          ((byte) 23),
   
   // must be same as NamenodeProtocol.JA_JSPOOL_START
-  OP_JSPOOL_START               ((byte)102),
-  // must be same as NamenodeProtocol.JA_CHECKPOINT_TIME
-  OP_CHECKPOINT_TIME            ((byte)103);
-  
+  OP_JSPOOL_START               ((byte)102);
 
   private byte opCode;
 

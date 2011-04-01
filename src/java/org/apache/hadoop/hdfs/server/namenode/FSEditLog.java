@@ -90,7 +90,7 @@ public class FSEditLog implements NNStorageListener {
 
   // stores the last synced transactionId.
   private long synctxid = 0;
-
+  
   // the time of printing the statistics to the log file.
   private long lastPrintTime;
 
@@ -427,6 +427,14 @@ public class FSEditLog implements NNStorageListener {
   }
   
   /**
+   * @return the last transaction ID written to "edits" before rolling to
+   * edits_new
+   */
+  synchronized long getLastRollTxId() {
+    return lastRollTxId;
+  }
+  
+  /**
    * Set the transaction ID to use for the next transaction written.
    */
   synchronized void setNextTxId(long nextTxId) {
@@ -436,10 +444,6 @@ public class FSEditLog implements NNStorageListener {
       " txid=" + txid +
       " nextTxid=" + nextTxId;
     txid = nextTxId - 1;
-  }
-  
-  synchronized long getLastRollTxId() {
-    return lastRollTxId;
   }
   
   /**

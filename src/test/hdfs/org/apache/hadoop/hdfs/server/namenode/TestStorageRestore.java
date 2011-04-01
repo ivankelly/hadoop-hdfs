@@ -118,17 +118,78 @@ public class TestStorageRestore extends TestCase {
   }
   
   /**
-   * test
+   * This function returns a md5 hash of a file.
+   * 
+   * @param file input file
+   * @return The md5 string
    */
-  public void printStorages(FSImage fs) {
-    LOG.info("current storages and corresoponding sizes:");
-    for(Iterator<StorageDirectory> it = fs.getStorage().dirIterator(); it.hasNext(); ) {
-      StorageDirectory sd = it.next();
-      
-      File curDir = sd.getCurrentDir();
-      for (File f : curDir.listFiles()) {
-        LOG.info("  file " + f.getAbsolutePath() + "; len = " + f.length());  
+  public String getFileMD5(File file) throws Exception {
+    String res = new String();
+    MessageDigest mD = MessageDigest.getInstance("MD5");
+    DataInputStream dis = new DataInputStream(new FileInputStream(file));
+
+    try {
+      while(true) {
+        mD.update(dis.readByte());
       }
+    } catch (EOFException eof) {}
+
+    BigInteger bigInt = new BigInteger(1, mD.digest());
+    res = bigInt.toString(16);
+    dis.close();
+
+    return res;
+  }
+
+  
+  /**
+   *  check if files exist/not exist
+   * @throws IOException 
+   */
+  public void checkFiles(boolean valid) throws IOException {
+    //look at the valid storage
+    File fsImg1 = new File(path1, Storage.STORAGE_DIR_CURRENT + "/" + NameNodeFile.IMAGE.getName());
+    File fsImg2 = new File(path2, Storage.STORAGE_DIR_CURRENT + "/" + NameNodeFile.IMAGE.getName());
+    File fsImg3 = new File(path3, Storage.STORAGE_DIR_CURRENT + "/" + NameNodeFile.IMAGE.getName());
+
+    File fsEdits1 = new File(path1, Storage.STORAGE_DIR_CURRENT + "/" + NameNodeFile.EDITS.getName());
+    File fsEdits2 = new File(path2, Storage.STORAGE_DIR_CURRENT + "/" + NameNodeFile.EDITS.getName());
+    File fsEdits3 = new File(path3, Storage.STORAGE_DIR_CURRENT + "/" + NameNodeFile.EDITS.getName());
+        
+    String md5_1 = null,md5_2 = null,md5_3 = null;
+    try {
+      md5_1 = getFileMD5(fsEdits1);
+      md5_2 = getFileMD5(fsEdits2);
+      md5_3 = getFileMD5(fsEdits3);
+    } catch (Exception e) {
+      System.err.println("md 5 calculation failed:" + e.getLocalizedMessage());
+    }
+    
+    LOG.info("++++ image files = "+fsImg1.getAbsolutePath() + "," + fsImg2.getAbsolutePath() + ","+ fsImg3.getAbsolutePath());
+    LOG.info("++++ edits files = "+fsEdits1.getAbsolutePath() + "," + fsEdits2.getAbsolutePath() + ","+ fsEdits3.getAbsolutePath());
+    LOG.info("checkFiles compares lengths: img1=" + fsImg1.length()  + ",img2=" + fsImg2.length()  + ",img3=" + fsImg3.length());
+    LOG.info("checkFiles compares lengths: edits1=" + fsEdits1.length()  + ",edits2=" + fsEdits2.length()  + ",edits3=" + fsEdits3.length());
+    LOG.info("checkFiles compares md5s: " + fsEdits1.getAbsolutePath() + 
+        "="+ md5_1  + "," + fsEdits2.getAbsolutePath() + "=" + md5_2  + "," +
+        fsEdits3.getAbsolutePath() + "=" + md5_3);  
+    
+    if(valid) {
+      // should be the same
+      assertTrue(fsImg1.length() == fsImg2.length());
+      assertTrue(0 == fsImg3.length()); //shouldn't be created
+      assertTrue(fsEdits1.length() == fsEdits2.length());
+      assertTrue(fsEdits1.length() == fsEdits3.length());
+      assertTrue(md5_1.equals(md5_2));
+      assertTrue(md5_1.equals(md5_3));
+    } else {
+      // should be different
+      //assertTrue(fsImg1.length() != fsImg2.length());
+      //assertTrue(fsImg1.length() != fsImg3.length());
+      assertTrue("edits1 = edits2", fsEdits1.length() != fsEdits2.length());
+      assertTrue("edits1 = edits3", fsEdits1.length() != fsEdits3.length());
+      
+      assertTrue(!md5_1.equals(md5_2));
+      assertTrue(!md5_1.equals(md5_3));
     }
   }
 
@@ -154,7 +215,6 @@ public class TestStorageRestore extends TestCase {
     
     SecondaryNameNode secondary = new SecondaryNameNode(config);
     System.out.println("****testStorageRestore: Cluster and SNN started");
-    printStorages(cluster.getNameNode().getFSImage());
     
     FileSystem fs = cluster.getFileSystem();
     Path path = new Path("/", "test");
@@ -163,7 +223,7 @@ public class TestStorageRestore extends TestCase {
     System.out.println("****testStorageRestore: dir 'test' created, invalidating storage...");
   
     invalidateStorage(cluster.getNameNode().getFSImage());
-    printStorages(cluster.getNameNode().getFSImage());
+
     System.out.println("****testStorageRestore: storage invalidated");
 
     path = new Path("/", "test1");

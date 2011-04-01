@@ -345,9 +345,6 @@ public class SecondaryNameNode implements Runnable {
   
           @Override
           public Boolean run() throws Exception {
-            checkpointImage.getStorage().cTime = sig.cTime;
-            // TODO checkpointImage.getStorage().setCheckpointTime(sig.checkpointTime);
-
             // get fsimage
             Collection<File> list;
             File[] srcNames;

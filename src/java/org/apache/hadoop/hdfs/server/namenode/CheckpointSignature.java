@@ -119,7 +119,7 @@ public class CheckpointSignature extends StorageInfo
 
   public int hashCode() {
     return layoutVersion ^ namespaceID ^
-            (int)(cTime ^ lastCheckpointTxId & lastLogRollTxId) ^
+            (int)(cTime ^ lastCheckpointTxId ^ lastLogRollTxId) ^
             imageDigest.hashCode();
   }
 
@@ -129,12 +129,14 @@ public class CheckpointSignature extends StorageInfo
   public void write(DataOutput out) throws IOException {
     super.write(out);
     out.writeLong(lastCheckpointTxId);
+    out.writeLong(lastLogRollTxId);
     imageDigest.write(out);
   }
 
   public void readFields(DataInput in) throws IOException {
     super.readFields(in);
     lastCheckpointTxId = in.readLong();
+    lastLogRollTxId = in.readLong();
     imageDigest = new MD5Hash();
     imageDigest.readFields(in);
   }
