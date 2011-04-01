@@ -32,11 +32,18 @@ import org.apache.hadoop.io.Writable;
 
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
+import com.google.common.base.Preconditions;
+
 /**
  * An implementation of the abstract class {@link EditLogOutputStream}, which
  * stores edits in a local file.
  */
 class EditLogFileOutputStream extends EditLogOutputStream {
+  private static final Log LOG = LogFactory.getLog(EditLogFileOutputStream.class);
+
   private static int EDITS_FILE_HEADER_SIZE_BYTES = Integer.SIZE / Byte.SIZE;
 
   private File file;
@@ -57,12 +64,12 @@ class EditLogFileOutputStream extends EditLogOutputStream {
    *          Size of flush buffer
    * @throws IOException
    */
-  EditLogFileOutputStream(StorageDirectory sd, File name, int size) throws IOException {
+  EditLogFileOutputStream(StorageDirectory sd, int size) throws IOException {
     super();
     this.storageDirectory = sd;
 
     initBufferSize = size;
-    initialize(name);
+    //initialize(name);
   }
 
   private void initialize(File file) throws IOException {
@@ -122,6 +129,10 @@ class EditLogFileOutputStream extends EditLogOutputStream {
 
   @Override
   public void close() throws IOException {
+    if (bufCurrent == null) {
+      return; // TODO revisit this condition
+    }
+
     // close should have been called after all pending transactions
     // have been flushed & synced.
     int bufSize = bufCurrent.size();
@@ -221,39 +232,35 @@ class EditLogFileOutputStream extends EditLogOutputStream {
     return storageDirectory.getRoot().toURI();
   }
   
-  synchronized void beginRoll() throws IOException {
-    setReadyToFlush();
-    flush();
-    close();
-    
-    initialize(FileJournalFactory.getEditNewFile(storageDirectory));
+  @Override
+  synchronized void beginLogSegment(long txid) throws IOException {
+    File newInProgress = NNStorage.getInProgressEditsFile(storageDirectory, txid);
+    initialize(newInProgress);
     create();
   }
 
-  synchronized boolean isRolling() throws IOException {
-    return FileJournalFactory.getEditNewFile(storageDirectory).exists();
-  }
-
-  synchronized void endRoll() throws IOException {
+  synchronized void endLogSegment(long firstTxid,
+                                  long lastTxid) throws IOException {
     setReadyToFlush();
     flush();
     close();
 
-    File editsnew = FileJournalFactory.getEditNewFile(storageDirectory);
-    File edits = FileJournalFactory.getEditFile(storageDirectory);
+    finalizeEditsFile(firstTxid, lastTxid);
+  }
+
+  private void finalizeEditsFile(long lastRollTxId, long lastWrittenTxId)
+      throws IOException {
+    File inprogressFile = NNStorage.getInProgressEditsFile(
+        storageDirectory, lastRollTxId);
+    File dstFile = NNStorage.getFinalizedEditsFile(
+        storageDirectory, lastRollTxId, lastWrittenTxId);
+    LOG.debug("Finalizing edits file " + inprogressFile + " -> " + dstFile);
     
-    if (editsnew.exists()) {
-      if (!editsnew.renameTo(edits)) {
-	//
-	// renameTo() fails on Windows if the destination
-	// file exists.
-	//
-	if(!edits.delete() || !editsnew.renameTo(edits)) {
-	  throw new IOException("Rename failed for " 
-				+ storageDirectory.getRoot());
-	}
-      }
+    Preconditions.checkState(!dstFile.exists(),
+        "Can't finalize edits file " + inprogressFile + " since finalized file " +
+        "already exists");
+    if (!inprogressFile.renameTo(dstFile)) {
+      throw new IOException("Unable to finalize edits file " + inprogressFile);
     }
-    initialize(edits);
   }
 }

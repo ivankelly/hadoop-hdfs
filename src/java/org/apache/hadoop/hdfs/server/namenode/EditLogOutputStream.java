@@ -34,7 +34,7 @@ implements JournalStream {
   // these are statistics counters
   private long numSync;        // number of sync(s) to disk
   private long totalTimeSync;  // total time to sync
-
+  
   EditLogOutputStream() throws IOException {
     numSync = totalTimeSync = 0;
   }
@@ -132,7 +132,6 @@ implements JournalStream {
 
   abstract URI getURI();
 
-  abstract void beginRoll() throws IOException;
-  abstract boolean isRolling() throws IOException;
-  abstract void endRoll() throws IOException;
+  abstract void beginLogSegment(long txid) throws IOException;
+  abstract void endLogSegment(long firstTxid, long lastTxid) throws IOException;
 }

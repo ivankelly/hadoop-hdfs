@@ -85,7 +85,6 @@ public class BackupImage extends FSImage {
   void recoverCreateRead(Collection<URI> imageDirs,
                          Collection<URI> editsDirs) throws IOException {
     storage.setStorageDirectories(imageDirs, editsDirs);
-    storage.setCheckpointTime(0L);
     for (Iterator<StorageDirectory> it = storage.dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
       StorageState curState;
@@ -153,12 +152,13 @@ public class BackupImage extends FSImage {
   void loadCheckpoint(CheckpointSignature sig) throws IOException {
     // load current image and journal if it is not in memory already
     if(!editLog.isOpen())
-      editLog.open();
+      editLog.startLogSegment(0xDEADBEEF);
 
     // set storage fields
     storage.setStorageInfo(sig);
     storage.setImageDigest(sig.getImageDigest());
-    storage.setCheckpointTime(sig.checkpointTime);
+    // storage.setCheckpointTime(sig.checkpointTime);
+    // TODO do something with checkpoint txid?
 
     FSDirectory fsDir = getFSNamesystem().dir;
     if(fsDir.isEmpty()) {
@@ -173,7 +173,7 @@ public class BackupImage extends FSImage {
 
       getFSDirectoryRootLock().writeLock();
       try { // load image under rootDir lock
-        loadFSImage(NNStorage.getStorageFile(sdName, NameNodeFile.IMAGE));
+        loadFSImage(NNStorage.getStorageFile(sdName, NameNodeFile.IMAGE, 0xDEADBEAF));
       } finally {
         getFSDirectoryRootLock().writeUnlock();
       }
@@ -189,7 +189,7 @@ public class BackupImage extends FSImage {
    * and create empty edits.
    */
   void saveCheckpoint() throws IOException {
-    saveNamespace(false);
+    saveNamespace();
   }
 
   private FSDirectory getFSDirectoryRootLock() {
@@ -289,41 +289,24 @@ public class BackupImage extends FSImage {
                               + jsDir.getCanonicalPath());
       }
       // create edit file if missing
-      File eFile = storage.getEditFile(sd);
+      /*File eFile = storage.getEditFile(sd); TODO
       if(!eFile.exists()) {
         editLog.createEditLogFile(eFile);
-      }
+      }*/
     }
 
     if(!editLog.isOpen())
-      editLog.open();
+      editLog.startLogSegment(0xDEADBEEF);
 
     // create streams pointing to the journal spool files
     // subsequent journal records will go directly to the spool
-    // TODO editLog.divertFileStreams(STORAGE_JSPOOL_DIR + "/" + STORAGE_JSPOOL_FILE);
-    setCheckpointState(CheckpointStates.ROLLED_EDITS);
+
+    // TODO    editLog.divertFileStreams(STORAGE_JSPOOL_DIR + "/" + STORAGE_JSPOOL_FILE);
 
     // set up spooling
     if(backupInputStream == null)
       backupInputStream = new EditLogBackupInputStream(nnReg.getAddress());
     jsState = JSpoolState.INPROGRESS;
-  }
-
-  synchronized void setCheckpointTime(int length, byte[] data)
-  throws IOException {
-    assert backupInputStream.length() == 0 : "backup input stream is not empty";
-    try {
-      // unpack new checkpoint time
-      backupInputStream.setBytes(data);
-      DataInputStream in = backupInputStream.getDataInputStream();
-      byte op = in.readByte();
-      assert op == NamenodeProtocol.JA_CHECKPOINT_TIME;
-      LongWritable lw = new LongWritable();
-      lw.readFields(in);
-      storage.setCheckpointTimeInStorage(lw.get());
-    } finally {
-      backupInputStream.clear();
-    }
   }
 
   /**
@@ -380,7 +363,7 @@ public class BackupImage extends FSImage {
     // TODO editLog.revertFileStreams(STORAGE_JSPOOL_DIR + "/" + STORAGE_JSPOOL_FILE);
 
     // write version file
-    resetVersion(false, storage.getImageDigest());
+    // TODO resetVersion(false, storage.getImageDigest());
 
     // wake up journal writer
     synchronized(this) {

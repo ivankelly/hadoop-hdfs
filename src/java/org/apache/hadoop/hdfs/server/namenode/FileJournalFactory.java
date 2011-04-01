@@ -43,9 +43,9 @@ class FileJournalFactory extends JournalFactory {
    * FSImage
    */
   void format () throws IOException {
-    EditLogOutputStream eStream = getOutputStream();
+    /*EditLogOutputStream eStream = getOutputStream();
     eStream.create();
-    eStream.close();
+    eStream.close();*/
     return;
   }
 
@@ -71,17 +71,8 @@ class FileJournalFactory extends JournalFactory {
       throws IOException {
     EditLogOutputStream eStream = new EditLogFileOutputStream(
         storageDirectory,
-        FileJournalFactory.getEditFile(storageDirectory),
         //sizeOutputFlushBuffer);
         512*1024); // TODOIK
     return eStream;
-  }
-
-  static File getEditFile(StorageDirectory sd) {
-    return NNStorage.getEditFile(sd);
-  }
-  
-  static File getEditNewFile(StorageDirectory sd) {
-    return NNStorage.getEditNewFile(sd);
   }
 }

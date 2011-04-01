@@ -218,8 +218,6 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
 
   URI getURI() { return uri; }
 
-  void beginRoll() throws IOException {}
-  boolean isRolling() throws IOException { return false; }
-  void endRoll() throws IOException {}
-
+  void beginLogSegment(long txid) throws IOException {}
+  void endLogSegment(long firstTxid, long lastTxid) throws IOException {}
 }

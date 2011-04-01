@@ -58,7 +58,7 @@ class BlocksMap {
 
   BlocksMap(int initialCapacity, float loadFactor) {
     this.capacity = computeCapacity();
-    this.blocks = new LightWeightGSet<Block, BlockInfo>(capacity);
+    this.blocks = new LightWeightGSet<Block, BlockInfo>(16); // TODO hack to make tests faster
   }
 
   /**

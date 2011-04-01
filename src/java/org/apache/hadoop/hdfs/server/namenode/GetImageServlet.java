@@ -20,6 +20,7 @@ package org.apache.hadoop.hdfs.server.namenode;
 import java.security.PrivilegedExceptionAction;
 import java.util.*;
 import java.io.*;
+
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -34,6 +35,7 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.server.common.JspHelper;
+import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
 import org.apache.hadoop.hdfs.util.DataTransferThrottler;
 import org.apache.hadoop.io.MD5Hash;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -50,6 +52,10 @@ public class GetImageServlet extends HttpServlet {
 
   private static final Log LOG = LogFactory.getLog(GetImageServlet.class);
 
+  private static final String TXID_PARAMETER = "txid";
+  private static final String START_TXID_PARAM = "startTxId";
+  private static final String END_TXID_PARAM = "endTxId";
+  
   @SuppressWarnings("unchecked")
   public void doGet(final HttpServletRequest request,
                     final HttpServletResponse response
@@ -70,27 +76,33 @@ public class GetImageServlet extends HttpServlet {
             + request.getRemoteHost());
         return;
       }
-
+      
       UserGroupInformation.getCurrentUser().doAs(new PrivilegedExceptionAction<Void>() {
         @Override
         public Void run() throws Exception {
           if (ff.getImage()) {
-            response.setHeader(TransferFsImage.CONTENT_LENGTH,
-                               String.valueOf(nnImage.getStorage()
-                                              .getFsImageName().length()));
+            long txid = parseLongParam(request, TXID_PARAMETER);
+            File imageFile = nnImage.getStorage().getFsImageName(txid);
+            setContentLengthFromFile(response, imageFile);
             // send fsImage
-            TransferFsImage.getFileServer(response.getOutputStream(),
-                                          nnImage.getStorage().getFsImageName(),
+            TransferFsImage.getFileServer(response.getOutputStream(), imageFile,
                 getThrottler(conf)); 
           } else if (ff.getEdit()) {
-            response.setHeader(TransferFsImage.CONTENT_LENGTH,
-                               String.valueOf(nnImage.getStorage()
-                                              .getFsEditName().length()));
+            long startTxId = parseLongParam(request, START_TXID_PARAM);
+            long endTxId = parseLongParam(request, END_TXID_PARAM);
+            
+            File editFile = nnImage.getStorage()
+                .getExistingFinalizedEditsFile(startTxId, endTxId);
+            setContentLengthFromFile(response, editFile);
+            
             // send edits
-            TransferFsImage.getFileServer(response.getOutputStream(),
-                                          nnImage.getStorage().getFsEditName(),
+            TransferFsImage.getFileServer(response.getOutputStream(), editFile,
                 getThrottler(conf));
           } else if (ff.putImage()) {
+            final long txid = parseLongParam(request, TXID_PARAMETER);
+            // TODO need some synchronization here so multiple
+            // checkpointers can't upload the same image!
+
             // issue a HTTP get request to download the new fsimage 
             nnImage.validateCheckpointUpload(ff.getToken());
             nnImage.newImageDigest = ff.getNewChecksum();
@@ -99,8 +111,8 @@ public class GetImageServlet extends HttpServlet {
                 @Override
                 public MD5Hash run() throws Exception {
                   return TransferFsImage.getFileClient(
-                      ff.getInfoServer(), "getimage=1", 
-                      nnImage.getStorage().getFsImageNameCheckpoint(), true);
+                      ff.getInfoServer(), getParamStringForImage(txid),
+                      nnImage.getStorage().getFsImageNameCheckpoint(txid), true);
                 }
             });
             if (!nnImage.newImageDigest.equals(downloadImageDigest)) {
@@ -108,7 +120,7 @@ public class GetImageServlet extends HttpServlet {
                   " expecting a checksum " + nnImage.newImageDigest +
                   " but received a checksum " + downloadImageDigest);
             }
-           nnImage.checkpointUploadDone();
+           nnImage.checkpointUploadDone(txid);
           }
           return null;
         }
@@ -181,5 +193,30 @@ public class GetImageServlet extends HttpServlet {
     }
     if(LOG.isDebugEnabled()) LOG.debug("isValidRequestor is rejecting: " + remoteUser);
     return false;
+  }
+  
+  private long parseLongParam(HttpServletRequest request, String param) throws IOException {
+    // Parse the 'txid' parameter which indicates which image is to be
+    // fetched.
+    String paramStr = request.getParameter(param);
+    if (paramStr == null) {
+      throw new IOException("Invalid request has no " + param + " parameter");
+    }
+    
+    return Long.valueOf(paramStr);
+  }
+
+  private void setContentLengthFromFile(HttpServletResponse response, File file) {
+    response.setHeader(TransferFsImage.CONTENT_LENGTH,
+        String.valueOf(file.length()));
+  }
+
+  static String getParamStringForImage(long txid) {
+    return "getimage=1&" + TXID_PARAMETER + "=" + txid;
+  }
+
+  static String getParamStringForLog(RemoteEditLog log) {
+    return "getedit=1&" + START_TXID_PARAM + "=" + log.getStartTxId()
+        + "&" + END_TXID_PARAM + "=" + log.getEndTxId();
   }
 }

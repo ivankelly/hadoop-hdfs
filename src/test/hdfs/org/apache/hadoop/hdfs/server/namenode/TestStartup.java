@@ -230,11 +230,11 @@ public class TestStartup extends TestCase {
       sd = it.next();
 
       if(sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
-        File imf = img.getStorage().getStorageFile(sd, NameNodeFile.IMAGE);
+        File imf = img.getStorage().getStorageFile(sd, NameNodeFile.IMAGE, 0);
         LOG.info("--image file " + imf.getAbsolutePath() + "; len = " + imf.length() + "; expected = " + expectedImgSize);
         assertEquals(expectedImgSize, imf.length());	
       } else if(sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-        File edf = img.getStorage().getStorageFile(sd, NameNodeFile.EDITS);
+        File edf = img.getStorage().getStorageFile(sd, NameNodeFile.EDITS, 0);
         LOG.info("-- edits file " + edf.getAbsolutePath() + "; len = " + edf.length()  + "; expected = " + expectedEditsSize);
         assertEquals(expectedEditsSize, edf.length());	
       } else {
@@ -339,8 +339,8 @@ public class TestStartup extends TestCase {
       FSImage image = nn.getFSImage();
       StorageDirectory sd = image.getStorage().getStorageDir(0); //only one
       assertEquals(sd.getStorageDirType(), NameNodeDirType.IMAGE_AND_EDITS);
-      File imf = image.getStorage().getStorageFile(sd, NameNodeFile.IMAGE);
-      File edf = image.getStorage().getStorageFile(sd, NameNodeFile.EDITS);
+      File imf = image.getStorage().getStorageFile(sd, NameNodeFile.IMAGE, 0);
+      File edf = image.getStorage().getStorageFile(sd, NameNodeFile.EDITS, 0);
       LOG.info("--image file " + imf.getAbsolutePath() + "; len = " + imf.length());
       LOG.info("--edits file " + edf.getAbsolutePath() + "; len = " + edf.length());
 
