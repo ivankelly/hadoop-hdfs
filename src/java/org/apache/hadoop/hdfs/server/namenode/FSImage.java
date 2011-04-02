@@ -585,12 +585,10 @@ public class FSImage implements NNStorageListener, Closeable {
     // storage directory to read properties from
     sdForProperties.read();
 
-    try {
-      loadFSImage(loadPlan.getImageFile());
-    } catch (IOException ioe) {
-      throw new IOException("Failed to load image from " + loadPlan.getImageFile(), ioe);
-    }
-    
+    File imageFile = loadPlan.getImageFile();
+    MD5Hash expectedMD5 = MD5FileUtils.readMD5ForFile(imageFile);
+    loadFSImage(imageFile, expectedMD5);
+
     needToSave |= loadEdits(loadPlan.getEditsFiles());
 
     /* TODO(todd) Need to discuss whether we should force a re-save
@@ -638,7 +636,7 @@ public class FSImage implements NNStorageListener, Closeable {
    * filenames and blocks.  Return whether we should
    * "re-save" and consolidate the edit-logs
    */
-  void loadFSImage(File curFile) throws IOException {
+  void loadFSImage(File curFile, MD5Hash expectedMd5) throws IOException {
     FSImageFormat.Loader loader = new FSImageFormat.Loader(
         conf, getFSNamesystem());
     loader.load(curFile);
@@ -646,14 +644,15 @@ public class FSImage implements NNStorageListener, Closeable {
     // Check that the image digest we loaded matches up with what
     // we expected
     MD5Hash readImageMd5 = loader.getLoadedImageMd5();
-    if (storage.getImageDigest() == null) {
-      storage.setImageDigest(readImageMd5); // set this fsimage's checksum
-    } else if (!storage.getImageDigest().equals(readImageMd5)) {
-      /* TODO has to be re-done for 1073
-       * throw new IOException("Image file " + curFile +
+
+    if (expectedMd5 != null &&
+        !expectedMd5.equals(readImageMd5)) {
+      throw new IOException("Image file " + curFile +
           " is corrupt with MD5 checksum of " + readImageMd5 +
-          " but expecting " + storage.getImageDigest());*/
+          " but expecting " + expectedMd5);
     }
+    storage.setImageDigest(readImageMd5); // set this fsimage's checksum
+
     long txId = loader.getLoadedImageTxId();
     storage.setCheckpointTxId(txId);
     editLog.setNextTxId(txId + 1);
@@ -670,17 +669,10 @@ public class FSImage implements NNStorageListener, Closeable {
     FSImageFormat.Saver saver = new FSImageFormat.Saver();
     FSImageCompression compression = FSImageCompression.createCompression(conf);
     saver.save(newFile, getFSNamesystem(), compression);
-    
-    // After save is complete, we can move it into place
-    if (!newFile.renameTo(dstFile)) {
-      // This fails on Windows if the dst file already exists -- but we don't
-      // expect that to be the case, so this should be a failure!
-      throw new IOException("Unable to rename saved image file " +
-          newFile + " to " + dstFile);
-    }
-    
-    storage.setImageDigest(saver.getSavedDigest()); // TODO this no longer makes sense with 1073
-    storage.setCheckpointTxId(txid);
+
+    MD5FileUtils.saveMD5File(newFile, saver.getSavedDigest());
+    storage.setImageDigest(saver.getSavedDigest());
+    storage.setCheckpointTxId(editLog.getLastWrittenTxId());
   }
 
   /**
@@ -799,6 +791,7 @@ public class FSImage implements NNStorageListener, Closeable {
 
           if(al == null) al = new ArrayList<StorageDirectory> (1);
           al.add(sd);
+          continue;
         }
       }
     }

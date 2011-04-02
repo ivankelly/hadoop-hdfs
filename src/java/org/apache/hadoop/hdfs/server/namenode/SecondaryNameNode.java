@@ -728,7 +728,6 @@ public class SecondaryNameNode implements Runnable {
         throw new IOException("Could not locate checkpoint edits");
       
       this.getStorage().setStorageInfo(sig);
-      this.getStorage().setImageDigest(sig.getImageDigest());
       if (loadImage) {
         File file = getStorage().getExistingImageFile(sig.lastCheckpointTxId);
         LOG.info("2NN loading image from " + file);
