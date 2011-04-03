@@ -24,10 +24,13 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.net.URI;
 
 import org.apache.hadoop.hdfs.protocol.FSConstants;
 import org.apache.hadoop.io.DataOutputBuffer;
 import org.apache.hadoop.io.Writable;
+
+import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 
 /**
  * An implementation of the abstract class {@link EditLogOutputStream}, which
@@ -43,6 +46,7 @@ class EditLogFileOutputStream extends EditLogOutputStream {
   private DataOutputBuffer bufReady; // buffer ready for flushing
   final private int initBufferSize; // inital buffer size
   static ByteBuffer fill = ByteBuffer.allocateDirect(512); // preallocation
+  private StorageDirectory storageDirectory = null;
 
   /**
    * Creates output buffers and file object.
@@ -53,13 +57,19 @@ class EditLogFileOutputStream extends EditLogOutputStream {
    *          Size of flush buffer
    * @throws IOException
    */
-  EditLogFileOutputStream(File name, int size) throws IOException {
+  EditLogFileOutputStream(StorageDirectory sd, File name, int size) throws IOException {
     super();
-    file = name;
+    this.storageDirectory = sd;
+
     initBufferSize = size;
-    bufCurrent = new DataOutputBuffer(size);
-    bufReady = new DataOutputBuffer(size);
-    RandomAccessFile rp = new RandomAccessFile(name, "rw");
+    initialize(name);
+  }
+
+  private void initialize(File file) throws IOException {
+    this.file = file;
+    bufCurrent = new DataOutputBuffer(initBufferSize);
+    bufReady = new DataOutputBuffer(initBufferSize);
+    RandomAccessFile rp = new RandomAccessFile(file, "rw");
     fp = new FileOutputStream(rp.getFD()); // open for append
     fc = rp.getChannel();
     fc.position(fc.size());
@@ -205,5 +215,29 @@ class EditLogFileOutputStream extends EditLogOutputStream {
    */
   File getFile() {
     return file;
+  }
+
+  URI getURI() {
+    return storageDirectory.getRoot().toURI();
+  }
+  
+  synchronized void beginRoll() throws IOException {
+    setReadyToFlush();
+    flush();
+    close();
+    
+    initialize(FileJournalFactory.getEditNewFile(storageDirectory));
+  }
+
+  synchronized boolean isRolling() throws IOException {
+    return FileJournalFactory.getEditNewFile(storageDirectory).exists();
+  }
+
+  synchronized void endRoll() throws IOException {
+    setReadyToFlush();
+    flush();
+    close();
+    
+    initialize(FileJournalFactory.getEditFile(storageDirectory));
   }
 }

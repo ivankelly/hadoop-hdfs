@@ -129,7 +129,7 @@ public class FSImage implements NNStorageListener, Closeable {
     }
     storage.registerListener(this);
 
-    this.editLog = new FSEditLog(storage);
+    this.editLog = new FSEditLog(conf, storage);
     setFSNamesystem(ns);
   }
 
@@ -803,9 +803,10 @@ public class FSImage implements NNStorageListener, Closeable {
       throw new IOException("Cannot create directory " + curDir);
     if (dirType.isOfType(NameNodeDirType.IMAGE))
       saveFSImage(NNStorage.getStorageFile(sd, NameNodeFile.IMAGE));
-    if (dirType.isOfType(NameNodeDirType.EDITS))
+    /**     if (dirType.isOfType(NameNodeDirType.EDITS)) TODOIK
       editLog.createEditLogFile(NNStorage.getStorageFile(sd,
                                                          NameNodeFile.EDITS));
+    */
     // write version and time files
     sd.write();
   }

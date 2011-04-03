@@ -23,6 +23,8 @@ import java.io.OutputStream;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.io.Writable;
 
+import java.net.URI;
+
 /**
  * A generic abstract class to support journaling of edits logs into 
  * a persistent storage.
@@ -127,4 +129,10 @@ implements JournalStream {
   public String toString() {
     return getName();
   }
+
+  abstract URI getURI();
+
+  abstract void beginRoll() throws IOException;
+  abstract boolean isRolling() throws IOException;
+  abstract void endRoll() throws IOException;
 }
