@@ -41,11 +41,15 @@ import org.apache.hadoop.metrics.util.MetricsTimeVaryingInt;
 import org.apache.hadoop.util.StringUtils;
  
 import org.mockito.Mockito;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 /**
  * This class tests the creation and validation of a checkpoint.
  */
 public class TestEditLog extends TestCase {
+  public static final Log LOG = LogFactory.getLog(TestEditLog.class);
+
   static final int NUM_DATA_NODES = 0;
 
   // This test creates NUM_THREADS threads and each thread does
@@ -136,6 +140,8 @@ public class TestEditLog extends TestCase {
       HdfsFileStatus fileInfo = namesystem.getFileInfo("/myfile", false);
       assertEquals("supergroup", fileInfo.getGroup());
       assertEquals(3, fileInfo.getReplication());
+    } catch (Exception e) {
+      LOG.error("Error running test", e);
     } finally {
       cluster.shutdown();
     }

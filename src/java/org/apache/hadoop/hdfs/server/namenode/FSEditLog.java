@@ -155,20 +155,22 @@ public class FSEditLog implements NNStorageListener {
       faultyJournals = new ArrayList<URI>();
     }
 
-    String[] logURIs = conf.getStrings(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY);
-    for (String uristr : logURIs) {
+    //String[] logURIs = conf.getStrings(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY);
+    //for (String uristr : logURIs) {
+    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
+      URI uri = sd.getRoot().toURI();
       try {
-        try {
-          JournalFactory factory = getFactory(new URI(uristr));
-          editStreams.add(factory.getOutputStream());
-        } catch (IOException e) {
-          LOG.warn("Unable to open edit log file " + uristr, e);
-          faultyJournals.add(new URI(uristr));
-        }
-      } catch (URISyntaxException use) {
-        LOG.warn("Invalid URI "+ uristr, use);
+        JournalFactory factory = getFactory(uri);
+        editStreams.add(factory.getOutputStream());
+      } catch (IOException e) {
+        LOG.warn("Unable to open edit log file " + uri, e);
+        faultyJournals.add(uri);
       }
     }
+      /*} catch (URISyntaxException use) {
+        LOG.warn("Invalid URI "+ uristr, use);
+        }*/
+      //}
 
     if (editStreams.size() == 0) {
       LOG.error("No valid Journal URIs found in " 
