@@ -23,6 +23,7 @@ import java.net.URI;
 import java.util.List;
 import java.io.File;
 import java.io.IOException;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 
 class FileJournalFactory extends JournalFactory {
   private NNStorage storage;
@@ -78,10 +79,10 @@ class FileJournalFactory extends JournalFactory {
   }
 
   static File getEditFile(StorageDirectory sd) {
-    return NNStorage.getEditFile(sd);
+    return NNStorage.getOldStorageFile(sd, NameNodeFile.EDITS);
   }
   
   static File getEditNewFile(StorageDirectory sd) {
-    return NNStorage.getEditNewFile(sd);
+    return NNStorage.getOldStorageFile(sd, NameNodeFile.EDITS_NEW);
   }
 }

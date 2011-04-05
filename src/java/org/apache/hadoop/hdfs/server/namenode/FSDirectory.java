@@ -147,10 +147,11 @@ class FSDirectory implements Closeable {
     }
     try {
       if (fsImage.recoverTransitionRead(dataDirs, editsDirs, startOpt)) {
-        fsImage.saveNamespace(true);
+        fsImage.saveNamespace();
       }
       FSEditLog editLog = fsImage.getEditLog();
       assert editLog != null : "editLog must be initialized";
+      editLog.open();
       fsImage.setCheckpointDirectories(null, null);
     } catch(IOException e) {
       fsImage.close();

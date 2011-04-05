@@ -79,12 +79,12 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
     
     // Determine if sd is image, edits or both
     if (sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
-      imageExists = NNStorage.getStorageFile(sd, NameNodeFile.IMAGE).exists();        
+      imageExists = NNStorage.getOldStorageFile(sd, NameNodeFile.IMAGE).exists();        
       imageDirs.add(sd.getRoot().getCanonicalPath());
     }
     
     if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-      editsExists = NNStorage.getStorageFile(sd, NameNodeFile.EDITS).exists();
+      editsExists = NNStorage.getOldStorageFile(sd, NameNodeFile.EDITS).exists();
       editsDirs.add(sd.getRoot().getCanonicalPath());
     }
     
@@ -166,16 +166,16 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
       
       boolean needToSave = false;
       File curFile =
-        NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE);
+        NNStorage.getOldStorageFile(latestNameSD, NameNodeFile.IMAGE);
       File ckptFile =
-        NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE_NEW);
+        NNStorage.getOldStorageFile(latestNameSD, NameNodeFile.IMAGE_NEW);
 
       //
       // If we were in the midst of a checkpoint
       //
       if (ckptFile.exists()) {
         needToSave = true;
-        if (NNStorage.getStorageFile(latestEditsSD, NameNodeFile.EDITS_NEW)
+        if (NNStorage.getOldStorageFile(latestEditsSD, NameNodeFile.EDITS_NEW)
               .exists()) {
           //
           // checkpointing migth have uploaded a new
@@ -210,7 +210,7 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
 
     @Override
     File getImageFile() {
-      return NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE);
+      return NNStorage.getOldStorageFile(latestNameSD, NameNodeFile.IMAGE);
     }
 
     @Override
@@ -237,10 +237,10 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
    */
   static List<File> getEditsInStorageDir(StorageDirectory sd) {
     ArrayList<File> files = new ArrayList<File>();
-    File edits = NNStorage.getStorageFile(sd, NameNodeFile.EDITS);
+    File edits = NNStorage.getOldStorageFile(sd, NameNodeFile.EDITS);
     assert edits.exists() : "Expected edits file at " + edits;
     files.add(edits);
-    File editsNew = NNStorage.getStorageFile(sd, NameNodeFile.EDITS_NEW);
+    File editsNew = NNStorage.getOldStorageFile(sd, NameNodeFile.EDITS_NEW);
     if (editsNew.exists()) {
       files.add(editsNew);
     }

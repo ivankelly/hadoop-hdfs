@@ -49,7 +49,7 @@ import static org.apache.hadoop.hdfs.tools.offlineEditsViewer.Tokenizer.EmptyTok
 class EditsLoaderCurrent implements EditsLoader {
 
   private static int [] supportedVersions = {
-    -18, -19, -20, -21, -22, -23, -24, -25, -26, -27, -28 };
+    -18, -19, -20, -21, -22, -23, -24, -25, -26, -27, -28, -29 };
 
   private EditsVisitor v;
   private int editsVersion = 0;
@@ -432,6 +432,27 @@ class EditsLoaderCurrent implements EditsLoader {
     VIntToken blobLengthToken = v.visitVInt(EditsElement.KEY_LENGTH);
     v.visitBlob(EditsElement.KEY_BLOB, blobLengthToken.value);
   }
+  
+  /**
+   * Visit OP_END_LOG_SEGMENT
+   */
+  private void visit_OP_END_LOG_SEGMENT()
+    throws IOException {
+    if(editsVersion <= -28) {
+      v.visitLong(EditsElement.TRANSACTION_ID);
+    }
+  }
+  
+  /**
+   * Visit OP_BEGIN_LOG_SEGMENT
+   */
+  private void visit_OP_START_LOG_SEGMENT()
+    throws IOException {
+    if(editsVersion <= -28) {
+      v.visitLong(EditsElement.TRANSACTION_ID);
+    }
+  }
+
 
   private void visitOpCode(FSEditLogOpCodes editsOpCode)
     throws IOException {
@@ -493,6 +514,12 @@ class EditsLoaderCurrent implements EditsLoader {
         break;
       case OP_UPDATE_MASTER_KEY: // 21
         visit_OP_UPDATE_MASTER_KEY();
+        break;
+      case OP_END_LOG_SEGMENT: // 22
+        visit_OP_END_LOG_SEGMENT();
+        break;
+      case OP_START_LOG_SEGMENT: // 23
+        visit_OP_START_LOG_SEGMENT();
         break;
       default:
       {

@@ -29,6 +29,11 @@ import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+
 /**
  * This class tests various combinations of dfs.name.dir 
  * and dfs.name.edits.dir configurations.
@@ -46,13 +51,10 @@ public class TestNameEditsConfigs extends TestCase {
       System.getProperty("test.build.data", "build/test/data"), "dfs/");
 
   protected void setUp() throws java.lang.Exception {
-    if(base_dir.exists())
-      tearDown();
-  }
-
-  protected void tearDown() throws java.lang.Exception {
-    if (!FileUtil.fullyDelete(base_dir)) 
-      throw new IOException("Cannot remove directory " + base_dir);
+    if(base_dir.exists()) {
+      if (!FileUtil.fullyDelete(base_dir)) 
+        throw new IOException("Cannot remove directory " + base_dir);
+    }
   }
 
   private void writeFile(FileSystem fileSys, Path name, int repl)
@@ -110,9 +112,10 @@ public class TestNameEditsConfigs extends TestCase {
    *    do not read any stale image or edits. 
    * All along the test, we create and delete files at reach restart to make
    * sure we are reading proper edits and image.
+   * @throws Exception 
    */
   @SuppressWarnings("deprecation")
-  public void testNameEditsConfigs() throws IOException {
+  public void testNameEditsConfigs() throws Exception {
     Path file1 = new Path("TestNameEditsConfigs1");
     Path file2 = new Path("TestNameEditsConfigs2");
     Path file3 = new Path("TestNameEditsConfigs3");
@@ -120,12 +123,26 @@ public class TestNameEditsConfigs extends TestCase {
     SecondaryNameNode secondary = null;
     Configuration conf = null;
     FileSystem fileSys = null;
-    File newNameDir = new File(base_dir, "name");
-    File newEditsDir = new File(base_dir, "edits");
-    File nameAndEdits = new File(base_dir, "name_and_edits");
-    File checkpointNameDir = new File(base_dir, "secondname");
-    File checkpointEditsDir = new File(base_dir, "secondedits");
-    File checkpointNameAndEdits = new File(base_dir, "second_name_and_edits");
+    final File newNameDir = new File(base_dir, "name");
+    final File newEditsDir = new File(base_dir, "edits");
+    final File nameAndEdits = new File(base_dir, "name_and_edits");
+    final File checkpointNameDir = new File(base_dir, "secondname");
+    final File checkpointEditsDir = new File(base_dir, "secondedits");
+    final File checkpointNameAndEdits = new File(base_dir, "second_name_and_edits");
+    
+    ImmutableList<File> allCurrentDirs = ImmutableList.of(
+        new File(nameAndEdits, "current"),
+        new File(newNameDir, "current"),
+        new File(newEditsDir, "current"),
+        new File(checkpointNameAndEdits, "current"),
+        new File(checkpointNameDir, "current"),
+        new File(checkpointEditsDir, "current"));
+    ImmutableList<File> imageCurrentDirs = ImmutableList.of(
+        new File(nameAndEdits, "current"),
+        new File(newNameDir, "current"),
+        new File(checkpointNameAndEdits, "current"),
+        new File(checkpointNameDir, "current"));
+    
     
     // Start namenode with same dfs.name.dir and dfs.name.edits.dir
     conf = new HdfsConfiguration();
@@ -191,13 +208,10 @@ public class TestNameEditsConfigs extends TestCase {
       secondary.shutdown();
     }
 
-    checkImageAndEditsFilesExistence(nameAndEdits, true, true);
-    checkImageAndEditsFilesExistence(newNameDir, true, false);
-    checkImageAndEditsFilesExistence(newEditsDir, false, true);
-    checkImageAndEditsFilesExistence(checkpointNameAndEdits, true, true);
-    checkImageAndEditsFilesExistence(checkpointNameDir, true, false);
-    checkImageAndEditsFilesExistence(checkpointEditsDir, false, true);
-
+    FSImageTestUtil.assertParallelFilesAreIdentical(allCurrentDirs,
+        ImmutableSet.of("VERSION"));
+    FSImageTestUtil.assertSameNewestImage(imageCurrentDirs);
+    
     // Now remove common directory both have and start namenode with 
     // separate name and edits dirs
     new File(nameAndEdits, FILE_EDITS).renameTo(
@@ -314,6 +328,10 @@ public class TestNameEditsConfigs extends TestCase {
                                 .manageNameDfsDirs(false)
                                 .build();
     cluster.waitActive();
+    
+    // Check that the dir has a VERSION file
+    assertTrue(new File(nameAndEdits, "current/VERSION").exists());
+    
     fileSys = cluster.getFileSystem();
 
     try {
@@ -342,6 +360,12 @@ public class TestNameEditsConfigs extends TestCase {
                                 .manageNameDfsDirs(false)
                                 .build();
     cluster.waitActive();
+
+    // Check that the dirs have a VERSION file
+    assertTrue(new File(nameAndEdits, "current/VERSION").exists());
+    assertTrue(new File(newNameDir, "current/VERSION").exists());
+    assertTrue(new File(newEditsDir, "current/VERSION").exists());
+
     fileSys = cluster.getFileSystem();
 
     try {

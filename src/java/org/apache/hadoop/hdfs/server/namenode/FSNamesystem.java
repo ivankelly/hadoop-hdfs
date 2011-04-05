@@ -3416,7 +3416,7 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
       throw new IOException("Safe mode should be turned ON " +
                             "in order to create namespace image.");
     }
-    getFSImage().saveNamespace(true);
+    getFSImage().saveNamespace();
     LOG.info("New namespace image has been created.");
     } finally {
       writeUnlock();
@@ -4333,7 +4333,8 @@ public class FSNamesystem implements FSConstants, FSNamesystemMBean, FSClusterSt
                                   safeMode);
     }
     LOG.info("Roll FSImage from " + Server.getRemoteAddress());
-    getFSImage().rollFSImage(sig, true);
+    // getFSImage().rollFSImage(sig, true);
+    // TODO
     } finally {
       writeUnlock();
     }

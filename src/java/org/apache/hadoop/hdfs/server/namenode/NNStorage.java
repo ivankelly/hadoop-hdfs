@@ -19,9 +19,7 @@ package org.apache.hadoop.hdfs.server.namenode;
 
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 
-import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.DataInputStream;
 import java.io.FileInputStream;
@@ -74,11 +72,13 @@ public class NNStorage extends Storage implements Closeable {
     EDITS_NEW ("edits.new"), // from "old" pre-HDFS-1073 format
     EDITS_INPROGRESS ("edits_inprogress");
 
-    private String fileName = null;
     private NameNodeFile(String name) { this.fileName = name; }
+    
+    private String fileName = null;
+    
     String getName() { return fileName; }
   }
-
+  
   /**
    * Implementation of StorageDirType specific to namenode storage
    * A Storage directory could be of type IMAGE which stores only fsimage,
@@ -144,14 +144,13 @@ public class NNStorage extends Storage implements Closeable {
   private Object restorationLock = new Object();
   private boolean disablePreUpgradableLayoutCheck = false;
 
-  private long checkpointTime = -1L;  // The age of the image
 
   /**
    * TxId of the last transaction that was included in the most
    * recent fsimage file. This does not include any transactions
    * that have since been written to the edit log.
    */
-  protected long checkpointTxId;
+  protected long checkpointTxId = -1;
 
   /**
    * list of failed (and thus removed) storages
@@ -400,16 +399,17 @@ public class NNStorage extends Storage implements Closeable {
     }
     return list;
   }
-
+  
   /**
    * Determine the checkpoint time of the specified StorageDirectory
    *
    * @param sd StorageDirectory to check
    * @return If file exists and can be read, last checkpoint time. If not, 0L.
    * @throws IOException On errors processing file pointed to by sd
+   * @deprecated used only in "old" format!
    */
   static long readCheckpointTime(StorageDirectory sd) throws IOException {
-    File timeFile = getStorageFile(sd, NameNodeFile.TIME);
+    File timeFile = getOldStorageFile(sd, NameNodeFile.TIME);
     long timeStamp = 0L;
     if (timeFile.exists() && timeFile.canRead()) {
       DataInputStream in = new DataInputStream(new FileInputStream(timeFile));
@@ -423,68 +423,13 @@ public class NNStorage extends Storage implements Closeable {
   }
 
   /**
-   * Write last checkpoint time into a separate file.
-   *
-   * @param sd
-   * @throws IOException
-   */
-  public void writeCheckpointTime(StorageDirectory sd) throws IOException {
-    if (checkpointTime < 0L)
-      return; // do not write negative time
-    File timeFile = getStorageFile(sd, NameNodeFile.TIME);
-    if (timeFile.exists() && ! timeFile.delete()) {
-        LOG.error("Cannot delete chekpoint time file: "
-                  + timeFile.getCanonicalPath());
-    }
-    FileOutputStream fos = new FileOutputStream(timeFile);
-    DataOutputStream out = new DataOutputStream(fos);
-    try {
-      out.writeLong(checkpointTime);
-      out.flush();
-      fos.getChannel().force(true);
-    } finally {
-      out.close();
-    }
-  }
-
-  /**
-   * Record new checkpoint time in order to
-   * distinguish healthy directories from the removed ones.
-   * If there is an error writing new checkpoint time, the corresponding
-   * storage directory is removed from the list.
-   */
-  public void incrementCheckpointTime() {
-    setCheckpointTimeInStorage(checkpointTime + 1);
-  }
-
-  /**
-   * The age of the namespace state.<p>
-   * Reflects the latest time the image was saved.
-   * Modified with every save or a checkpoint.
-   * Persisted in VERSION file.
-   *
-   * @return the current checkpoint time.
-   */
-  public long getCheckpointTime() {
-    return checkpointTime;
-  }
-
-  /**
-   * Set the checkpoint time.
-   *
-   * This method does not persist the checkpoint time to storage immediately.
-   * 
-   * @see #setCheckpointTimeInStorage
-   * @param newCpT the new checkpoint time.
-   */
-  public void setCheckpointTime(long newCpT) {
-    checkpointTime = newCpT;
-  }
-
-  /**
    * Set the transaction ID of the last checkpoint
    */
   void setCheckpointTxId(long checkpointTxId) {
+    assert checkpointTxId >= this.checkpointTxId :
+      "Trying to decrease checkpointTxId from " + this.checkpointTxId +
+      " to " + checkpointTxId;
+    
     this.checkpointTxId = checkpointTxId;
   }
 
@@ -496,37 +441,16 @@ public class NNStorage extends Storage implements Closeable {
   }
 
   /**
-   * Set the current checkpoint time. Writes the new checkpoint
-   * time to all available storage directories.
-   * @param newCpT The new checkpoint time.
-   */
-  public void setCheckpointTimeInStorage(long newCpT) {
-    checkpointTime = newCpT;
-    // Write new checkpoint time in all storage directories
-    for(Iterator<StorageDirectory> it =
-                          dirIterator(); it.hasNext();) {
-      StorageDirectory sd = it.next();
-      try {
-        writeCheckpointTime(sd);
-      } catch(IOException e) {
-        // Close any edits stream associated with this dir and remove directory
-        LOG.warn("incrementCheckpointTime failed on "
-                 + sd.getRoot().getPath() + ";type="+sd.getStorageDirType());
-      }
-    }
-  }
-
-  /**
    * Return the name of the image file that is uploaded by periodic
    * checkpointing
    *
    * @return List of filenames to save checkpoints to.
    */
-  public File[] getFsImageNameCheckpoint() {
+  public File[] getFsImageNameCheckpoint(long txid) {
     ArrayList<File> list = new ArrayList<File>();
     for (Iterator<StorageDirectory> it =
                  dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
-      list.add(getStorageFile(it.next(), NameNodeFile.IMAGE_NEW));
+      list.add(getStorageFile(it.next(), NameNodeFile.IMAGE_NEW, txid));
     }
     return list.toArray(new File[list.size()]);
   }
@@ -535,41 +459,16 @@ public class NNStorage extends Storage implements Closeable {
    * Return the name of the image file.
    * @return The name of the first image file.
    */
-  public File getFsImageName() {
+  public File getFsImageName(long txid) {
     StorageDirectory sd = null;
     for (Iterator<StorageDirectory> it =
       dirIterator(NameNodeDirType.IMAGE); it.hasNext();) {
       sd = it.next();
-      File fsImage = getStorageFile(sd, NameNodeFile.IMAGE);
+      File fsImage = getStorageFile(sd, NameNodeFile.IMAGE, txid);
       if(sd.getRoot().canRead() && fsImage.exists())
         return fsImage;
     }
     return null;
-  }
-
-  /**
-   * @return The name of the first editlog file.
-   */
-  public File getFsEditName() throws IOException {
-    for (Iterator<StorageDirectory> it
-           = dirIterator(NameNodeDirType.EDITS); it.hasNext();) {
-      StorageDirectory sd = it.next();
-      if(sd.getRoot().canRead())
-        return getEditFile(sd);
-    }
-    return null;
-  }
-
-  /**
-   * @return The name of the first time file.
-   */
-  public File getFsTimeName() {
-    StorageDirectory sd = null;
-    // NameNodeFile.TIME shoul be same on all directories
-    for (Iterator<StorageDirectory> it =
-             dirIterator(); it.hasNext();)
-      sd = it.next();
-    return getStorageFile(sd, NameNodeFile.TIME);
   }
 
   /** Create new dfs name directory.  Caution: this destroys all files
@@ -593,7 +492,6 @@ public class NNStorage extends Storage implements Closeable {
     this.layoutVersion = FSConstants.LAYOUT_VERSION;
     this.namespaceID = newNamespaceID();
     this.cTime = 0L;
-    this.setCheckpointTime(now());
     for (Iterator<StorageDirectory> it =
                            dirIterator(); it.hasNext();) {
       StorageDirectory sd = it.next();
@@ -708,8 +606,6 @@ public class NNStorage extends Storage implements Closeable {
           " has checkpoint transaction id when version is " 
           + layoutVersion);
     }
-
-    this.setCheckpointTime(readCheckpointTime(sd));
   }
 
   /**
@@ -735,45 +631,100 @@ public class NNStorage extends Storage implements Closeable {
                         Integer.toString(uVersion));
     }
     if (imageDigest == null) {
-      imageDigest = MD5Hash.digest(
-          new FileInputStream(getStorageFile(sd, NameNodeFile.IMAGE)));
+      // TODO redo digesting
+      /*imageDigest = MD5Hash.digest(
+          new FileInputStream(getStorageFile(sd, NameNodeFile.IMAGE))); */
     }
 
     props.setProperty(MESSAGE_DIGEST_PROPERTY, imageDigest.toString());
     props.setProperty(CHECKPOINT_TXID_PROPERTY, String.valueOf(checkpointTxId));
-    writeCheckpointTime(sd);
+  }
+  
+  /**
+   * @deprecated
+   */
+  static File getStorageFile(StorageDirectory sd, NameNodeFile type, long imageTxId) {
+    // TODO killme
+    return new File(sd.getCurrentDir(),
+        type.getName() + "_" + imageTxId);
+  }
+  
+  /**
+   * Get a storage file of the "old" format which doesn't include txid
+   * information in the name.
+   */
+  static File getOldStorageFile(StorageDirectory sd, NameNodeFile type) {
+    return new File(sd.getCurrentDir(), NameNodeFile.IMAGE.getName());
+  }
+
+  static String getCheckpointImageFileName(long txid) {
+    return NameNodeFile.IMAGE_NEW.getName() + "_" + txid;
+  }
+
+  static String getImageFileName(long txid) {
+    return NameNodeFile.IMAGE.getName() + "_" + txid;
+  }
+  
+  static String getInProgressEditsFileName(long startTxId) {
+    return NameNodeFile.EDITS_INPROGRESS.getName() + "_" + startTxId;
+  }
+  
+  static File getInProgressEditsFile(StorageDirectory sd, long startTxId) {
+    return new File(sd.getCurrentDir(), getInProgressEditsFileName(startTxId));
+  }
+  
+  static File getFinalizedEditsFile(StorageDirectory sd,
+      long startTxId, long endTxId) {
+    return new File(sd.getCurrentDir(),
+        getFinalizedEditsFileName(startTxId, endTxId));
+  }
+  
+  static String getFinalizedEditsFileName(long startTxId, long endTxId) {
+    return NameNodeFile.EDITS.getName() + "_" + startTxId + "-" + endTxId;
+  }
+  
+  File getExistingFinalizedEditsFile(long startTxId, long endTxId)
+  throws IOException {
+    File ret = findFile(NameNodeDirType.EDITS,
+        getFinalizedEditsFileName(startTxId, endTxId));
+    if (ret == null) {
+      throw new IOException(
+          "No edits file for txid " + startTxId + "-" + endTxId + " exists!");
+    }
+    return ret;
+  }
+    
+
+  File getExistingImageFile(long txid) throws IOException {
+    File ret = findFile(NameNodeDirType.IMAGE,
+        getImageFileName(txid));
+    if (ret == null) {
+      throw new IOException("No image file for txid " + txid + " exists!");
+    }
+    return ret;
+  }
+    
+  private File findFile(NameNodeDirType dirType, String name) {
+    for (StorageDirectory sd : dirIterable(dirType)) {
+      File candidate = new File(sd.getCurrentDir(), name);
+      if (sd.getCurrentDir().canRead() &&
+          candidate.exists()) {
+        return candidate;
+      }
+    }
+    return null;
   }
 
   /**
-   * @return A File of 'type' in storage directory 'sd'.
+   * @return A list of the given File in every available storage directory,
+   * regardless of whether it might exist.
    */
-  static File getStorageFile(StorageDirectory sd, NameNodeFile type) {
-    return new File(sd.getCurrentDir(), type.getName());
-  }
-
-  /**
-   * @return A editlog File in storage directory 'sd'.
-   */
-  static File getEditFile(StorageDirectory sd) {
-    return getStorageFile(sd, NameNodeFile.EDITS);
-  }
-
-  /**
-   * @return A temporary editlog File in storage directory 'sd'.
-   */
-  static File getEditNewFile(StorageDirectory sd) {
-    return getStorageFile(sd, NameNodeFile.EDITS_NEW);
-  }
-
-  /**
-   * @return A list of all Files of 'type' in available storage directories.
-   */
-  Collection<File> getFiles(NameNodeFile type, NameNodeDirType dirType) {
+  Collection<File> getFiles(NameNodeDirType dirType, String fileName) {
     ArrayList<File> list = new ArrayList<File>();
     Iterator<StorageDirectory> it =
       (dirType == null) ? dirIterator() : dirIterator(dirType);
     for ( ;it.hasNext(); ) {
-      list.add(getStorageFile(it.next(), type));
+      list.add(new File(it.next().getCurrentDir(), fileName));
     }
     return list;
   }
@@ -903,10 +854,11 @@ public class NNStorage extends Storage implements Closeable {
    */
   void reportErrorsOnDirectory(StorageDirectory sd)
       throws IOException {
-    LOG.warn("Error reported on storage directory " + sd);
+    LOG.warn("storage " + this + " Error reported on storage directory " + sd);
 
     String lsd = listStorageDirectories();
     LOG.debug("current list of storage dirs:" + lsd);
+    LOG.debug("listeners: " + listeners.size());
 
     for (NNStorageListener listener : listeners) {
       listener.errorOccurred(sd);
@@ -924,7 +876,6 @@ public class NNStorage extends Storage implements Closeable {
     if (this.storageDirs.remove(sd)) {
       this.removedStorageDirs.add(sd);
     }
-    incrementCheckpointTime();
 
     lsd = listStorageDirectories();
     LOG.debug("at the end current list of storage dirs:" + lsd);

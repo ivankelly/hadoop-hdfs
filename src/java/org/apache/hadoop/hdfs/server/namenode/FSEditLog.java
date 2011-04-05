@@ -37,12 +37,9 @@ import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DeprecatedUTF8;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenIdentifier;
-import org.apache.hadoop.hdfs.server.common.Storage;
-import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NNStorageListener;
 import org.apache.hadoop.hdfs.server.namenode.JournalStream.JournalType;
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
@@ -53,6 +50,9 @@ import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.security.token.delegation.DelegationKey;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import static org.apache.hadoop.hdfs.server.namenode.FSEditLogOpCodes.*;
 
@@ -67,12 +67,24 @@ public class FSEditLog implements NNStorageListener {
   static final String NO_JOURNAL_STREAMS_WARNING = "!!! WARNING !!!" +
       " File system changes are not persistent. No journal streams.";
 
-  private static final Log LOG = LogFactory.getLog(FSEditLog.class);
+  static final Log LOG = LogFactory.getLog(FSEditLog.class);
+ 
+  private enum State {
+    UNINITIALIZED,
+    BETWEEN_LOG_SEGMENTS,
+    IN_SEGMENT,
+    CLOSED;
+  }
 
   private volatile int sizeOutputFlushBuffer = 512*1024;
+  private State state = State.UNINITIALIZED;
 
   private ArrayList<EditLogOutputStream> editStreams = null;
   private ArrayList<URI> faultyJournals = null;
+
+  // the txid of the last edit log roll - ie if this value is
+  // N, we are currently writing to edits_inprogress_N
+  private long lastRollTxId = -1;
 
   // a monotonically increasing counter that represents transactionIds.
   private long txid = 0;
@@ -121,13 +133,13 @@ public class FSEditLog implements NNStorageListener {
     metrics = NameNode.getNameNodeMetrics();
     lastPrintTime = now();
   }
-  
-  private int getNumEditsDirs() {
-   return storage.getNumStorageDirs(NameNodeDirType.EDITS);
-  }
 
   synchronized int getNumEditStreams() {
     return editStreams == null ? 0 : editStreams.size();
+  }
+
+  private int getNumEditsDirs() {
+   return storage.getNumStorageDirs(NameNodeDirType.EDITS);
   }
 
   /**
@@ -138,22 +150,14 @@ public class FSEditLog implements NNStorageListener {
     return editStreams;
   }
 
-  boolean isOpen() {
-    return getNumEditStreams() > 0;
-  }
-
   /**
-   * Create empty edit log files.
-   * Initialize the output stream for logging.
-   * 
-   * @throws IOException
+   * Initialize the list of edit journals
    */
-  synchronized void open() throws IOException {
-    numTransactions = totalTimeTransactions = numTransactionsBatchedInSync = 0;
-    if (editStreams == null) {
-      editStreams = new ArrayList<EditLogOutputStream>();
-      faultyJournals = new ArrayList<URI>();
-    }
+  private void initJournals() {
+    assert editStreams.isEmpty();
+    assert faultyJournals.isEmpty();
+    Preconditions.checkState(state == State.UNINITIALIZED,
+	"Bad state: %s", state);
 
     //String[] logURIs = conf.getStrings(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY);
     //for (String uristr : logURIs) {
@@ -167,22 +171,58 @@ public class FSEditLog implements NNStorageListener {
         faultyJournals.add(uri);
       }
     }
-      /*} catch (URISyntaxException use) {
-        LOG.warn("Invalid URI "+ uristr, use);
-        }*/
-      //}
-
-    if (editStreams.size() == 0) {
-      LOG.error("No valid Journal URIs found in " 
-                + DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY);
+    /*} catch (URISyntaxException use) {
+      LOG.warn("Invalid URI "+ uristr, use);
+      }*/
+    //}
+    
+    if (editStreams.isEmpty()) {
+      LOG.error("No edits directories configured!");
     }
+    
+    state = State.BETWEEN_LOG_SEGMENTS;
+  }
+   
+
+  synchronized boolean isOpen() {
+    return state == State.BETWEEN_LOG_SEGMENTS 
+      || state == State.IN_SEGMENT;
+    // TODO maybe we just want IN_SEGMENT here?
+    // Look at all uses of this function to clarify its meaning.
+  }
+
+  /**
+   * Create empty edit log files.
+   * Initialize the output stream for logging.
+   * 
+   * @throws IOException
+   */
+  synchronized void open() throws IOException {
+    if (editStreams == null) {
+      editStreams = new ArrayList<EditLogOutputStream>();
+      faultyJournals = new ArrayList<URI>();
+    }
+    if (state == State.UNINITIALIZED) {
+      initJournals();
+    }
+
+    startLogSegment(getLastWrittenTxId() + 1);
   }
   
   /**
    * Shutdown the file store.
    */
   synchronized void close() {
-    waitForSyncToFinish();
+    if (state == State.CLOSED) {
+      LOG.warn("Closing log when already closed", new Exception());
+      return;
+    }
+    
+    if (state == State.IN_SEGMENT) {
+      waitForSyncToFinish();
+      endCurrentLogSegment();
+    }
+
     if (editStreams == null || editStreams.isEmpty()) {
       return;
     }
@@ -205,6 +245,8 @@ public class FSEditLog implements NNStorageListener {
     }
     disableAndReportErrorOnStreams(errorStreams);
     editStreams.clear();
+
+    state = State.CLOSED;
   }
 
   /**
@@ -282,12 +324,14 @@ public class FSEditLog implements NNStorageListener {
    * Write an operation to the edit log. Do not sync to persistent
    * store yet.
    */
-  void logEdit(FSEditLogOpCodes opCode, Writable ... writables) {
+  void logEdit(final FSEditLogOpCodes opCode, final Writable ... writables) {
+    assert state != State.CLOSED;
+
     synchronized (this) {
       // wait if an automatic sync is scheduled
       waitIfAutoSyncScheduled();
       
-      if(getNumEditStreams() == 0)
+      if(editStreams.isEmpty())
         throw new java.lang.IllegalStateException(NO_JOURNAL_STREAMS_WARNING);
       ArrayList<EditLogOutputStream> errorStreams = null;
 
@@ -396,9 +440,17 @@ public class FSEditLog implements NNStorageListener {
   /**
    * Set the transaction ID to use for the next transaction written.
    */
-  synchronized void setNextTxId(long nextTxid) {
-    assert synctxid <= txid;
-    txid = nextTxid - 1;
+  synchronized void setNextTxId(long nextTxId) {
+    assert synctxid <= txid &&
+       nextTxId >= txid : "May not decrease txid." +
+      " synctxid=" + synctxid +
+      " txid=" + txid +
+      " nextTxid=" + nextTxId;
+    txid = nextTxId - 1;
+  }
+  
+  synchronized long getLastRollTxId() {
+    return lastRollTxId;
   }
   
   /**
@@ -771,6 +823,7 @@ public class FSEditLog implements NNStorageListener {
   /**
    * Return the size of the current EditLog
    */
+  //FIXME who uses this, does it make sense with transactions?
   synchronized long getEditLogSize() throws IOException {
     assert getNumEditsDirs() <= getNumEditStreams() : 
         "Number of edits directories should not exceed the number of streams.";
@@ -814,11 +867,34 @@ public class FSEditLog implements NNStorageListener {
    * @return the transaction id that will be used as the first transaction
    *         in the new log
    */
-  synchronized void rollEditLog() throws IOException {
-    waitForSyncToFinish();
+  synchronized long rollEditLog() throws IOException {
+    endCurrentLogSegment();
+    
+    long nextTxId = getLastWrittenTxId() + 1;
 
-    // check if any of failed storage is now available and put it back
+    LOG.info("Rolling edit logs. Next txid after roll will be " + nextTxId);
+    lastRollTxId = nextTxId;
+ 
+    startLogSegment(nextTxId);    
+    return nextTxId;
+  }
+
+  /**
+   * Create empty edit log files.
+   * Initialize the output stream for logging.
+   * 
+   * @throws IOException
+   */
+  synchronized void startLogSegment(final long txId) {
+    LOG.info("Starting log segment at " + txId);
+    Preconditions.checkState(state == State.BETWEEN_LOG_SEGMENTS,
+	"Bad state: %s", state);
+    lastRollTxId = txId;
+    
+    numTransactions = totalTimeTransactions = numTransactionsBatchedInSync = 0;
+ 
     storage.attemptRestoreRemovedStorage();
+
     ArrayList<URI> restored = new ArrayList<URI>();
     for (URI u : faultyJournals) {
       try {
@@ -833,7 +909,7 @@ public class FSEditLog implements NNStorageListener {
 
     ArrayList<EditLogOutputStream> errorStreams = 
       new ArrayList<EditLogOutputStream>();
-
+    
     for (EditLogOutputStream stream : editStreams) {
       try {
         if (stream.isRolling()) {
@@ -844,9 +920,9 @@ public class FSEditLog implements NNStorageListener {
         errorStreams.add(stream);
       }
     }
-
+    
     waitForSyncToFinish();
-
+    
     for (EditLogOutputStream stream : editStreams) {
       try {
         stream.beginRoll();
@@ -856,14 +932,24 @@ public class FSEditLog implements NNStorageListener {
       }
     }
     disableAndReportErrorOnStreams(errorStreams);
+    
+
+    state = State.IN_SEGMENT;
+
+    logEdit(FSEditLogOpCodes.OP_START_LOG_SEGMENT);
+    logSync();    
   }
 
-  /**
-   * Removes the old edit log and renames edits.new to edits.
-   * Reopens the edits file.
-   */
-  synchronized void purgeEditLog() throws IOException {
+  synchronized void endCurrentLogSegment() {
+    Preconditions.checkState(state == State.IN_SEGMENT,
+	"Bad state: %s", state);
+    logEdit(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
+
     waitForSyncToFinish();
+
+    printStatistics(true);
+    
+    final long lastTxId = getLastWrittenTxId();
 
     ArrayList<EditLogOutputStream> errorStreams = 
       new ArrayList<EditLogOutputStream>();
@@ -877,8 +963,9 @@ public class FSEditLog implements NNStorageListener {
       }
     }
     disableAndReportErrorOnStreams(errorStreams);
-  }
 
+    state = State.BETWEEN_LOG_SEGMENTS;
+  }
 
   /**
    * The actual sync activity happens while not synchronized on this object.
@@ -950,6 +1037,7 @@ public class FSEditLog implements NNStorageListener {
   synchronized void logJSpoolStart(NamenodeRegistration bnReg, // backup node
                       NamenodeRegistration nnReg) // active name-node
   throws IOException {
+    /*
     if(bnReg.isRole(NamenodeRole.CHECKPOINT))
       return; // checkpoint node does not stream edits
     if(editStreams == null)
@@ -965,14 +1053,14 @@ public class FSEditLog implements NNStorageListener {
       boStream = new EditLogBackupOutputStream(bnReg, nnReg);
       editStreams.add(boStream);
     }
-    logEdit(OP_JSPOOL_START, (Writable[])null);
+    logEdit(OP_JSPOOL_START, (Writable[])null);*/
   }
 
   /**
    * Write an operation to the edit log. Do not sync to persistent
    * store yet.
    */
-  synchronized void logEdit(int length, byte[] data) {
+  synchronized void logEdit(final int length, final byte[] data) {
     if(getNumEditStreams() == 0)
       throw new java.lang.IllegalStateException(NO_JOURNAL_STREAMS_WARNING);
     ArrayList<EditLogOutputStream> errorStreams = null;
@@ -1060,14 +1148,8 @@ public class FSEditLog implements NNStorageListener {
     eStream.close();
   }
 
-  void incrementCheckpointTime() {
-    storage.incrementCheckpointTime();
-    Writable[] args = {new LongWritable(storage.getCheckpointTime())};
-    logEdit(OP_CHECKPOINT_TIME, args);
-  }
-
   synchronized void releaseBackupStream(NamenodeRegistration registration) {
-    Iterator<EditLogOutputStream> it =
+    /*    Iterator<EditLogOutputStream> it =
                                   getOutputStreamIterator(JournalType.BACKUP);
     ArrayList<EditLogOutputStream> errorStreams = null;
     NamenodeRegistration backupNode = null;
@@ -1083,12 +1165,12 @@ public class FSEditLog implements NNStorageListener {
     }
     assert backupNode == null || backupNode.isRole(NamenodeRole.BACKUP) :
       "Not a backup node corresponds to a backup stream";
-    disableAndReportErrorOnStreams(errorStreams);
+      disableAndReportErrorOnStreams(errorStreams);*/
   }
 
   synchronized boolean checkBackupRegistration(
       NamenodeRegistration registration) {
-    Iterator<EditLogOutputStream> it =
+    /*    Iterator<EditLogOutputStream> it =
                                   getOutputStreamIterator(JournalType.BACKUP);
     boolean regAllowed = !it.hasNext();
     NamenodeRegistration backupNode = null;
@@ -1111,7 +1193,8 @@ public class FSEditLog implements NNStorageListener {
     assert backupNode == null || backupNode.isRole(NamenodeRole.BACKUP) :
       "Not a backup node corresponds to a backup stream";
     disableAndReportErrorOnStreams(errorStreams);
-    return regAllowed;
+    return regAllowed;*/ 
+    return false;
   }
   
   static BytesWritable toBytesWritable(Options.Rename... options) {
