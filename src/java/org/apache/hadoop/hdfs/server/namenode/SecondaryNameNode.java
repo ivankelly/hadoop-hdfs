@@ -383,7 +383,7 @@ public class SecondaryNameNode implements Runnable {
                 
             }
         
-            checkpointImage.checkpointUploadDone(sig.lastCheckpointTxId);
+            checkpointImage.checkpointUploadDone(sig.lastCheckpointTxId, sig.getImageDigest());
             return Boolean.valueOf(downloadImage);
           }
         });

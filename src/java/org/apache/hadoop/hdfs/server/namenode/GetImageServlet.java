@@ -110,9 +110,12 @@ public class GetImageServlet extends HttpServlet {
                 new PrivilegedExceptionAction<MD5Hash>() {
                 @Override
                 public MD5Hash run() throws Exception {
-                  return TransferFsImage.getFileClient(
+                  MD5Hash digest = TransferFsImage.getFileClient(
                       ff.getInfoServer(), getParamStringForImage(txid),
                       nnImage.getStorage().getFsImageNameCheckpoint(txid), true);
+                  
+                  return digest;
+
                 }
             });
             if (!nnImage.newImageDigest.equals(downloadImageDigest)) {
@@ -120,7 +123,7 @@ public class GetImageServlet extends HttpServlet {
                   " expecting a checksum " + nnImage.newImageDigest +
                   " but received a checksum " + downloadImageDigest);
             }
-           nnImage.checkpointUploadDone(txid);
+            nnImage.checkpointUploadDone(txid, downloadImageDigest);
           }
           return null;
         }

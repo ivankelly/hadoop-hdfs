@@ -59,6 +59,7 @@ import org.apache.hadoop.io.MD5Hash;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 
 /**
  * FSImage handles checkpointing and logging of the namespace edits.
@@ -669,8 +670,8 @@ public class FSImage implements NNStorageListener, Closeable {
     FSImageFormat.Saver saver = new FSImageFormat.Saver();
     FSImageCompression compression = FSImageCompression.createCompression(conf);
     saver.save(newFile, getFSNamesystem(), compression);
-
-    MD5FileUtils.saveMD5File(newFile, saver.getSavedDigest());
+    
+    MD5FileUtils.saveMD5File(dstFile, saver.getSavedDigest());
     storage.setImageDigest(saver.getSavedDigest());
     storage.setCheckpointTxId(editLog.getLastWrittenTxId());
   }
@@ -765,8 +766,9 @@ public class FSImage implements NNStorageListener, Closeable {
     }
     waitForThreads(saveThreads);
     saveThreads.clear();
-    
     storage.reportErrorsOnDirectories(errorSDs);
+
+    renameCheckpoint(txid);    
   }
 
   /**
@@ -775,27 +777,37 @@ public class FSImage implements NNStorageListener, Closeable {
   private void renameCheckpoint(long txid) throws IOException {
     ArrayList<StorageDirectory> al = null;
 
-    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.IMAGE)) { 
-      File ckpt = NNStorage.getStorageFile(sd, NameNodeFile.IMAGE_NEW, txid);
-      File curFile = NNStorage.getStorageFile(sd, NameNodeFile.IMAGE, txid);
-      // renameTo fails on Windows if the destination file 
-      // already exists.
-      if(LOG.isDebugEnabled()) {
-        LOG.debug("renaming  " + ckpt.getAbsolutePath() 
-                  + " to " + curFile.getAbsolutePath());
-      }
-      if (!ckpt.renameTo(curFile)) {
-        if (!curFile.delete() || !ckpt.renameTo(curFile)) {
-          LOG.warn("renaming  " + ckpt.getAbsolutePath() + " to "  + 
-              curFile.getAbsolutePath() + " FAILED");
-
-          if(al == null) al = new ArrayList<StorageDirectory> (1);
-          al.add(sd);
-          continue;
+    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.IMAGE)) {
+      try {
+        renameCheckpointInDir(sd, txid);
+      } catch (IOException ioe) {
+        LOG.warn("Unable to rename checkpoint in " + sd, ioe);
+        if (al == null) {
+          al = Lists.newArrayList();
         }
+        al.add(sd);
       }
     }
     if(al != null) storage.reportErrorsOnDirectories(al);
+  }
+
+
+  private void renameCheckpointInDir(StorageDirectory sd, long txid)
+      throws IOException {
+    File ckpt = NNStorage.getStorageFile(sd, NameNodeFile.IMAGE_NEW, txid);
+    File curFile = NNStorage.getStorageFile(sd, NameNodeFile.IMAGE, txid);
+    // renameTo fails on Windows if the destination file 
+    // already exists.
+    if(LOG.isDebugEnabled()) {
+      LOG.debug("renaming  " + ckpt.getAbsolutePath() 
+                + " to " + curFile.getAbsolutePath());
+    }
+    if (!ckpt.renameTo(curFile)) {
+      if (!curFile.delete() || !ckpt.renameTo(curFile)) {
+        throw new IOException("renaming  " + ckpt.getAbsolutePath() + " to "  + 
+            curFile.getAbsolutePath() + " FAILED");
+      }
+    }    
   }
 
   CheckpointSignature rollEditLog() throws IOException {
@@ -902,8 +914,22 @@ public class FSImage implements NNStorageListener, Closeable {
    * This is called when a checkpoint upload finishes successfully.
    * @throws IOException 
    */
-  synchronized void checkpointUploadDone(long txid) throws IOException {
+  synchronized void checkpointUploadDone(long txid, MD5Hash digest)
+  throws IOException {
     renameCheckpoint(txid);
+    List<StorageDirectory> badSds = Lists.newArrayList();
+    
+    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.IMAGE)) {
+      File imageFile = new File(sd.getCurrentDir(),
+          NNStorage.getImageFileName(txid)); // TODO make function
+      try {
+        MD5FileUtils.saveMD5File(imageFile, digest);
+      } catch (IOException ioe) {
+        badSds.add(sd);
+      }
+    }
+    storage.reportErrorsOnDirectories(badSds);
+    
     if (txid > storage.getCheckpointTxId()) {
       storage.setCheckpointTxId(txid);
     }
@@ -960,7 +986,10 @@ public class FSImage implements NNStorageListener, Closeable {
     if (sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
       sd.lock();
       try {
+        // TODO what happens if you add a new storage dir to an already existing
+        // namespace?
         saveFSImage(sd, 0);
+        renameCheckpointInDir(sd, 0);
       } finally {
         sd.unlock();
       }
