@@ -300,7 +300,7 @@ public class BackupImage extends FSImage {
 
     // create streams pointing to the journal spool files
     // subsequent journal records will go directly to the spool
-    editLog.divertFileStreams(STORAGE_JSPOOL_DIR + "/" + STORAGE_JSPOOL_FILE);
+    // TODO editLog.divertFileStreams(STORAGE_JSPOOL_DIR + "/" + STORAGE_JSPOOL_FILE);
     setCheckpointState(CheckpointStates.ROLLED_EDITS);
 
     // set up spooling
@@ -377,7 +377,7 @@ public class BackupImage extends FSImage {
 
     // rename spool edits.new to edits making it in sync with the active node
     // subsequent journal records will go directly to edits
-    editLog.revertFileStreams(STORAGE_JSPOOL_DIR + "/" + STORAGE_JSPOOL_FILE);
+    // TODO editLog.revertFileStreams(STORAGE_JSPOOL_DIR + "/" + STORAGE_JSPOOL_FILE);
 
     // write version file
     resetVersion(false, storage.getImageDigest());

@@ -129,7 +129,7 @@ public class FSImage implements NNStorageListener, Closeable {
     }
     storage.registerListener(this);
 
-    this.editLog = new FSEditLog(storage);
+    this.editLog = new FSEditLog(conf, storage);
     setFSNamesystem(ns);
   }
 

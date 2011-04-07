@@ -20,6 +20,8 @@ package org.apache.hadoop.hdfs.server.namenode;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 
 import org.apache.hadoop.hdfs.HdfsConfiguration;
@@ -48,6 +50,7 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
   private ArrayList<JournalRecord> bufCurrent;  // current buffer for writing
   private ArrayList<JournalRecord> bufReady;    // buffer ready for flushing
   private DataOutputBuffer out;     // serialized output sent to backup node
+  private URI uri = null;
 
   static class JournalRecord {
     byte op;
@@ -90,6 +93,11 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
     this.bufCurrent = new ArrayList<JournalRecord>();
     this.bufReady = new ArrayList<JournalRecord>();
     this.out = new DataOutputBuffer(DEFAULT_BUFFER_SIZE);
+    try {
+      this.uri = new URI("backup://" + bnRegistration.getAddress());
+    } catch (URISyntaxException use) {
+      Storage.LOG.error("Couldn't set uri for backup node", use);
+    }
   }
 
   @Override // JournalStream
@@ -207,4 +215,11 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
     }
     return true;
   }
+
+  URI getURI() { return uri; }
+
+  void beginRoll() throws IOException {}
+  boolean isRolling() throws IOException { return false; }
+  void endRoll() throws IOException {}
+
 }
