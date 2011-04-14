@@ -731,7 +731,7 @@ public class SecondaryNameNode implements Runnable {
       if (loadImage) {
         File file = getStorage().getExistingImageFile(sig.lastCheckpointTxId);
         LOG.info("2NN loading image from " + file);
-        loadFSImage(file);
+        loadFSImage(file, sig.getImageDigest());
       }
       List<File> editsFiles = Lists.newArrayList();
       for (RemoteEditLog log : manifest.getLogs()) {
