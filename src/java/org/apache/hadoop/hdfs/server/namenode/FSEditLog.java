@@ -1201,7 +1201,7 @@ public class FSEditLog implements NNStorageListener {
   public synchronized void directoryAvailable(StorageDirectory sd)
       throws IOException {
     if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)
-	&& (state == State.IN_SEGMENT)) {
+	&& (state == State.IN_SEGMENT || state == State.BETWEEN_LOG_SEGMENTS)) {
       URI u = sd.getRoot().toURI();
       try {
         JournalFactory f = new FileJournalFactory(conf, u, storage, sd);

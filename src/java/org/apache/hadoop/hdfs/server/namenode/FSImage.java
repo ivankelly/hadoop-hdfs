@@ -588,7 +588,12 @@ public class FSImage implements NNStorageListener, Closeable {
 
     File imageFile = loadPlan.getImageFile();
     MD5Hash expectedMD5 = MD5FileUtils.readMD5ForFile(imageFile);
-    loadFSImage(imageFile, expectedMD5);
+
+    try {
+      loadFSImage(imageFile, expectedMD5);
+    } catch (IOException ioe) {
+      throw new IOException("Failed to load image from " + loadPlan.getImageFile(), ioe);
+    }
 
     needToSave |= loadEdits(loadPlan.getEditsFiles());
 

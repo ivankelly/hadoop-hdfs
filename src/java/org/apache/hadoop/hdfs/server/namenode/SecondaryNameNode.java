@@ -345,6 +345,9 @@ public class SecondaryNameNode implements Runnable {
   
           @Override
           public Boolean run() throws Exception {
+            checkpointImage.getStorage().cTime = sig.cTime;
+            // TODO checkpointImage.getStorage().setCheckpointTime(sig.checkpointTime);
+
             // get fsimage
             Collection<File> list;
             File[] srcNames;
@@ -355,7 +358,7 @@ public class SecondaryNameNode implements Runnable {
               LOG.info("Image has not changed. Will not download image.");
             } else {
               String fileid = GetImageServlet.getParamStringForImage(sig.lastCheckpointTxId);
-              
+             
               String fileName = NNStorage.getCheckpointImageFileName(sig.lastCheckpointTxId);
               list = getFSImage().getStorage().getFiles(
                   NameNodeDirType.IMAGE, fileName);
