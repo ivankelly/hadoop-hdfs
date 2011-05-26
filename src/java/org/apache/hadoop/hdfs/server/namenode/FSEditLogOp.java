@@ -46,7 +46,10 @@ import java.io.IOException;
 import java.io.EOFException;
 
 /**
- * Op codes for edits file
+ * Op codes for edits file, and helper classes
+ * for reading the ops from an InputStream.
+ * All ops derive from FSEditLogOp and are only 
+ * instantiated from #readOp()
  */
 @InterfaceAudience.Private
 @InterfaceStability.Unstable
@@ -78,7 +81,7 @@ public abstract class FSEditLogOp {
     OP_UPDATE_MASTER_KEY          ((byte) 21),
     OP_END_LOG_SEGMENT            ((byte) 22),
     OP_START_LOG_SEGMENT          ((byte) 23),
-  
+
     // must be same as NamenodeProtocol.JA_JSPOOL_START
     OP_JSPOOL_START               ((byte)102);
 
@@ -122,7 +125,17 @@ public abstract class FSEditLogOp {
     }
   }
 
-  public static FSEditLogOp readOp(DataInputStream in, int logVersion, Checksum checksum) throws IOException {
+  /**
+   * Read an operation from an input stream.
+   * @param in The stream to read from.
+   * @param logVersion The version of the data coming from the stream.
+   * @param checksum Checksum being used with input stream.
+   * @return the operation read from the stream.
+   * @throws IOException on error.
+   * @throws EOFException when finished reading file.
+   */
+  public static FSEditLogOp readOp(DataInputStream in, int logVersion,
+                                   Checksum checksum) throws IOException {
     if (checksum != null) {
       checksum.reset();
     }
@@ -133,7 +146,7 @@ public abstract class FSEditLogOp {
       in.reset(); // reset back to end of file if somebody reads it again
       throw new EOFException("Reset to end of file");
     }
-    
+
     long thisTxId = 0;
     if (logVersion <= FSConstants.FIRST_STORED_TXIDS_VERSION) {
       // Read the txid
@@ -143,25 +156,25 @@ public abstract class FSEditLogOp {
     FSEditLogOp op = null;
     switch (opCode) {
     case OP_ADD:
-    case OP_CLOSE: 
+    case OP_CLOSE:
       op = new AddCloseOp(opCode, thisTxId, in, logVersion);
       break;
     case OP_SET_REPLICATION:
       op = new SetReplicationOp(opCode, thisTxId, in, logVersion);
       break;
-    case OP_CONCAT_DELETE: 
+    case OP_CONCAT_DELETE:
       op = new ConcatDeleteOp(opCode, thisTxId, in, logVersion);
       break;
-    case OP_RENAME_OLD: 
+    case OP_RENAME_OLD:
       op = new RenameOldOp(opCode, thisTxId, in, logVersion);
       break;
-    case OP_DELETE: 
+    case OP_DELETE:
       op = new DeleteOp(opCode, thisTxId, in, logVersion);
       break;
-    case OP_MKDIR: 
+    case OP_MKDIR:
       op = new MkdirOp(opCode, thisTxId, in, logVersion);
       break;
-    case OP_SET_GENSTAMP: 
+    case OP_SET_GENSTAMP:
       op = new SetGenstampOp(opCode, thisTxId, in, logVersion);
       break;
     case OP_DATANODE_ADD:
@@ -176,7 +189,7 @@ public abstract class FSEditLogOp {
     case OP_SET_OWNER:
       op = new SetOwnerOp(opCode, thisTxId, in, logVersion);
       break;
-    case OP_SET_NS_QUOTA: 
+    case OP_SET_NS_QUOTA:
       op = new SetNSQuotaOp(opCode, thisTxId, in, logVersion);
       break;
     case OP_CLEAR_NS_QUOTA:
@@ -197,10 +210,10 @@ public abstract class FSEditLogOp {
     case OP_GET_DELEGATION_TOKEN:
       op = new GetDelegationTokenOp(opCode, thisTxId, in, logVersion);
       break;
-    case OP_RENEW_DELEGATION_TOKEN: 
+    case OP_RENEW_DELEGATION_TOKEN:
       op = new RenewDelegationTokenOp(opCode, thisTxId, in, logVersion);
       break;
-    case OP_CANCEL_DELEGATION_TOKEN: 
+    case OP_CANCEL_DELEGATION_TOKEN:
       op = new CancelDelegationTokenOp(opCode, thisTxId, in, logVersion);
       break;
     case OP_UPDATE_MASTER_KEY:
@@ -210,7 +223,7 @@ public abstract class FSEditLogOp {
     case OP_END_LOG_SEGMENT:
       op = new LogSegmentOp(opCode, thisTxId, in, logVersion);
       break;
-    default: 
+    default:
       throw new IOException("Never seen opCode " + opCode);
     }
     validateChecksum(in, checksum, thisTxId);
@@ -220,7 +233,8 @@ public abstract class FSEditLogOp {
   /**
    * Validate a transaction's checksum
    */
-  private static void validateChecksum(DataInputStream in, Checksum checksum, long tid)
+  private static void validateChecksum(DataInputStream in,
+                                       Checksum checksum, long tid)
       throws IOException {
     if (checksum != null) {
       int calculatedChecksum = (int)checksum.getValue();
@@ -232,15 +246,19 @@ public abstract class FSEditLogOp {
       }
     }
   }
-  
+
   final Codes opCode;
   final long txid;
 
+  /**
+   * Constructor for an EditLog Op. EditLog ops cannot be constructed
+   * directly, but only through #readOp.
+   */
   private FSEditLogOp(Codes opCode, long txid) {
     this.opCode = opCode;
     this.txid = txid;
   }
-  
+
   static class AddCloseOp extends FSEditLogOp {
     final int length;
     final String path;
@@ -254,7 +272,8 @@ public abstract class FSEditLogOp {
     final String clientMachine;
     //final DatanodeDescriptor[] dataNodeDescriptors; UNUSED
 
-    AddCloseOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private AddCloseOp(Codes opCode, long txid,
+                       DataInputStream in, int logVersion) throws IOException {
       super(opCode, txid);
       // versions > 0 support per file replication
       // get name and replication
@@ -280,18 +299,19 @@ public abstract class FSEditLogOp {
       } else {
         this.blockSize = 0;
       }
-      
+
       // get blocks
-      boolean isFileUnderConstruction = (this.opCode == FSEditLogOp.Codes.OP_ADD);
-      this.blocks = 
+      boolean isFileUnderConstruction
+        = (this.opCode == FSEditLogOp.Codes.OP_ADD);
+      this.blocks =
         readBlocks(in, logVersion, isFileUnderConstruction, this.replication);
-  
+
       if (logVersion <= -11) {
         this.permissions = PermissionStatus.read(in);
       } else {
         this.permissions = null;
       }
-  
+
       // clientname, clientMachine and block locations of last block.
       if (this.opCode == FSEditLogOp.Codes.OP_ADD && logVersion <= -12) {
         this.clientName = FSImageSerialization.readString(in);
@@ -306,8 +326,8 @@ public abstract class FSEditLogOp {
     }
 
     /** This method is defined for compatibility reason. */
-    private DatanodeDescriptor[] readDatanodeDescriptorArray(DataInput in
-                                                                    ) throws IOException {
+    private DatanodeDescriptor[] readDatanodeDescriptorArray(DataInput in)
+        throws IOException {
       DatanodeDescriptor[] locations = new DatanodeDescriptor[in.readInt()];
         for (int i = 0; i < locations.length; i++) {
           locations[i] = new DatanodeDescriptor();
@@ -346,20 +366,24 @@ public abstract class FSEditLogOp {
     final String path;
     final short replication;
 
-    SetReplicationOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private SetReplicationOp(Codes opCode, long txid,
+                             DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
       this.path = FSImageSerialization.readString(in);
       this.replication = readShort(in);
     }
   }
-  
+
   static class ConcatDeleteOp extends FSEditLogOp {
     final int length;
     final String trg;
     final String[] srcs;
     final long timestamp;
 
-    ConcatDeleteOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private ConcatDeleteOp(Codes opCode, long txid,
+                           DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
       if (logVersion > -22) {
         throw new IOException("Unexpected opCode " + opCode
@@ -368,7 +392,7 @@ public abstract class FSEditLogOp {
 
       this.length = in.readInt();
       if (length < 3) { // trg, srcs.., timestam
-        throw new IOException("Incorrect data format. " 
+        throw new IOException("Incorrect data format. "
                               + "Mkdir operation.");
       }
       this.trg = FSImageSerialization.readString(in);
@@ -385,13 +409,15 @@ public abstract class FSEditLogOp {
     final int length;
     final String src;
     final String dst;
-    final long timestamp;    
-    
-    RenameOldOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    final long timestamp;
+
+    private RenameOldOp(Codes opCode, long txid,
+                        DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
       this.length = in.readInt();
       if (this.length != 3) {
-        throw new IOException("Incorrect data format. " 
+        throw new IOException("Incorrect data format. "
                               + "Mkdir operation.");
       }
       this.src = FSImageSerialization.readString(in);
@@ -405,19 +431,21 @@ public abstract class FSEditLogOp {
     final String path;
     final long timestamp;
 
-    DeleteOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private DeleteOp(Codes opCode, long txid,
+                     DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
-     
+
       this.length = in.readInt();
       if (this.length != 2) {
-        throw new IOException("Incorrect data format. " 
+        throw new IOException("Incorrect data format. "
                               + "delete operation.");
       }
       this.path = FSImageSerialization.readString(in);
       this.timestamp = readLong(in);
     }
   }
-  
+
   static class MkdirOp extends FSEditLogOp {
     final int length;
     final String path;
@@ -425,18 +453,20 @@ public abstract class FSEditLogOp {
     final long atime;
     final PermissionStatus permissions;
 
-    MkdirOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private MkdirOp(Codes opCode, long txid,
+                    DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
-      
+
       this.length = in.readInt();
       if (-17 < logVersion && length != 2 ||
           logVersion <= -17 && length != 3) {
-        throw new IOException("Incorrect data format. " 
+        throw new IOException("Incorrect data format. "
                               + "Mkdir operation.");
       }
       this.path = FSImageSerialization.readString(in);
       this.timestamp = readLong(in);
-  
+
       // The disk format stores atimes for directories as well.
       // However, currently this is not being updated/used because of
       // performance reasons.
@@ -445,7 +475,7 @@ public abstract class FSEditLogOp {
       } else {
         this.atime = 0;
       }
-  
+
       if (logVersion <= -11) {
         this.permissions = PermissionStatus.read(in);
       } else {
@@ -456,16 +486,19 @@ public abstract class FSEditLogOp {
 
   static class SetGenstampOp extends FSEditLogOp {
     final long lw;
-    
-    SetGenstampOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+
+    private SetGenstampOp(Codes opCode, long txid,
+                          DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
       this.lw = in.readLong();
     }
-    
   }
 
   static class DatanodeAddOp extends FSEditLogOp {
-    DatanodeAddOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private DatanodeAddOp(Codes opCode, long txid,
+                          DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
       //Datanodes are not persistent any more.
       FSImageSerialization.DatanodeImage.skipOne(in);
@@ -473,7 +506,9 @@ public abstract class FSEditLogOp {
   }
 
   static class DatanodeRemoveOp extends FSEditLogOp {
-    DatanodeRemoveOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private DatanodeRemoveOp(Codes opCode, long txid,
+                             DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
       DatanodeID nodeID = new DatanodeID();
       nodeID.readFields(in);
@@ -485,7 +520,9 @@ public abstract class FSEditLogOp {
     final String src;
     final FsPermission permissions;
 
-    SetPermissionsOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private SetPermissionsOp(Codes opCode, long txid,
+                             DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
       if (logVersion > -11)
         throw new IOException("Unexpected opCode " + opCode
@@ -499,10 +536,11 @@ public abstract class FSEditLogOp {
     final String src;
     final String username;
     final String groupname;
-    
-    SetOwnerOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+
+    private SetOwnerOp(Codes opCode, long txid,
+                       DataInputStream in, int logVersion) throws IOException {
       super(opCode, txid);
-      
+
       if (logVersion > -11)
         throw new IOException("Unexpected opCode " + opCode
                               + " for version " + logVersion);
@@ -517,9 +555,11 @@ public abstract class FSEditLogOp {
     final String src;
     final long nsQuota;
 
-    SetNSQuotaOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private SetNSQuotaOp(Codes opCode, long txid,
+                         DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
-      
+
       if (logVersion > -16) {
         throw new IOException("Unexpected opCode " + opCode
                               + " for version " + logVersion);
@@ -532,8 +572,10 @@ public abstract class FSEditLogOp {
 
   static class ClearNSQuotaOp extends FSEditLogOp {
     final String src;
-    
-    ClearNSQuotaOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+
+    private ClearNSQuotaOp(Codes opCode, long txid,
+                           DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
       if (logVersion > -16) {
         throw new IOException("Unexpected opCode " + opCode
@@ -547,10 +589,12 @@ public abstract class FSEditLogOp {
     final String src;
     final long nsQuota;
     final long dsQuota;
-    
-    SetQuotaOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+
+    private SetQuotaOp(Codes opCode, long txid,
+                       DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
-      
+
       this.src = FSImageSerialization.readString(in);
       this.nsQuota = readLongWritable(in);
       this.dsQuota = readLongWritable(in);
@@ -563,12 +607,14 @@ public abstract class FSEditLogOp {
     final long mtime;
     final long atime;
 
-    TimesOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private TimesOp(Codes opCode, long txid,
+                    DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
-      
+
       this.length = in.readInt();
       if (length != 3) {
-        throw new IOException("Incorrect data format. " 
+        throw new IOException("Incorrect data format. "
                               + "times operation.");
       }
       this.path = FSImageSerialization.readString(in);
@@ -585,12 +631,14 @@ public abstract class FSEditLogOp {
     final long atime;
     final PermissionStatus permissionStatus;
 
-    SymlinkOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private SymlinkOp(Codes opCode, long txid,
+                      DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
 
       this.length = in.readInt();
       if (this.length != 4) {
-        throw new IOException("Incorrect data format. " 
+        throw new IOException("Incorrect data format. "
                               + "symlink operation.");
       }
       this.path = FSImageSerialization.readString(in);
@@ -607,8 +655,10 @@ public abstract class FSEditLogOp {
     final String dst;
     final long timestamp;
     final Rename[] options;
-    
-    RenameOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+
+    private RenameOp(Codes opCode, long txid,
+                     DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
       if (logVersion > -21) {
         throw new IOException("Unexpected opCode " + opCode
@@ -617,7 +667,7 @@ public abstract class FSEditLogOp {
 
       this.length = in.readInt();
       if (this.length != 3) {
-        throw new IOException("Incorrect data format. " 
+        throw new IOException("Incorrect data format. "
                               + "Mkdir operation.");
       }
       this.src = FSImageSerialization.readString(in);
@@ -625,28 +675,30 @@ public abstract class FSEditLogOp {
       this.timestamp = readLong(in);
       this.options = readRenameOptions(in);
     }
-    
-    Rename[] readRenameOptions(DataInputStream in) throws IOException {
+
+    private Rename[] readRenameOptions(DataInputStream in) throws IOException {
       BytesWritable writable = new BytesWritable();
       writable.readFields(in);
-      
+
       byte[] bytes = writable.getBytes();
       Rename[] options = new Rename[bytes.length];
-      
+
       for (int i = 0; i < bytes.length; i++) {
         options[i] = Rename.valueOf(bytes[i]);
       }
       return options;
     }
   }
-  
+
   static class GetDelegationTokenOp extends FSEditLogOp {
     final DelegationTokenIdentifier token;
     final long expiryTime;
 
-    GetDelegationTokenOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private GetDelegationTokenOp(Codes opCode, long txid,
+                                 DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
-      
+
       if (logVersion > -24) {
         throw new IOException("Unexpected opCode " + opCode
                               + " for version " + logVersion);
@@ -661,7 +713,9 @@ public abstract class FSEditLogOp {
     final DelegationTokenIdentifier token;
     final long expiryTime;
 
-    RenewDelegationTokenOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private RenewDelegationTokenOp(Codes opCode, long txid,
+                                   DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
 
       if (logVersion > -24) {
@@ -676,10 +730,12 @@ public abstract class FSEditLogOp {
 
   static class CancelDelegationTokenOp extends FSEditLogOp {
     final DelegationTokenIdentifier token;
-    
-    CancelDelegationTokenOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+
+    private CancelDelegationTokenOp(Codes opCode, long txid,
+                                    DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
-      
+
       if (logVersion > -24) {
         throw new IOException("Unexpected opCode " + opCode
                               + " for version " + logVersion);
@@ -692,20 +748,24 @@ public abstract class FSEditLogOp {
   static class UpdateMasterKeyOp extends FSEditLogOp {
     final DelegationKey key;
 
-    UpdateMasterKeyOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private UpdateMasterKeyOp(Codes opCode, long txid,
+                              DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
       if (logVersion > -24) {
         throw new IOException("Unexpected opCode " + opCode
                               + " for version " + logVersion);
       }
-      
+
       this.key = new DelegationKey();
       this.key.readFields(in);
     }
   }
 
   static class LogSegmentOp extends FSEditLogOp {
-    LogSegmentOp(Codes opCode, long txid, DataInputStream in, int logVersion) throws IOException {
+    private LogSegmentOp(Codes opCode, long txid,
+                         DataInputStream in, int logVersion)
+        throws IOException {
       super(opCode, txid);
       if (logVersion > FSConstants.FIRST_TXNID_BASED_LAYOUT_VERSION) {
         throw new IOException("Unexpected opCode " + opCode
@@ -713,7 +773,7 @@ public abstract class FSEditLogOp {
       }
     }
   }
-  
+
   static private short readShort(DataInputStream in) throws IOException {
     return Short.parseShort(FSImageSerialization.readString(in));
   }
