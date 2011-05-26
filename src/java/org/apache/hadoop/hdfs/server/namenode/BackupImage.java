@@ -184,9 +184,11 @@ public class BackupImage extends FSImage {
       } finally {
         getFSDirectoryRootLock().writeUnlock();
       }
-      List<File> editsFiles =
+      /* IKTODO look at what to do for backup
+        List<File> editsFiles =
         FSImageOldStorageInspector.getEditsInStorageDir(sdEdits);
       loadEdits(editsFiles);
+      */
       lastAppliedTxId = getEditLog().getLastWrittenTxId();
     }
   }

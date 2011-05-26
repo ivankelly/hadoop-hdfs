@@ -35,7 +35,12 @@ abstract class FSImageStorageInspector {
   /**
    * Inspect the contents of the given storage directory.
    */
-  abstract void inspectDirectory(StorageDirectory sd) throws IOException;
+  abstract void inspectImageDirectory(StorageDirectory sd) throws IOException;
+
+  /**
+   * Inspect the contents of the given journal
+   */
+  abstract void inspectJournal(URI journalURI) throws IOException;
 
   /**
    * @return false if any of the storage directories have an unfinalized upgrade 
@@ -74,7 +79,7 @@ abstract class FSImageStorageInspector {
     /**
      * @return a list of flies containing edits to replay
      */
-    abstract List<File> getEditsFiles();
+    abstract JournalManager getJournalManager();
     
     /**
      * @return the storage directory containing the VERSION file that should be
@@ -87,9 +92,7 @@ abstract class FSImageStorageInspector {
       StringBuilder sb = new StringBuilder();
       sb.append("Will load image file: ").append(getImageFile()).append("\n");
       sb.append("Will load edits files:").append("\n");
-      for (File f : getEditsFiles()) {
-        sb.append("  ").append(f).append("\n");
-      }
+      sb.append(getJournalManager().toString());
       sb.append("Will load metadata from: ")
         .append(getStorageDirectoryForProperties())
         .append("\n");
