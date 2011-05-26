@@ -393,7 +393,7 @@ public abstract class FSEditLogOp {
       this.length = in.readInt();
       if (length < 3) { // trg, srcs.., timestam
         throw new IOException("Incorrect data format. "
-                              + "Mkdir operation.");
+                              + "Concat delete operation.");
       }
       this.trg = FSImageSerialization.readString(in);
       int srcSize = this.length - 1 - 1; //trg and timestamp
@@ -418,7 +418,7 @@ public abstract class FSEditLogOp {
       this.length = in.readInt();
       if (this.length != 3) {
         throw new IOException("Incorrect data format. "
-                              + "Mkdir operation.");
+                              + "Old rename operation.");
       }
       this.src = FSImageSerialization.readString(in);
       this.dst = FSImageSerialization.readString(in);
@@ -668,7 +668,7 @@ public abstract class FSEditLogOp {
       this.length = in.readInt();
       if (this.length != 3) {
         throw new IOException("Incorrect data format. "
-                              + "Mkdir operation.");
+                              + "Rename operation.");
       }
       this.src = FSImageSerialization.readString(in);
       this.dst = FSImageSerialization.readString(in);
