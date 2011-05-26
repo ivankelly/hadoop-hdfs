@@ -345,6 +345,22 @@ public class NNStorage extends Storage implements Closeable {
   }
 
   /**
+   * Return the storage directory corresponding to the passed URI
+   * @param uri URI of a storage directory
+   * @return The matching storage directory or null if none found
+   */
+  StorageDirectory getStorageDirectory(URI uri) throws IOException {
+    Iterator<StorageDirectory> it = dirIterator();
+    for (; it.hasNext(); ) {
+      StorageDirectory sd = it.next();
+      if (Util.fileAsURI(sd.getRoot()).equals(uri)) {
+        return sd;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Retrieve current directories of type IMAGE
    * @return Collection of URI representing image directories
    * @throws IOException in case of URI processing error
