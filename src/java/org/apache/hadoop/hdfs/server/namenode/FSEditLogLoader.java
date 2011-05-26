@@ -90,7 +90,7 @@ public class FSEditLogLoader {
       "Unsupported version " + logVersion;
     return logVersion;
   }
-  
+
   int loadFSEdits(EditLogInputStream edits, boolean closeOnExit,
       long expectedStartingTxId)
   throws IOException {
@@ -114,7 +114,7 @@ public class FSEditLogLoader {
       if(closeOnExit)
         in.close();
     }
-    
+
     return numEdits;
   }
 
