@@ -68,7 +68,6 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
   private List<String> imageDirs = new ArrayList<String>();
   private List<String> editsDirs = new ArrayList<String>();
   
-  @Override
   void inspectDirectory(StorageDirectory sd) throws IOException {
     // Was the file just formatted?
     if (!sd.getVersionFile().exists()) {
@@ -112,6 +111,21 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
     
     // set finalized flag
     isUpgradeFinalized = isUpgradeFinalized && !sd.getPreviousDir().exists();    
+  }
+
+  @Override
+  void inspectImageDirectory(StorageDirectory sd) throws IOException {
+    if (sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
+      inspectDirectory(sd);
+    }
+  }
+
+  @Override 
+  void inspectJournal(URI journalURI) throws IOException {
+    StorageDirectory sd = NNStorage.getStorageDirectory(journalURI);
+    if (sd != null && sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
+      inspectDirectory(sd);
+    }
   }
 
   /**
@@ -237,15 +251,17 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
     }
 
     @Override
-    List<File> getEditsFiles() {
+    JournalManager getJournalManager() {
       if (latestNameCheckpointTime > latestEditsCheckpointTime) {
         // the image is already current, discard edits
         LOG.debug(
           "Name checkpoint time is newer than edits, not loading edits.");
-        return Collections.<File>emptyList();
+        return new FilePreTransactionJournalManager(latestEditsSD, 
+                                                    Collections.<File>emptyList());
       }
       
-      return getEditsInStorageDir(latestEditsSD);
+      return new FilePreTransactionJournalManager(latestEditsSD,
+                                                  getEditsInStorageDir(latestEditsSD));
     }
 
     @Override

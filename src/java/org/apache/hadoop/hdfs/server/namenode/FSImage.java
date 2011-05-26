@@ -90,6 +90,7 @@ public class FSImage implements Closeable {
   private Collection<URI> checkpointDirs;
   private Collection<URI> checkpointEditsDirs;
 
+  final private Collection<URI> editsDirs;
   final private Configuration conf;
 
   /**
@@ -137,6 +138,7 @@ public class FSImage implements Closeable {
                     Collection<URI> imageDirs, Collection<URI> editsDirs)
       throws IOException {
     this.conf = conf;
+    this.editsDirs = editsDirs;
     setCheckpointDirectories(FSImage.getCheckpointDirs(conf, null),
                              FSImage.getCheckpointEditsDirs(conf, null));
 
@@ -596,7 +598,8 @@ public class FSImage implements Closeable {
 
     
     // Recover from previous interrupted checkpoint, if any
-    needToSave |= loadPlan.doRecovery();
+    // IKTODO This should be moved info FileJournalManager somewhere. 
+    // needToSave |= loadPlan.doRecovery();
 
     //
     // Load in bits
@@ -634,7 +637,7 @@ public class FSImage implements Closeable {
       throw new IOException("Failed to load image from " + loadPlan.getImageFile(), ioe);
     }
 
-    needToSave |= loadEdits(loadPlan.getEditsFiles());
+    needToSave |= loadEdits(loadPlan.getJournalManager());
 
     /* TODO(todd) Need to discuss whether we should force a re-save
      * of the image if one of the edits or images has an old format
@@ -649,20 +652,25 @@ public class FSImage implements Closeable {
    * Load the specified list of edit files into the image.
    * @return true if the image should be re-saved
    */
-  protected boolean loadEdits(List<File> editLogs) throws IOException {
-    LOG.debug("About to load edits:\n  " + Joiner.on("\n  ").join(editLogs));
+  protected boolean loadEdits(JournalManager journal) throws IOException {
+    LOG.debug("About to load edits:\n  " + journal);
       
     FSEditLogLoader loader = new FSEditLogLoader(namesystem);
     long startingTxId = storage.getMostRecentCheckpointTxId() + 1;
     int numLoaded = 0;
     // Load latest edits
-    for (File edits : editLogs) {
-      LOG.debug("Reading " + edits + " expecting start txid #" + startingTxId);
-      EditLogFileInputStream editIn = new EditLogFileInputStream(edits);
+    
+    long numTransactionsToLoad = journal.getNumberOfTransactions(startingTxId);
+
+    while (numLoaded < numTransactionsToLoad) {
+      EditLogInputStream editIn = journal.getInputStream(startingTxId);
+      LOG.debug("Reading " + editIn + " expecting start txid #" + startingTxId);
+
       int thisNumLoaded = loader.loadFSEdits(editIn, startingTxId);
+
       startingTxId += thisNumLoaded;
       numLoaded += thisNumLoaded;
-      editIn.close();
+      editIn.close();    
     }
 
     // update the counts
