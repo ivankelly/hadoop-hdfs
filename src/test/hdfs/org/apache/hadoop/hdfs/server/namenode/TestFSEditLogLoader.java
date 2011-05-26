@@ -67,7 +67,7 @@ public class TestFSEditLogLoader {
     RandomAccessFile rwf = new RandomAccessFile(editFile, "rw");
     rwf.seek(fileLen - 40);
     for (int i = 0; i < 20; i++) {
-      rwf.write(FSEditLogOpCodes.OP_DELETE.getOpCode());
+      rwf.write(FSEditLogOp.Codes.OP_DELETE.getOpCode());
     }
     rwf.close();
     

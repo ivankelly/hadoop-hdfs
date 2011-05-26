@@ -85,14 +85,14 @@ class EditsLoaderCurrent implements EditsLoader {
    * Visit OP_ADD
    */
   private void visit_OP_ADD() throws IOException {
-    visit_OP_ADD_or_OP_CLOSE(FSEditLogOpCodes.OP_ADD);
+    visit_OP_ADD_or_OP_CLOSE(FSEditLogOp.Codes.OP_ADD);
   }
 
   /**
    * Visit OP_CLOSE
    */
   private void visit_OP_CLOSE() throws IOException {
-    visit_OP_ADD_or_OP_CLOSE(FSEditLogOpCodes.OP_CLOSE);
+    visit_OP_ADD_or_OP_CLOSE(FSEditLogOp.Codes.OP_CLOSE);
   }
 
   /**
@@ -100,7 +100,7 @@ class EditsLoaderCurrent implements EditsLoader {
    *
    * @param editsOpCode op code to visit
    */
-  private void visit_OP_ADD_or_OP_CLOSE(FSEditLogOpCodes editsOpCode)
+  private void visit_OP_ADD_or_OP_CLOSE(FSEditLogOp.Codes editsOpCode)
     throws IOException {
     visitTxId();
 
@@ -136,7 +136,7 @@ class EditsLoaderCurrent implements EditsLoader {
     v.visitShort(      EditsElement.FS_PERMISSIONS);
 
     v.leaveEnclosingElement();
-    if(editsOpCode == FSEditLogOpCodes.OP_ADD) {
+    if(editsOpCode == FSEditLogOp.Codes.OP_ADD) {
       v.visitStringUTF8(EditsElement.CLIENT_NAME);
       v.visitStringUTF8(EditsElement.CLIENT_MACHINE);
     }
@@ -388,7 +388,7 @@ class EditsLoaderCurrent implements EditsLoader {
     visitTxId();
   }
 
-  private void visitOpCode(FSEditLogOpCodes editsOpCode)
+  private void visitOpCode(FSEditLogOp.Codes editsOpCode)
     throws IOException {
 
     switch(editsOpCode) {
@@ -482,7 +482,7 @@ class EditsLoaderCurrent implements EditsLoader {
           editsVersionToken.value);
       }
 
-      FSEditLogOpCodes editsOpCode;
+      FSEditLogOp.Codes editsOpCode;
       do {
         v.visitEnclosingElement(EditsElement.RECORD);
 
@@ -494,10 +494,10 @@ class EditsLoaderCurrent implements EditsLoader {
           // it's just a finalized edits file
           // Just fake the OP_INVALID here.
           opCodeToken = new ByteToken(EditsElement.OPCODE);
-          opCodeToken.fromByte(FSEditLogOpCodes.OP_INVALID.getOpCode());
+          opCodeToken.fromByte(FSEditLogOp.Codes.OP_INVALID.getOpCode());
           v.visit(opCodeToken);
         }
-        editsOpCode = FSEditLogOpCodes.fromByte(opCodeToken.value);
+        editsOpCode = FSEditLogOp.Codes.fromByte(opCodeToken.value);
 
         v.visitEnclosingElement(EditsElement.DATA);
 
@@ -510,7 +510,7 @@ class EditsLoaderCurrent implements EditsLoader {
           v.visitInt(EditsElement.CHECKSUM);
         }
         v.leaveEnclosingElement(); // RECORD
-      } while(editsOpCode != FSEditLogOpCodes.OP_INVALID);
+      } while(editsOpCode != FSEditLogOp.Codes.OP_INVALID);
 
       v.leaveEnclosingElement(); // EDITS
       v.finish();

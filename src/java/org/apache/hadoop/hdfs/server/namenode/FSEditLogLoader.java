@@ -118,7 +118,7 @@ public class FSEditLogLoader {
     return numEdits;
   }
 
-  @SuppressWarnings("deprecation")
+  @SuppressWarnings("deprecation,unchecked")
   int loadEditRecords(int logVersion, DataInputStream in,
                       Checksum checksum, boolean closeOnExit,
                       long expectedStartingTxId)
@@ -407,6 +407,8 @@ public class FSEditLogLoader {
                 reassignLeaseOp.path, reassignLeaseOp.newHolder, pendingFile);
             break;
           }
+          case OP_DATANODE_ADD: 
+          case OP_DATANODE_REMOVE: 
           case OP_START_LOG_SEGMENT:
           case OP_END_LOG_SEGMENT: {
             // no data in here currently.
