@@ -79,7 +79,7 @@ public class FSEditLogLoader {
    */
   int readLogVersion(DataInputStream in) throws IOException {
     int logVersion = 0;
-    // Read log file version. Could be missing. 
+    // Read log file version. Could be missing.
     in.mark(4);
     // If edits log is greater than 2G, available method will return negative
     // numbers, so we avoid having to call available
@@ -95,20 +95,20 @@ public class FSEditLogLoader {
       if (logVersion < FSConstants.LAYOUT_VERSION) // future version
         throw new IOException(
             "Unexpected version of the file system log file: "
-            + logVersion + ". Current version = " 
+            + logVersion + ". Current version = "
             + FSConstants.LAYOUT_VERSION + ".");
     }
     assert logVersion <= Storage.LAST_UPGRADABLE_LAYOUT_VERSION :
       "Unsupported version " + logVersion;
     return logVersion;
   }
-  
+
   int loadFSEdits(EditLogInputStream edits, boolean closeOnExit,
       long expectedStartingTxId)
   throws IOException {
     BufferedInputStream bin = new BufferedInputStream(edits);
     DataInputStream in = new DataInputStream(bin);
-    
+
     int numEdits = 0;
     int logVersion = 0;
 
@@ -126,7 +126,7 @@ public class FSEditLogLoader {
       if(closeOnExit)
         in.close();
     }
-    
+
     return numEdits;
   }
 
@@ -160,7 +160,7 @@ public class FSEditLogLoader {
         while (true) {
           FSEditLogOp op = null;
           try {
-            op = FSEditLogOp.readOp(in, logVersion, checksum); 
+            op = FSEditLogOp.readOp(in, logVersion, checksum);
           } catch (EOFException e) {
             break; // no more transactions
           }
@@ -186,17 +186,18 @@ public class FSEditLogLoader {
             // versions > 0 support per file replication
             // get name and replication
             int length = addcloseop.length;
-            short replication = fsNamesys.adjustReplication(addcloseop.replication);
+            short replication
+              = fsNamesys.adjustReplication(addcloseop.replication);
 
             long blockSize = addcloseop.blockSize;
             BlockInfo blocks[] = addcloseop.blocks;
-  
+
             PermissionStatus permissions = fsNamesys.getUpgradePermission();
             if (addcloseop.permissions != null) {
               permissions = addcloseop.permissions;
             }
-  
-  
+
+
             // Older versions of HDFS does not store the block size in inode.
             // If the file has more than one block, use the size of the
             // first block as the blocksize. Otherwise use the default
@@ -209,24 +210,24 @@ public class FSEditLogLoader {
                 blockSize = Math.max(fsNamesys.getDefaultBlockSize(), first);
               }
             }
-            
-            
+
+
             // The open lease transaction re-creates a file if necessary.
             // Delete the file if it already exists.
             if (FSNamesystem.LOG.isDebugEnabled()) {
-              FSNamesystem.LOG.debug(op.opCode + ": " + addcloseop.path + 
-                                     " numblocks : " + blocks.length +
-                                     " clientHolder " + addcloseop.clientName +
-                                     " clientMachine " + addcloseop.clientMachine);
+              FSNamesystem.LOG.debug(op.opCode + ": " + addcloseop.path +
+                  " numblocks : " + blocks.length +
+                  " clientHolder " + addcloseop.clientName +
+                  " clientMachine " + addcloseop.clientMachine);
             }
-  
+
             fsDir.unprotectedDelete(addcloseop.path, addcloseop.mtime);
-  
+
             // add to the file tree
             INodeFile node = (INodeFile)fsDir.unprotectedAddFile(
-                                                      addcloseop.path, permissions,
-                                                      blocks, replication, 
-                                                      addcloseop.mtime, addcloseop.atime, blockSize);
+                addcloseop.path, permissions,
+                blocks, replication,
+                addcloseop.mtime, addcloseop.atime, blockSize);
             if (addcloseop.opCode == FSEditLogOp.Codes.OP_ADD) {
               numOpAdd++;
               //
@@ -235,30 +236,32 @@ public class FSEditLogLoader {
               //
               INodeFileUnderConstruction cons = new INodeFileUnderConstruction(
                                         node.getLocalNameBytes(),
-                                        node.getReplication(), 
+                                        node.getReplication(),
                                         node.getModificationTime(),
                                         node.getPreferredBlockSize(),
                                         node.getBlocks(),
                                         node.getPermissionStatus(),
-                                        addcloseop.clientName, 
-                                        addcloseop.clientMachine, 
+                                        addcloseop.clientName,
+                                        addcloseop.clientMachine,
                                         null);
               fsDir.replaceNode(addcloseop.path, node, cons);
-              fsNamesys.leaseManager.addLease(cons.getClientName(), addcloseop.path);
+              fsNamesys.leaseManager.addLease(cons.getClientName(),
+                                              addcloseop.path);
             }
             break;
-          } 
+          }
           case OP_SET_REPLICATION: {
             numOpSetRepl++;
             SetReplicationOp setrepop = (SetReplicationOp)op;
-            short replication = fsNamesys.adjustReplication(setrepop.replication);
+            short replication
+              = fsNamesys.adjustReplication(setrepop.replication);
             fsDir.unprotectedSetReplication(setrepop.path, replication, null);
             break;
-          } 
+          }
           case OP_CONCAT_DELETE: {
             numOpConcatDelete++;
 
-            ConcatDeleteOp concatdelop = null;
+            ConcatDeleteOp concatdelop = (ConcatDeleteOp)op;
             fsDir.unprotectedConcat(concatdelop.trg, concatdelop.srcs);
             break;
           }
@@ -266,7 +269,8 @@ public class FSEditLogLoader {
             numOpRenameOld++;
             RenameOldOp renameop = (RenameOldOp)op;
             HdfsFileStatus dinfo = fsDir.getFileInfo(renameop.dst, false);
-            fsDir.unprotectedRenameTo(renameop.src, renameop.dst, renameop.timestamp);
+            fsDir.unprotectedRenameTo(renameop.src, renameop.dst,
+                                      renameop.timestamp);
             fsNamesys.changeLease(renameop.src, renameop.dst, dinfo);
             break;
           }
@@ -280,22 +284,21 @@ public class FSEditLogLoader {
           case OP_MKDIR: {
             numOpMkDir++;
             MkdirOp mkdirop = (MkdirOp)op;
-            
             PermissionStatus permissions = fsNamesys.getUpgradePermission();
             if (mkdirop.permissions != null) {
               permissions = mkdirop.permissions;
             }
 
-            fsDir.unprotectedMkdir(mkdirop.path, permissions, mkdirop.timestamp);
+            fsDir.unprotectedMkdir(mkdirop.path, permissions,
+                                   mkdirop.timestamp);
             break;
           }
           case OP_SET_GENSTAMP: {
             numOpSetGenStamp++;
-            
             SetGenstampOp sgop = (SetGenstampOp)op;
             fsNamesys.setGenerationStamp(sgop.lw);
             break;
-          } 
+          }
           case OP_SET_PERMISSIONS: {
             numOpSetPerm++;
 
@@ -312,8 +315,8 @@ public class FSEditLogLoader {
           }
           case OP_SET_NS_QUOTA: {
             SetNSQuotaOp snqop = (SetNSQuotaOp)op;
-            fsDir.unprotectedSetQuota(snqop.src, 
-                                      snqop.nsQuota, 
+            fsDir.unprotectedSetQuota(snqop.src,
+                                      snqop.nsQuota,
                                       FSConstants.QUOTA_DONT_SET);
             break;
           }
@@ -324,17 +327,16 @@ public class FSEditLogLoader {
                                       FSConstants.QUOTA_DONT_SET);
             break;
           }
-  
+
           case OP_SET_QUOTA:
             SetQuotaOp sqop = (SetQuotaOp)op;
             fsDir.unprotectedSetQuota(sqop.src,
                                       sqop.nsQuota,
                                       sqop.dsQuota);
             break;
-  
+
           case OP_TIMES: {
             numOpTimes++;
-            
             TimesOp top = (TimesOp)op;
 
             fsDir.unprotectedSetTimes(top.path, top.mtime, top.atime, true);
@@ -344,16 +346,17 @@ public class FSEditLogLoader {
             numOpSymlink++;
 
             SymlinkOp symop = (SymlinkOp)op;
-            fsDir.unprotectedSymlink(symop.path, symop.value, symop.mtime, symop.atime, symop.permissionStatus);
+            fsDir.unprotectedSymlink(symop.path, symop.value, symop.mtime,
+                                     symop.atime, symop.permissionStatus);
             break;
           }
           case OP_RENAME: {
             numOpRename++;
-            
             RenameOp rop = (RenameOp)op;
 
             HdfsFileStatus dinfo = fsDir.getFileInfo(rop.dst, false);
-            fsDir.unprotectedRenameTo(rop.src, rop.dst, rop.timestamp, rop.options);
+            fsDir.unprotectedRenameTo(rop.src, rop.dst,
+                                      rop.timestamp, rop.options);
             fsNamesys.changeLease(rop.src, rop.dst, dinfo);
             break;
           }
@@ -388,13 +391,13 @@ public class FSEditLogLoader {
               .updatePersistedMasterKey(ymkop.key);
             break;
           }
-          case OP_DATANODE_ADD: 
-          case OP_DATANODE_REMOVE: 
+          case OP_DATANODE_ADD:
+          case OP_DATANODE_REMOVE:
           case OP_START_LOG_SEGMENT:
-          case OP_END_LOG_SEGMENT: 
+          case OP_END_LOG_SEGMENT:
             numOpOther++;
             break;
-          default: 
+          default:
             throw new IOException("Invalid operation read " + op.opCode);
           }
         }
@@ -442,7 +445,7 @@ public class FSEditLogLoader {
     return numEdits;
   }
 
-  /** 
+  /**
    * Throw appropriate exception during upgrade from 203, when editlog loading
    * could fail due to opcode conflicts.
    */
