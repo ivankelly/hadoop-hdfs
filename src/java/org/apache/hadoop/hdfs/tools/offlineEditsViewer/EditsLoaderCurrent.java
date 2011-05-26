@@ -23,7 +23,8 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 
 import org.apache.hadoop.hdfs.protocol.FSConstants;
-import org.apache.hadoop.hdfs.server.namenode.FSEditLogOpCodes;
+import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp;
+import static org.apache.hadoop.hdfs.server.namenode.FSEditLogOp.Codes.*;
 
 import static org.apache.hadoop.hdfs.tools.offlineEditsViewer.Tokenizer.ByteToken;
 import static org.apache.hadoop.hdfs.tools.offlineEditsViewer.Tokenizer.IntToken;
@@ -84,14 +85,14 @@ class EditsLoaderCurrent implements EditsLoader {
    * Visit OP_ADD
    */
   private void visit_OP_ADD() throws IOException {
-    visit_OP_ADD_or_OP_CLOSE(FSEditLogOpCodes.OP_ADD);
+    visit_OP_ADD_or_OP_CLOSE(FSEditLogOp.Codes.OP_ADD);
   }
 
   /**
    * Visit OP_CLOSE
    */
   private void visit_OP_CLOSE() throws IOException {
-    visit_OP_ADD_or_OP_CLOSE(FSEditLogOpCodes.OP_CLOSE);
+    visit_OP_ADD_or_OP_CLOSE(FSEditLogOp.Codes.OP_CLOSE);
   }
 
   /**
@@ -99,7 +100,7 @@ class EditsLoaderCurrent implements EditsLoader {
    *
    * @param editsOpCode op code to visit
    */
-  private void visit_OP_ADD_or_OP_CLOSE(FSEditLogOpCodes editsOpCode)
+  private void visit_OP_ADD_or_OP_CLOSE(FSEditLogOp.Codes editsOpCode)
     throws IOException {
     visitTxId();
 
@@ -135,7 +136,7 @@ class EditsLoaderCurrent implements EditsLoader {
     v.visitShort(      EditsElement.FS_PERMISSIONS);
 
     v.leaveEnclosingElement();
-    if(editsOpCode == FSEditLogOpCodes.OP_ADD) {
+    if(editsOpCode == FSEditLogOp.Codes.OP_ADD) {
       v.visitStringUTF8(EditsElement.CLIENT_NAME);
       v.visitStringUTF8(EditsElement.CLIENT_MACHINE);
     }
@@ -254,7 +255,7 @@ class EditsLoaderCurrent implements EditsLoader {
     visitTxId();
 
     if(editsVersion > -21) {
-      throw new IOException("Unexpected op code " + FSEditLogOpCodes.OP_RENAME
+      throw new IOException("Unexpected op code " + FSEditLogOp.Codes.OP_RENAME
         + " for edit log version " + editsVersion
         + " (op code 15 only expected for 21 and later)");
     }
@@ -273,7 +274,7 @@ class EditsLoaderCurrent implements EditsLoader {
 
     if(editsVersion > -22) {
       throw new IOException("Unexpected op code "
-        + FSEditLogOpCodes.OP_CONCAT_DELETE
+        + FSEditLogOp.Codes.OP_CONCAT_DELETE
         + " for edit log version " + editsVersion
         + " (op code 16 only expected for 22 and later)");
     }
@@ -316,7 +317,7 @@ class EditsLoaderCurrent implements EditsLoader {
     
     if(editsVersion > -24) {
       throw new IOException("Unexpected op code "
-          + FSEditLogOpCodes.OP_GET_DELEGATION_TOKEN
+          + FSEditLogOp.Codes.OP_GET_DELEGATION_TOKEN
           + " for edit log version " + editsVersion
           + " (op code 18 only expected for 24 and later)");
     }
@@ -340,7 +341,7 @@ class EditsLoaderCurrent implements EditsLoader {
 
     if(editsVersion > -24) {
       throw new IOException("Unexpected op code "
-          + FSEditLogOpCodes.OP_RENEW_DELEGATION_TOKEN
+          + FSEditLogOp.Codes.OP_RENEW_DELEGATION_TOKEN
           + " for edit log version " + editsVersion
           + " (op code 19 only expected for 24 and later)");
     }
@@ -364,7 +365,7 @@ class EditsLoaderCurrent implements EditsLoader {
 
     if(editsVersion > -24) {
       throw new IOException("Unexpected op code "
-          + FSEditLogOpCodes.OP_CANCEL_DELEGATION_TOKEN
+          + FSEditLogOp.Codes.OP_CANCEL_DELEGATION_TOKEN
           + " for edit log version " + editsVersion
           + " (op code 20 only expected for 24 and later)");
     }
@@ -387,7 +388,7 @@ class EditsLoaderCurrent implements EditsLoader {
     
     if(editsVersion > -24) {
       throw new IOException("Unexpected op code "
-          + FSEditLogOpCodes.OP_UPDATE_MASTER_KEY
+          + FSEditLogOp.Codes.OP_UPDATE_MASTER_KEY
           + " for edit log version " + editsVersion
           + "(op code 21 only expected for 24 and later)");
     }
@@ -413,7 +414,7 @@ class EditsLoaderCurrent implements EditsLoader {
     visitTxId();
   }
 
-  private void visitOpCode(FSEditLogOpCodes editsOpCode)
+  private void visitOpCode(FSEditLogOp.Codes editsOpCode)
     throws IOException {
 
     switch(editsOpCode) {
@@ -504,7 +505,7 @@ class EditsLoaderCurrent implements EditsLoader {
           editsVersionToken.value);
       }
 
-      FSEditLogOpCodes editsOpCode;
+      FSEditLogOp.Codes editsOpCode;
       do {
         v.visitEnclosingElement(EditsElement.RECORD);
 
@@ -516,10 +517,10 @@ class EditsLoaderCurrent implements EditsLoader {
           // it's just a finalized edits file
           // Just fake the OP_INVALID here.
           opCodeToken = new ByteToken(EditsElement.OPCODE);
-          opCodeToken.fromByte(FSEditLogOpCodes.OP_INVALID.getOpCode());
+          opCodeToken.fromByte(FSEditLogOp.Codes.OP_INVALID.getOpCode());
           v.visit(opCodeToken);
         }
-        editsOpCode = FSEditLogOpCodes.fromByte(opCodeToken.value);
+        editsOpCode = FSEditLogOp.Codes.fromByte(opCodeToken.value);
 
         v.visitEnclosingElement(EditsElement.DATA);
 
@@ -527,11 +528,11 @@ class EditsLoaderCurrent implements EditsLoader {
 
         v.leaveEnclosingElement(); // DATA
         
-        if (editsOpCode != FSEditLogOpCodes.OP_INVALID && editsVersion  <= -28) {
+        if (editsOpCode != FSEditLogOp.Codes.OP_INVALID && editsVersion  <= -28) {
           v.visitInt(EditsElement.CHECKSUM);
         }
         v.leaveEnclosingElement(); // RECORD
-      } while(editsOpCode != FSEditLogOpCodes.OP_INVALID);
+      } while(editsOpCode != FSEditLogOp.Codes.OP_INVALID);
 
       v.leaveEnclosingElement(); // EDITS
       v.finish();

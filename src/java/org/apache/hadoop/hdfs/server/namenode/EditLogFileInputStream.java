@@ -108,7 +108,7 @@ class EditLogFileInputStream extends EditLogInputStream {
         int readLen = (int) Math.min(size - pos, chunkSizeToRead);
         IOUtils.readFully(fis, buf, 0, readLen);
         for (int i = readLen - 1; i >= 0; i--) {
-          if (buf[i] != FSEditLogOpCodes.OP_INVALID.getOpCode()) {
+          if (buf[i] != FSEditLogOp.Codes.OP_INVALID.getOpCode()) {
             return pos + i + 1; // + 1 since we count this byte!
           }
         }

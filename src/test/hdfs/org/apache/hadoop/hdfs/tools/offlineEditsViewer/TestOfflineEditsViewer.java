@@ -34,7 +34,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 
-import org.apache.hadoop.hdfs.server.namenode.FSEditLogOpCodes;
+import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp;
 import org.apache.hadoop.hdfs.tools.offlineEditsViewer.OfflineEditsViewer;
 import org.apache.hadoop.hdfs.tools.offlineEditsViewer.TokenizerFactory;
 import org.apache.hadoop.hdfs.tools.offlineEditsViewer.EditsVisitorFactory;
@@ -49,8 +49,8 @@ public class TestOfflineEditsViewer {
 
   private static final Log LOG = LogFactory.getLog(TestOfflineEditsViewer.class);
 
-  private static final Map<FSEditLogOpCodes, Boolean> obsoleteOpCodes =
-    new HashMap<FSEditLogOpCodes, Boolean>();
+  private static final Map<FSEditLogOp.Codes, Boolean> obsoleteOpCodes =
+    new HashMap<FSEditLogOp.Codes, Boolean>();
 
   static { initializeObsoleteOpCodes(); }
 
@@ -77,12 +77,12 @@ public class TestOfflineEditsViewer {
   @SuppressWarnings("deprecation")
   private static void initializeObsoleteOpCodes() {
     // these are obsolete
-    obsoleteOpCodes.put(FSEditLogOpCodes.OP_DATANODE_ADD, true);
-    obsoleteOpCodes.put(FSEditLogOpCodes.OP_DATANODE_REMOVE, true);
-    obsoleteOpCodes.put(FSEditLogOpCodes.OP_SET_NS_QUOTA, true);
-    obsoleteOpCodes.put(FSEditLogOpCodes.OP_CLEAR_NS_QUOTA, true);
+    obsoleteOpCodes.put(FSEditLogOp.Codes.OP_DATANODE_ADD, true);
+    obsoleteOpCodes.put(FSEditLogOp.Codes.OP_DATANODE_REMOVE, true);
+    obsoleteOpCodes.put(FSEditLogOp.Codes.OP_SET_NS_QUOTA, true);
+    obsoleteOpCodes.put(FSEditLogOp.Codes.OP_CLEAR_NS_QUOTA, true);
     // these are not written to files
-    obsoleteOpCodes.put(FSEditLogOpCodes.OP_JSPOOL_START, true);
+    obsoleteOpCodes.put(FSEditLogOp.Codes.OP_JSPOOL_START, true);
   }
 
   @Before
@@ -194,7 +194,7 @@ public class TestOfflineEditsViewer {
       visitor.getStatisticsString());
     
     boolean hasAllOpCodes = true;
-    for(FSEditLogOpCodes opCode : FSEditLogOpCodes.values()) {
+    for(FSEditLogOp.Codes opCode : FSEditLogOp.Codes.values()) {
       // don't need to test obsolete opCodes
       if(obsoleteOpCodes.containsKey(opCode)) {
         continue;
@@ -246,7 +246,7 @@ public class TestOfflineEditsViewer {
     int i = large.limit();
     large.clear();
     for(; i < large.capacity(); i++) {
-      if(large.get(i) != FSEditLogOpCodes.OP_INVALID.getOpCode()) {
+      if(large.get(i) != FSEditLogOp.Codes.OP_INVALID.getOpCode()) {
         return false;
       }
     }

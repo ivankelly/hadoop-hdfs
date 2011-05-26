@@ -47,6 +47,7 @@ import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableFactories;
 import org.apache.hadoop.io.WritableFactory;
 import org.apache.hadoop.security.token.delegation.DelegationKey;
+import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp.*;
 
 public class FSEditLogLoader {
   private final FSNamesystem fsNamesys;
@@ -129,16 +130,14 @@ public class FSEditLogLoader {
     return numEdits;
   }
 
-  @SuppressWarnings("deprecation")
+  @SuppressWarnings("deprecation,unchecked")
   int loadEditRecords(int logVersion, DataInputStream in,
                       Checksum checksum, boolean closeOnExit,
                       long expectedStartingTxId)
       throws IOException {
     FSDirectory fsDir = fsNamesys.dir;
     int numEdits = 0;
-    String clientName = null;
-    String clientMachine = null;
-    String path = null;
+
     int numOpAdd = 0, numOpClose = 0, numOpDelete = 0,
         numOpRenameOld = 0, numOpSetRepl = 0, numOpMkDir = 0,
         numOpSetPerm = 0, numOpSetOwner = 0, numOpSetGenStamp = 0,
@@ -159,30 +158,18 @@ public class FSEditLogLoader {
 
       try {
         while (true) {
-          long timestamp = 0;
-          long mtime = 0;
-          long atime = 0;
-          long blockSize = 0;
-          FSEditLogOpCodes opCode;
+          FSEditLogOp op = null;
           try {
-            if (checksum != null) {
-              checksum.reset();
-            }
-            in.mark(1);
-            byte opCodeByte = in.readByte();
-            opCode = FSEditLogOpCodes.fromByte(opCodeByte);
-            if (opCode == FSEditLogOpCodes.OP_INVALID) {
-              in.reset(); // reset back to end of file if somebody reads it again
-              break; // no more transactions
-            }
+            op = FSEditLogOp.readOp(in, logVersion, checksum); 
           } catch (EOFException e) {
             break; // no more transactions
           }
+
           recentOpcodeOffsets[numEdits % recentOpcodeOffsets.length] =
               tracker.getPos();
           if (logVersion <= FSConstants.FIRST_STORED_TXIDS_VERSION) {
             // Read the txid
-            long thisTxId = in.readLong();
+            long thisTxId = op.txid;
             if (thisTxId != txId + 1) {
               throw new IOException("Expected transaction ID " +
                   (txId + 1) + " but got " + thisTxId);
@@ -191,33 +178,24 @@ public class FSEditLogLoader {
           }
 
           numEdits++;
-          switch (opCode) {
+          switch (op.opCode) {
           case OP_ADD:
           case OP_CLOSE: {
+            AddCloseOp addcloseop = (AddCloseOp)op;
+
             // versions > 0 support per file replication
             // get name and replication
-            int length = in.readInt();
-            if (-7 == logVersion && length != 3||
-                -17 < logVersion && logVersion < -7 && length != 4 ||
-                logVersion <= -17 && length != 5) {
-                throw new IOException("Incorrect data format."  +
-                                      " logVersion is " + logVersion +
-                                      " but writables.length is " +
-                                      length + ". ");
+            int length = addcloseop.length;
+            short replication = fsNamesys.adjustReplication(addcloseop.replication);
+
+            long blockSize = addcloseop.blockSize;
+            BlockInfo blocks[] = addcloseop.blocks;
+  
+            PermissionStatus permissions = fsNamesys.getUpgradePermission();
+            if (addcloseop.permissions != null) {
+              permissions = addcloseop.permissions;
             }
-            path = FSImageSerialization.readString(in);
-            short replication = fsNamesys.adjustReplication(readShort(in));
-            mtime = readLong(in);
-            if (logVersion <= -17) {
-              atime = readLong(in);
-            }
-            if (logVersion < -7) {
-              blockSize = readLong(in);
-            }
-            // get blocks
-            boolean isFileUnderConstruction = (opCode == FSEditLogOpCodes.OP_ADD);
-            BlockInfo blocks[] = 
-              readBlocks(in, logVersion, isFileUnderConstruction, replication);
+  
   
             // Older versions of HDFS does not store the block size in inode.
             // If the file has more than one block, use the size of the
@@ -231,41 +209,25 @@ public class FSEditLogLoader {
                 blockSize = Math.max(fsNamesys.getDefaultBlockSize(), first);
               }
             }
-             
-            PermissionStatus permissions = fsNamesys.getUpgradePermission();
-            if (logVersion <= -11) {
-              permissions = PermissionStatus.read(in);
-            }
-  
-            // clientname, clientMachine and block locations of last block.
-            if (opCode == FSEditLogOpCodes.OP_ADD && logVersion <= -12) {
-              clientName = FSImageSerialization.readString(in);
-              clientMachine = FSImageSerialization.readString(in);
-              if (-13 <= logVersion) {
-                readDatanodeDescriptorArray(in);
-              }
-            } else {
-              clientName = "";
-              clientMachine = "";
-            }
-  
+            
+            
             // The open lease transaction re-creates a file if necessary.
             // Delete the file if it already exists.
             if (FSNamesystem.LOG.isDebugEnabled()) {
-              FSNamesystem.LOG.debug(opCode + ": " + path + 
+              FSNamesystem.LOG.debug(op.opCode + ": " + addcloseop.path + 
                                      " numblocks : " + blocks.length +
-                                     " clientHolder " +  clientName +
-                                     " clientMachine " + clientMachine);
+                                     " clientHolder " + addcloseop.clientName +
+                                     " clientMachine " + addcloseop.clientMachine);
             }
   
-            fsDir.unprotectedDelete(path, mtime);
+            fsDir.unprotectedDelete(addcloseop.path, addcloseop.mtime);
   
             // add to the file tree
             INodeFile node = (INodeFile)fsDir.unprotectedAddFile(
-                                                      path, permissions,
+                                                      addcloseop.path, permissions,
                                                       blocks, replication, 
-                                                      mtime, atime, blockSize);
-            if (isFileUnderConstruction) {
+                                                      addcloseop.mtime, addcloseop.atime, blockSize);
+            if (addcloseop.opCode == FSEditLogOp.Codes.OP_ADD) {
               numOpAdd++;
               //
               // Replace current node with a INodeUnderConstruction.
@@ -278,275 +240,163 @@ public class FSEditLogLoader {
                                         node.getPreferredBlockSize(),
                                         node.getBlocks(),
                                         node.getPermissionStatus(),
-                                        clientName, 
-                                        clientMachine, 
+                                        addcloseop.clientName, 
+                                        addcloseop.clientMachine, 
                                         null);
-              fsDir.replaceNode(path, node, cons);
-              fsNamesys.leaseManager.addLease(cons.getClientName(), path);
+              fsDir.replaceNode(addcloseop.path, node, cons);
+              fsNamesys.leaseManager.addLease(cons.getClientName(), addcloseop.path);
             }
             break;
           } 
           case OP_SET_REPLICATION: {
             numOpSetRepl++;
-            path = FSImageSerialization.readString(in);
-            short replication = fsNamesys.adjustReplication(readShort(in));
-            fsDir.unprotectedSetReplication(path, replication, null);
+            SetReplicationOp setrepop = (SetReplicationOp)op;
+            short replication = fsNamesys.adjustReplication(setrepop.replication);
+            fsDir.unprotectedSetReplication(setrepop.path, replication, null);
             break;
           } 
           case OP_CONCAT_DELETE: {
-            if (logVersion > -22) {
-              throw new IOException("Unexpected opCode " + opCode
-                  + " for version " + logVersion);
-            }
             numOpConcatDelete++;
-            int length = in.readInt();
-            if (length < 3) { // trg, srcs.., timestam
-              throw new IOException("Incorrect data format. " 
-                                    + "Mkdir operation.");
-            }
-            String trg = FSImageSerialization.readString(in);
-            int srcSize = length - 1 - 1; //trg and timestamp
-            String [] srcs = new String [srcSize];
-            for(int i=0; i<srcSize;i++) {
-              srcs[i]= FSImageSerialization.readString(in);
-            }
-            timestamp = readLong(in);
-            fsDir.unprotectedConcat(trg, srcs);
+
+            ConcatDeleteOp concatdelop = null;
+            fsDir.unprotectedConcat(concatdelop.trg, concatdelop.srcs);
             break;
           }
           case OP_RENAME_OLD: {
             numOpRenameOld++;
-            int length = in.readInt();
-            if (length != 3) {
-              throw new IOException("Incorrect data format. " 
-                                    + "Mkdir operation.");
-            }
-            String s = FSImageSerialization.readString(in);
-            String d = FSImageSerialization.readString(in);
-            timestamp = readLong(in);
-            HdfsFileStatus dinfo = fsDir.getFileInfo(d, false);
-            fsDir.unprotectedRenameTo(s, d, timestamp);
-            fsNamesys.changeLease(s, d, dinfo);
+            RenameOldOp renameop = (RenameOldOp)op;
+            HdfsFileStatus dinfo = fsDir.getFileInfo(renameop.dst, false);
+            fsDir.unprotectedRenameTo(renameop.src, renameop.dst, renameop.timestamp);
+            fsNamesys.changeLease(renameop.src, renameop.dst, dinfo);
             break;
           }
           case OP_DELETE: {
             numOpDelete++;
-            int length = in.readInt();
-            if (length != 2) {
-              throw new IOException("Incorrect data format. " 
-                                    + "delete operation.");
-            }
-            path = FSImageSerialization.readString(in);
-            timestamp = readLong(in);
-            fsDir.unprotectedDelete(path, timestamp);
+
+            DeleteOp deleteop = (DeleteOp)op;
+            fsDir.unprotectedDelete(deleteop.path, deleteop.timestamp);
             break;
           }
           case OP_MKDIR: {
             numOpMkDir++;
+            MkdirOp mkdirop = (MkdirOp)op;
+            
             PermissionStatus permissions = fsNamesys.getUpgradePermission();
-            int length = in.readInt();
-            if (-17 < logVersion && length != 2 ||
-                logVersion <= -17 && length != 3) {
-              throw new IOException("Incorrect data format. " 
-                                    + "Mkdir operation.");
+            if (mkdirop.permissions != null) {
+              permissions = mkdirop.permissions;
             }
-            path = FSImageSerialization.readString(in);
-            timestamp = readLong(in);
-  
-            // The disk format stores atimes for directories as well.
-            // However, currently this is not being updated/used because of
-            // performance reasons.
-            if (logVersion <= -17) {
-              atime = readLong(in);
-            }
-  
-            if (logVersion <= -11) {
-              permissions = PermissionStatus.read(in);
-            }
-            fsDir.unprotectedMkdir(path, permissions, timestamp);
+
+            fsDir.unprotectedMkdir(mkdirop.path, permissions, mkdirop.timestamp);
             break;
           }
           case OP_SET_GENSTAMP: {
             numOpSetGenStamp++;
-            long lw = in.readLong();
-            fsNamesys.setGenerationStamp(lw);
+            
+            SetGenstampOp sgop = (SetGenstampOp)op;
+            fsNamesys.setGenerationStamp(sgop.lw);
             break;
           } 
-          case OP_DATANODE_ADD: {
-            numOpOther++;
-            //Datanodes are not persistent any more.
-            FSImageSerialization.DatanodeImage.skipOne(in);
-            break;
-          }
-          case OP_DATANODE_REMOVE: {
-            numOpOther++;
-            DatanodeID nodeID = new DatanodeID();
-            nodeID.readFields(in);
-            //Datanodes are not persistent any more.
-            break;
-          }
           case OP_SET_PERMISSIONS: {
             numOpSetPerm++;
-            if (logVersion > -11)
-              throw new IOException("Unexpected opCode " + opCode
-                                    + " for version " + logVersion);
-            fsDir.unprotectedSetPermission(
-                FSImageSerialization.readString(in), FsPermission.read(in));
+
+            SetPermissionsOp spop = (SetPermissionsOp)op;
+            fsDir.unprotectedSetPermission(spop.src, spop.permissions);
             break;
           }
           case OP_SET_OWNER: {
             numOpSetOwner++;
-            if (logVersion > -11)
-              throw new IOException("Unexpected opCode " + opCode
-                                    + " for version " + logVersion);
-            fsDir.unprotectedSetOwner(FSImageSerialization.readString(in),
-                FSImageSerialization.readString_EmptyAsNull(in),
-                FSImageSerialization.readString_EmptyAsNull(in));
+
+            SetOwnerOp soop = (SetOwnerOp)op;
+            fsDir.unprotectedSetOwner(soop.src, soop.username, soop.groupname);
             break;
           }
           case OP_SET_NS_QUOTA: {
-            if (logVersion > -16) {
-              throw new IOException("Unexpected opCode " + opCode
-                  + " for version " + logVersion);
-            }
-            fsDir.unprotectedSetQuota(FSImageSerialization.readString(in), 
-                                      readLongWritable(in), 
+            SetNSQuotaOp snqop = (SetNSQuotaOp)op;
+            fsDir.unprotectedSetQuota(snqop.src, 
+                                      snqop.nsQuota, 
                                       FSConstants.QUOTA_DONT_SET);
             break;
           }
           case OP_CLEAR_NS_QUOTA: {
-            if (logVersion > -16) {
-              throw new IOException("Unexpected opCode " + opCode
-                  + " for version " + logVersion);
-            }
-            fsDir.unprotectedSetQuota(FSImageSerialization.readString(in),
+            ClearNSQuotaOp cnqop = (ClearNSQuotaOp)op;
+            fsDir.unprotectedSetQuota(cnqop.src,
                                       FSConstants.QUOTA_RESET,
                                       FSConstants.QUOTA_DONT_SET);
             break;
           }
   
           case OP_SET_QUOTA:
-            fsDir.unprotectedSetQuota(FSImageSerialization.readString(in),
-                                      readLongWritable(in),
-                                      readLongWritable(in));
-                                        
+            SetQuotaOp sqop = (SetQuotaOp)op;
+            fsDir.unprotectedSetQuota(sqop.src,
+                                      sqop.nsQuota,
+                                      sqop.dsQuota);
             break;
   
           case OP_TIMES: {
             numOpTimes++;
-            int length = in.readInt();
-            if (length != 3) {
-              throw new IOException("Incorrect data format. " 
-                                    + "times operation.");
-            }
-            path = FSImageSerialization.readString(in);
-            mtime = readLong(in);
-            atime = readLong(in);
-            fsDir.unprotectedSetTimes(path, mtime, atime, true);
+            
+            TimesOp top = (TimesOp)op;
+
+            fsDir.unprotectedSetTimes(top.path, top.mtime, top.atime, true);
             break;
           }
           case OP_SYMLINK: {
             numOpSymlink++;
-            int length = in.readInt();
-            if (length != 4) {
-              throw new IOException("Incorrect data format. " 
-                                    + "symlink operation.");
-            }
-            path = FSImageSerialization.readString(in);
-            String value = FSImageSerialization.readString(in);
-            mtime = readLong(in);
-            atime = readLong(in);
-            PermissionStatus perm = PermissionStatus.read(in);
-            fsDir.unprotectedSymlink(path, value, mtime, atime, perm);
+
+            SymlinkOp symop = (SymlinkOp)op;
+            fsDir.unprotectedSymlink(symop.path, symop.value, symop.mtime, symop.atime, symop.permissionStatus);
             break;
           }
           case OP_RENAME: {
-            if (logVersion > -21) {
-              throw new IOException("Unexpected opCode " + opCode
-                  + " for version " + logVersion);
-            }
             numOpRename++;
-            int length = in.readInt();
-            if (length != 3) {
-              throw new IOException("Incorrect data format. " 
-                                    + "Mkdir operation.");
-            }
-            String s = FSImageSerialization.readString(in);
-            String d = FSImageSerialization.readString(in);
-            timestamp = readLong(in);
-            Rename[] options = readRenameOptions(in);
-            HdfsFileStatus dinfo = fsDir.getFileInfo(d, false);
-            fsDir.unprotectedRenameTo(s, d, timestamp, options);
-            fsNamesys.changeLease(s, d, dinfo);
+            
+            RenameOp rop = (RenameOp)op;
+
+            HdfsFileStatus dinfo = fsDir.getFileInfo(rop.dst, false);
+            fsDir.unprotectedRenameTo(rop.src, rop.dst, rop.timestamp, rop.options);
+            fsNamesys.changeLease(rop.src, rop.dst, dinfo);
             break;
           }
           case OP_GET_DELEGATION_TOKEN: {
-            if (logVersion > -24) {
-              throw new IOException("Unexpected opCode " + opCode
-                  + " for version " + logVersion);
-            }
             numOpGetDelegationToken++;
-            DelegationTokenIdentifier delegationTokenId = 
-                new DelegationTokenIdentifier();
-            delegationTokenId.readFields(in);
-            long expiryTime = readLong(in);
+            GetDelegationTokenOp gdtop = (GetDelegationTokenOp)op;
+
             fsNamesys.getDelegationTokenSecretManager()
-                .addPersistedDelegationToken(delegationTokenId, expiryTime);
+              .addPersistedDelegationToken(gdtop.token, gdtop.expiryTime);
             break;
           }
           case OP_RENEW_DELEGATION_TOKEN: {
-            if (logVersion > -24) {
-              throw new IOException("Unexpected opCode " + opCode
-                  + " for version " + logVersion);
-            }
             numOpRenewDelegationToken++;
-            DelegationTokenIdentifier delegationTokenId = 
-                new DelegationTokenIdentifier();
-            delegationTokenId.readFields(in);
-            long expiryTime = readLong(in);
+
+            RenewDelegationTokenOp rdtop = (RenewDelegationTokenOp)op;
             fsNamesys.getDelegationTokenSecretManager()
-                .updatePersistedTokenRenewal(delegationTokenId, expiryTime);
+              .updatePersistedTokenRenewal(rdtop.token, rdtop.expiryTime);
             break;
           }
           case OP_CANCEL_DELEGATION_TOKEN: {
-            if (logVersion > -24) {
-              throw new IOException("Unexpected opCode " + opCode
-                  + " for version " + logVersion);
-            }
             numOpCancelDelegationToken++;
-            DelegationTokenIdentifier delegationTokenId = 
-                new DelegationTokenIdentifier();
-            delegationTokenId.readFields(in);
+
+            CancelDelegationTokenOp cdtop = (CancelDelegationTokenOp)op;
             fsNamesys.getDelegationTokenSecretManager()
-                .updatePersistedTokenCancellation(delegationTokenId);
+                .updatePersistedTokenCancellation(cdtop.token);
             break;
           }
           case OP_UPDATE_MASTER_KEY: {
-            if (logVersion > -24) {
-              throw new IOException("Unexpected opCode " + opCode
-                  + " for version " + logVersion);
-            }
             numOpUpdateMasterKey++;
-            DelegationKey delegationKey = new DelegationKey();
-            delegationKey.readFields(in);
-            fsNamesys.getDelegationTokenSecretManager().updatePersistedMasterKey(
-                delegationKey);
+            UpdateMasterKeyOp ymkop = (UpdateMasterKeyOp)op;
+            fsNamesys.getDelegationTokenSecretManager()
+              .updatePersistedMasterKey(ymkop.key);
             break;
           }
+          case OP_DATANODE_ADD: 
+          case OP_DATANODE_REMOVE: 
           case OP_START_LOG_SEGMENT:
-          case OP_END_LOG_SEGMENT: {
-            if (logVersion > FSConstants.FIRST_TXNID_BASED_LAYOUT_VERSION) {
-              throw new IOException("Unexpected opCode " + opCode
-                  + " for version " + logVersion);
-            }
-            // no data in here currently.
+          case OP_END_LOG_SEGMENT: 
+            numOpOther++;
             break;
+          default: 
+            throw new IOException("Invalid operation read " + op.opCode);
           }
-          default: {
-            throw new IOException("Never seen opCode " + opCode);
-          }
-          }
-          validateChecksum(in, checksum, numEdits);
         }
       } catch (IOException ex) {
         check203UpgradeFailure(logVersion, ex);
@@ -592,126 +442,6 @@ public class FSEditLogLoader {
     return numEdits;
   }
 
-  /**
-   * Validate a transaction's checksum
-   */
-  private static void validateChecksum(
-      DataInputStream in, Checksum checksum, int tid)
-  throws IOException {
-    if (checksum != null) {
-      int calculatedChecksum = (int)checksum.getValue();
-      int readChecksum = in.readInt(); // read in checksum
-      if (readChecksum != calculatedChecksum) {
-        throw new ChecksumException(
-            "Transaction " + tid + " is corrupt. Calculated checksum is " +
-            calculatedChecksum + " but read checksum " + readChecksum, tid);
-      }
-    }
-  }
-
-  /**
-   * A class to read in blocks stored in the old format. The only two
-   * fields in the block were blockid and length.
-   */
-  static class BlockTwo implements Writable {
-    long blkid;
-    long len;
-
-    static {                                      // register a ctor
-      WritableFactories.setFactory
-        (BlockTwo.class,
-         new WritableFactory() {
-           public Writable newInstance() { return new BlockTwo(); }
-         });
-    }
-
-
-    BlockTwo() {
-      blkid = 0;
-      len = 0;
-    }
-    /////////////////////////////////////
-    // Writable
-    /////////////////////////////////////
-    public void write(DataOutput out) throws IOException {
-      out.writeLong(blkid);
-      out.writeLong(len);
-    }
-
-    public void readFields(DataInput in) throws IOException {
-      this.blkid = in.readLong();
-      this.len = in.readLong();
-    }
-  }
-
-  /** This method is defined for compatibility reason. */
-  static private DatanodeDescriptor[] readDatanodeDescriptorArray(DataInput in
-      ) throws IOException {
-    DatanodeDescriptor[] locations = new DatanodeDescriptor[in.readInt()];
-    for (int i = 0; i < locations.length; i++) {
-      locations[i] = new DatanodeDescriptor();
-      locations[i].readFieldsFromFSEditLog(in);
-    }
-    return locations;
-  }
-
-  static private short readShort(DataInputStream in) throws IOException {
-    return Short.parseShort(FSImageSerialization.readString(in));
-  }
-
-  static private long readLong(DataInputStream in) throws IOException {
-    return Long.parseLong(FSImageSerialization.readString(in));
-  }
-  
-  // a place holder for reading a long
-  private static final LongWritable longWritable = new LongWritable();
-
-  /** Read an integer from an input stream */
-  private static long readLongWritable(DataInputStream in) throws IOException {
-    synchronized (longWritable) {
-      longWritable.readFields(in);
-      return longWritable.get();
-    }
-  }
-  
-  static Rename[] readRenameOptions(DataInputStream in) throws IOException {
-    BytesWritable writable = new BytesWritable();
-    writable.readFields(in);
-    
-    byte[] bytes = writable.getBytes();
-    Rename[] options = new Rename[bytes.length];
-    
-    for (int i = 0; i < bytes.length; i++) {
-      options[i] = Rename.valueOf(bytes[i]);
-    }
-    return options;
-  }
-
-  static private BlockInfo[] readBlocks(
-      DataInputStream in,
-      int logVersion,
-      boolean isFileUnderConstruction,
-      short replication) throws IOException {
-    int numBlocks = in.readInt();
-    BlockInfo[] blocks = new BlockInfo[numBlocks];
-    Block blk = new Block();
-    BlockTwo oldblk = new BlockTwo();
-    for (int i = 0; i < numBlocks; i++) {
-      if (logVersion <= -14) {
-        blk.readFields(in);
-      } else {
-        oldblk.readFields(in);
-        blk.set(oldblk.blkid, oldblk.len,
-                GenerationStamp.GRANDFATHER_GENERATION_STAMP);
-      }
-      if(isFileUnderConstruction && i == numBlocks-1)
-        blocks[i] = new BlockInfoUnderConstruction(blk, replication);
-      else
-        blocks[i] = new BlockInfo(blk, replication);
-    }
-    return blocks;
-  }
-  
   /** 
    * Throw appropriate exception during upgrade from 203, when editlog loading
    * could fail due to opcode conflicts.
