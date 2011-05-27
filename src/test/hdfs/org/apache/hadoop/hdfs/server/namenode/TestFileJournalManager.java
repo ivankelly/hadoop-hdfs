@@ -59,7 +59,7 @@ public class TestFileJournalManager {
     StorageDirectory sd = setupEdits(f, 10, 5);
 
     FileJournalManager jm = new FileJournalManager(sd);
-    assertEquals(3, jm.getNumberOfTransactions(1));
+    assertEquals(17, jm.getNumberOfTransactions(1));
   }
   
   @Test
