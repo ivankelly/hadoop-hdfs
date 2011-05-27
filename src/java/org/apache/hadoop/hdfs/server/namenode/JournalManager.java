@@ -34,8 +34,8 @@ public interface JournalManager {
 
   void finalizeLogSegment(long firstTxId, long lastTxId) throws IOException;
 
-  EditLogInputStream getInputStream(long sinceTxnId) throws IOException;
-  long getNumberOfTransactions(long sinceTxnId) throws IOException;
+  EditLogInputStream getInputStream(long fromTxnId) throws IOException;
+  long getNumberOfTransactions(long fromTxnId) throws IOException;
 
   /**
    * Set the amount of memory that this stream should use to buffer edits

@@ -754,10 +754,10 @@ public class FSEditLog  {
   public RemoteEditLogManifest getEditLogManifest(long sinceTxId)
       throws IOException {
     FSImageTransactionalStorageInspector inspector =
-        new FSImageTransactionalStorageInspector();
-
+        new FSImageTransactionalStorageInspector(storage);
+    // IKTODO, this should read URIs
     for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
-      inspector.inspectDirectory(sd);
+      //inspector.inspectImageDirectory(sd);
     }
     
     return inspector.getEditLogManifest(sinceTxId);

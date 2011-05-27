@@ -585,12 +585,12 @@ public class FSImage implements Closeable {
     // the old format dirs.
     FSImageStorageInspector inspector;
     if (minLayoutVersion <= FSConstants.FIRST_TXNID_BASED_LAYOUT_VERSION) {
-      inspector = new FSImageTransactionalStorageInspector();
+      inspector = new FSImageTransactionalStorageInspector(storage);
       if (maxLayoutVersion > FSConstants.FIRST_TXNID_BASED_LAYOUT_VERSION) {
         LOG.warn("Ignoring one or more storage directories with old layouts");
       }
     } else {
-      inspector = new FSImageOldStorageInspector();
+      inspector = new FSImageOldStorageInspector(storage);
     }
 
     // Process each of the storage directories to find the pair of
@@ -633,11 +633,9 @@ public class FSImage implements Closeable {
     // data that's available.
     LoadPlan loadPlan = inspector.createLoadPlan();    
     LOG.debug("Planning to load image using following plan:\n" + loadPlan);
-
     
     // Recover from previous interrupted checkpoint, if any
-    // IKTODO This should be moved info FileJournalManager somewhere. 
-    // needToSave |= loadPlan.doRecovery();
+    needToSave |= loadPlan.doRecovery();
 
     //
     // Load in bits

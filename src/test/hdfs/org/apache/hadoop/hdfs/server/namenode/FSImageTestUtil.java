@@ -25,6 +25,8 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.security.MessageDigest;
+import java.net.URI;
+import java.util.Collections;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -32,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundFSImage;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
@@ -86,8 +89,10 @@ public abstract class FSImageTestUtil {
   public static FSImageTransactionalStorageInspector inspectStorageDirectory(
       File dir, NameNodeDirType dirType) throws IOException {
     FSImageTransactionalStorageInspector inspector =
-      new FSImageTransactionalStorageInspector();
-    inspector.inspectDirectory(mockStorageDirectory(dir, dirType));
+      new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
+                                                             Collections.<URI>emptyList(),
+                                                             Collections.<URI>emptyList()));
+    inspector.inspectImageDirectory(mockStorageDirectory(dir, dirType));
     return inspector;
   }
 
@@ -210,8 +215,10 @@ public abstract class FSImageTestUtil {
   public static File findLatestImageFile(StorageDirectory sd)
   throws IOException {
     FSImageTransactionalStorageInspector inspector =
-      new FSImageTransactionalStorageInspector();
-    inspector.inspectDirectory(sd);
+      new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
+                                                             Collections.<URI>emptyList(),
+                                                             Collections.<URI>emptyList()));
+    inspector.inspectImageDirectory(sd);
     
     return inspector.getLatestImage().getFile();
   }
@@ -225,8 +232,10 @@ public abstract class FSImageTestUtil {
         new File(currentDirPath), NameNodeDirType.IMAGE);
 
     FSImageTransactionalStorageInspector inspector =
-      new FSImageTransactionalStorageInspector();
-    inspector.inspectDirectory(sd);
+      new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
+                                                             Collections.<URI>emptyList(),
+                                                             Collections.<URI>emptyList()));
+    inspector.inspectImageDirectory(sd);
 
     return inspector.getLatestImage().getFile();
   }
