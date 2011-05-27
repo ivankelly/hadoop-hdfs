@@ -52,6 +52,10 @@ import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp.*;
 public class FSEditLogLoader {
   private final FSNamesystem fsNamesys;
 
+  public FSEditLogLoader() {
+    this.fsNamesys = null;
+  }
+
   public FSEditLogLoader(FSNamesystem fsNamesys) {
     this.fsNamesys = fsNamesys;
   }

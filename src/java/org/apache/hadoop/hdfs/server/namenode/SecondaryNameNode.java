@@ -708,7 +708,7 @@ public class SecondaryNameNode implements Runnable {
     }
     LOG.info("SecondaryNameNode about to load edits from " +
         editsFiles.size() + " file(s).");
-    dstImage.loadEdits(editsFiles);
+    // dstImage.loadEdits(editsFiles); IKTODO
     
     // TODO: why do we need the following two lines? We shouldn't have even
     // been able to download an image from a NN that had a different
