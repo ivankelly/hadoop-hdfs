@@ -531,7 +531,7 @@ public class NNStorage extends Storage implements Closeable {
 
   /** Create new dfs name directory.  Caution: this destroys all files
    * in this filesystem. */
-  private void format(StorageDirectory sd) throws IOException {
+  void format(StorageDirectory sd) throws IOException {
     sd.clearDirectory(); // create currrent dir
     sd.write();
     writeTransactionIdFile(sd, 0);

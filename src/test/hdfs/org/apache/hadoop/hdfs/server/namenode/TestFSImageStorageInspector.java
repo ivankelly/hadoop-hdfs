@@ -25,6 +25,10 @@ import static org.mockito.Mockito.spy;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Collections;
+import java.net.URI;
+
+import org.apache.hadoop.conf.Configuration;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -49,7 +53,9 @@ public class TestFSImageStorageInspector {
   @Test
   public void testCurrentStorageInspector() throws IOException {
     FSImageTransactionalStorageInspector inspector = 
-        new FSImageTransactionalStorageInspector();
+        new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
+                                                               Collections.<URI>emptyList(),
+                                                               Collections.<URI>emptyList()));
     
     StorageDirectory mockDir = mockDirectory(
         NameNodeDirType.IMAGE_AND_EDITS,
@@ -59,7 +65,7 @@ public class TestFSImageStorageInspector {
         "/foo/current/fsimage_456",
         "/foo/current/edits_inprogress_457");
 
-    inspector.inspectDirectory(mockDir);
+    inspector.inspectImageDirectory(mockDir);
     
     assertEquals(2, inspector.foundEditLogs.size());
     assertEquals(2, inspector.foundImages.size());
@@ -74,9 +80,11 @@ public class TestFSImageStorageInspector {
     LOG.info("Plan: " + plan);
     
     assertEquals(new File("/foo/current/fsimage_456"), plan.getImageFile());
+
+    // IKTODO
     assertArrayEquals(new File[] {
         new File("/foo/current/edits_inprogress_457") },
-        plan.getEditsFiles().toArray(new File[0]));
+        null);
   }
   
   /**
@@ -85,7 +93,9 @@ public class TestFSImageStorageInspector {
   @Test
   public void testPlanWithGaps() throws IOException {
     FSImageTransactionalStorageInspector inspector =
-        new FSImageTransactionalStorageInspector();
+        new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
+                                                               Collections.<URI>emptyList(),
+                                                               Collections.<URI>emptyList()));
     
     StorageDirectory mockDir = mockDirectory(
         NameNodeDirType.IMAGE_AND_EDITS,
@@ -96,7 +106,7 @@ public class TestFSImageStorageInspector {
         "/foo/current/edits_901-950",
         "/foo/current/edits_952-1000"); // <-- missing edit 951!
 
-    inspector.inspectDirectory(mockDir);
+    inspector.inspectImageDirectory(mockDir);
     try {
       inspector.createLoadPlan();
       fail("Didn't throw IOE trying to load with gaps in edits");
@@ -113,7 +123,9 @@ public class TestFSImageStorageInspector {
   @Test
   public void testPlanWithInProgressInMiddle() throws IOException {
     FSImageTransactionalStorageInspector inspector =
-        new FSImageTransactionalStorageInspector();
+        new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
+                                                               Collections.<URI>emptyList(),
+                                                               Collections.<URI>emptyList()));
     
     StorageDirectory mockDir = mockDirectory(
         NameNodeDirType.IMAGE_AND_EDITS,
@@ -124,7 +136,7 @@ public class TestFSImageStorageInspector {
         "/foo/current/edits_inprogress_901", // <-- inprogress in middle
         "/foo/current/edits_952-1000");
 
-    inspector.inspectDirectory(mockDir);
+    inspector.inspectImageDirectory(mockDir);
 
     LoadPlan plan = inspector.createLoadPlan();
     LOG.info("Plan: " + plan);
@@ -134,7 +146,8 @@ public class TestFSImageStorageInspector {
         new File("/foo/current/edits_457-900"),
         new File("/foo/current/edits_inprogress_901"),
         new File("/foo/current/edits_952-1000") },
-        plan.getEditsFiles().toArray(new File[0]));
+        null); // IKTODO
+        //plan.getEditsFiles().toArray(new File[0]));
 
   }
 
@@ -146,13 +159,15 @@ public class TestFSImageStorageInspector {
   @Test
   public void testLogGroupRecoveryNoop() throws IOException {
     FSImageTransactionalStorageInspector inspector =
-        new FSImageTransactionalStorageInspector();
+        new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
+                                                               Collections.<URI>emptyList(),
+                                                               Collections.<URI>emptyList()));
 
-    inspector.inspectDirectory(
+    inspector.inspectImageDirectory(
         mockDirectoryWithEditLogs("/foo1/current/edits_123-456"));
-    inspector.inspectDirectory(
+    inspector.inspectImageDirectory(
         mockDirectoryWithEditLogs("/foo2/current/edits_123-456"));
-    inspector.inspectDirectory(
+    inspector.inspectImageDirectory(
         mockDirectoryWithEditLogs("/foo3/current/edits_123-456"));
 
     LogGroup lg = inspector.logGroups.get(123L);
@@ -172,15 +187,17 @@ public class TestFSImageStorageInspector {
   @Test
   public void testLogGroupRecoveryMixed() throws IOException {
     FSImageTransactionalStorageInspector inspector =
-        new FSImageTransactionalStorageInspector();
+        new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
+                                                               Collections.<URI>emptyList(),
+                                                               Collections.<URI>emptyList()));
 
-    inspector.inspectDirectory(
+    inspector.inspectImageDirectory(
         mockDirectoryWithEditLogs("/foo1/current/edits_123-456"));
-    inspector.inspectDirectory(
+    inspector.inspectImageDirectory(
         mockDirectoryWithEditLogs("/foo2/current/edits_123-456"));
-    inspector.inspectDirectory(
+    inspector.inspectImageDirectory(
         mockDirectoryWithEditLogs("/foo3/current/edits_inprogress_123"));
-    inspector.inspectDirectory(mockDirectory(
+    inspector.inspectImageDirectory(mockDirectory(
         NameNodeDirType.IMAGE,
         false,
         "/foo4/current/fsimage_122"));
@@ -214,10 +231,12 @@ public class TestFSImageStorageInspector {
   @Test
   public void testLogGroupRecoveryInconsistentEndTxIds() throws IOException {
     FSImageTransactionalStorageInspector inspector =
-        new FSImageTransactionalStorageInspector();
-    inspector.inspectDirectory(
+        new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
+                                                               Collections.<URI>emptyList(),
+                                                               Collections.<URI>emptyList()));
+    inspector.inspectImageDirectory(
         mockDirectoryWithEditLogs("/foo1/current/edits_123-456"));
-    inspector.inspectDirectory(
+    inspector.inspectImageDirectory(
         mockDirectoryWithEditLogs("/foo2/current/edits_123-678"));
 
     LogGroup lg = inspector.logGroups.get(123L);
@@ -238,12 +257,14 @@ public class TestFSImageStorageInspector {
   @Test
   public void testLogGroupRecoveryInProgress() throws IOException {
     FSImageTransactionalStorageInspector inspector =
-        new FSImageTransactionalStorageInspector();
-    inspector.inspectDirectory(
+        new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
+                                                               Collections.<URI>emptyList(),
+                                                               Collections.<URI>emptyList()));
+    inspector.inspectImageDirectory(
         mockDirectoryWithEditLogs("/foo1/current/edits_inprogress_123"));
-    inspector.inspectDirectory(
+    inspector.inspectImageDirectory(
         mockDirectoryWithEditLogs("/foo2/current/edits_inprogress_123"));
-    inspector.inspectDirectory(
+    inspector.inspectImageDirectory(
         mockDirectoryWithEditLogs("/foo3/current/edits_inprogress_123"));
 
     LogGroup lg = inspector.logGroups.get(123L);
@@ -282,7 +303,9 @@ public class TestFSImageStorageInspector {
   @Test
   public void testCurrentSplitEditsAndImage() throws IOException {
     FSImageTransactionalStorageInspector inspector =
-        new FSImageTransactionalStorageInspector();
+        new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
+                                                               Collections.<URI>emptyList(),
+                                                               Collections.<URI>emptyList()));
     
     StorageDirectory mockImageDir = mockDirectory(
         NameNodeDirType.IMAGE,
@@ -298,9 +321,9 @@ public class TestFSImageStorageInspector {
         "/foo3/current/edits_123-456",
         "/foo3/current/edits_inprogress_457");
     
-    inspector.inspectDirectory(mockImageDir);
-    inspector.inspectDirectory(mockEditsDir);
-    inspector.inspectDirectory(mockImageDir2);
+    inspector.inspectImageDirectory(mockImageDir);
+    inspector.inspectImageDirectory(mockEditsDir);
+    inspector.inspectImageDirectory(mockImageDir2);
 
     assertEquals(2, inspector.foundEditLogs.size());
     assertEquals(2, inspector.foundImages.size());
@@ -316,7 +339,8 @@ public class TestFSImageStorageInspector {
     assertEquals(new File("/foo2/current/fsimage_456"), plan.getImageFile());
     assertArrayEquals(new File[] {
         new File("/foo3/current/edits_inprogress_457")
-      }, plan.getEditsFiles().toArray(new File[0]));
+      }, null);// IKTODO
+    //plan.getEditsFiles().toArray(new File[0]));
 
     // Check log manifest
     assertEquals("[[123,456]]", inspector.getEditLogManifest(123).toString());
@@ -327,14 +351,16 @@ public class TestFSImageStorageInspector {
   @Test
   public void testLogManifest() throws IOException { 
     FSImageTransactionalStorageInspector inspector =
-        new FSImageTransactionalStorageInspector();
-    inspector.inspectDirectory(
+        new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
+                                                               Collections.<URI>emptyList(),
+                                                               Collections.<URI>emptyList()));
+    inspector.inspectImageDirectory(
         mockDirectoryWithEditLogs("/foo1/current/edits_1-1",
                                   "/foo1/current/edits_2-200"));
     inspector.inspectDirectory(
         mockDirectoryWithEditLogs("/foo2/current/edits_inprogress_1",
                                   "/foo2/current/edits_201-400"));
-    inspector.inspectDirectory(
+    inspector.inspectImageDirectory(
         mockDirectoryWithEditLogs("/foo3/current/edits_1-1",
                                   "/foo3/current/edits_2-200"));
     

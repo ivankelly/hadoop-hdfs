@@ -595,11 +595,9 @@ public class FSImage implements Closeable {
     // data that's available.
     LoadPlan loadPlan = inspector.createLoadPlan();    
     LOG.debug("Planning to load image using following plan:\n" + loadPlan);
-
     
     // Recover from previous interrupted checkpoint, if any
-    // IKTODO This should be moved info FileJournalManager somewhere. 
-    // needToSave |= loadPlan.doRecovery();
+    needToSave |= loadPlan.doRecovery();
 
     //
     // Load in bits

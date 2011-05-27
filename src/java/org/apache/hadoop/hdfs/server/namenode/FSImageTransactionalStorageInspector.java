@@ -18,6 +18,7 @@
 
 package org.apache.hadoop.hdfs.server.namenode;
 
+import java.net.URI;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -54,17 +55,18 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
   List<FoundFSImage> foundImages = new ArrayList<FoundFSImage>();
   List<FoundEditLog> foundEditLogs = new ArrayList<FoundEditLog>();
   SortedMap<Long, LogGroup> logGroups = new TreeMap<Long, LogGroup>();
-  long maxSeenTxId = 0;
   
   private static final Pattern IMAGE_REGEX = Pattern.compile(
     NameNodeFile.IMAGE.getName() + "_(\\d+)");
-  private static final Pattern EDITS_REGEX = Pattern.compile(
-    NameNodeFile.EDITS.getName() + "_(\\d+)-(\\d+)");
-  private static final Pattern EDITS_INPROGRESS_REGEX = Pattern.compile(
-    NameNodeFile.EDITS_INPROGRESS.getName() + "_(\\d+)");
+  
+  List<JournalManager> availableJournals = new ArrayList<JournalManager>();
+  
+  FSImageTransactionalStorageInspector(NNStorage storage) {
+    super(storage);
+  }
 
   @Override
-  public void inspectDirectory(StorageDirectory sd) throws IOException {
+  public void inspectImageDirectory(StorageDirectory sd) throws IOException {
     // Was the directory just formatted?
     if (!sd.getVersionFile().exists()) {
       LOG.info("No version file in " + sd.getRoot());
@@ -95,59 +97,16 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
                    "not configured to contain images.");
         }
       }
-      
-      // Check for edits
-      Matcher editsMatch = EDITS_REGEX.matcher(name);
-      if (editsMatch.matches()) {
-        if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-          try {
-            long startTxId = Long.valueOf(editsMatch.group(1));
-            long endTxId = Long.valueOf(editsMatch.group(2));
-            addEditLog(new FoundEditLog(sd, f, startTxId, endTxId));
-          } catch (NumberFormatException nfe) {
-            LOG.error("Edits file " + f + " has improperly formatted " +
-                      "transaction ID");
-            // skip
-          }          
-        } else {
-          LOG.warn("Found edits file at " + f + " but storage directory is " +
-                   "not configured to contain edits.");
-        }
-      }
-      
-      // Check for in-progress edits
-      Matcher inProgressEditsMatch = EDITS_INPROGRESS_REGEX.matcher(name);
-      if (inProgressEditsMatch.matches()) {
-        if (sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-          try {
-            long startTxId = Long.valueOf(inProgressEditsMatch.group(1));
-            addEditLog(
-              new FoundEditLog(sd, f, startTxId, FoundEditLog.UNKNOWN_END));
-          } catch (NumberFormatException nfe) {
-            LOG.error("In-progress edits file " + f + " has improperly " +
-                      "formatted transaction ID");
-            // skip
-          }          
-        } else {
-          LOG.warn("Found in-progress edits file at " + f + " but " +
-                   "storage directory is not configured to contain edits.");
-        }
-      }
-      
-      // Check for a seen_txid file, which marks a minimum transaction ID that
-      // must be included in our load plan.
-      try {
-        maxSeenTxId = Math.max(maxSeenTxId, NNStorage.readTransactionIdFile(sd));
-      } catch (IOException ioe) {
-        LOG.warn("Unable to determine the max transaction ID seen by " + sd, ioe);
-      }
-      
     }
-
+      
     // set finalized flag
     isUpgradeFinalized = isUpgradeFinalized && !sd.getPreviousDir().exists();
   }
 
+  @Override
+  void inspectJournal(URI journalURI) throws IOException {
+    // IKTODO
+  }
 
   private void addEditLog(FoundEditLog foundEditLog) {
     foundEditLogs.add(foundEditLog);
@@ -199,10 +158,23 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
     FoundFSImage recoveryImage = getLatestImage();
     long expectedTxId = recoveryImage.txId + 1;
     
-    List<FoundEditLog> recoveryLogs = new ArrayList<FoundEditLog>();
-    
-    SortedMap<Long, LogGroup> usefulGroups = logGroups.tailMap(expectedTxId);
-    LOG.debug("Excluded " + (logGroups.size() - usefulGroups.size()) + 
+    JournalManager bestjm = null;
+    long mosttxn = 0;
+    for (JournalManager jm : availableJournals) {
+      try {
+        long txncnt = jm.getNumberOfTransactions(expectedTxId);
+        if (txncnt > 0) {
+          bestjm = jm;
+          mosttxn = txncnt;
+        }
+      } catch (IOException ioe) {
+        LOG.error("Unable to get a transaction count from " + jm
+                  + ". Will no use.", ioe);
+      }
+    }
+
+    //List<FoundEditLog> recoveryLogs = new ArrayList<FoundEditLog>();
+    /*    LOG.debug("Excluded " + (logGroups.size() - usefulGroups.size()) + 
         " groups of logs because they start with a txid less than image " +
         "txid " + recoveryImage.txId);
 
@@ -244,10 +216,9 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
           lastLogGroupStartTxId;
       }
       throw new IOException(msg);
-    }
+      }*/
 
-    return new TransactionalLoadPlan(recoveryImage, recoveryLogs,
-        Lists.newArrayList(usefulGroups.values()));
+    return new TransactionalLoadPlan(recoveryImage, bestjm);
   }
 
   @Override
@@ -544,23 +515,19 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
 
   static class TransactionalLoadPlan extends LoadPlan {
     final FoundFSImage image;
-    final List<FoundEditLog> editLogs;
-    final List<LogGroup> logGroupsToRecover;
+    final JournalManager jm;
     
-    public TransactionalLoadPlan(FoundFSImage image,
-        List<FoundEditLog> editLogs,
-        List<LogGroup> logGroupsToRecover) {
+    public TransactionalLoadPlan(FoundFSImage image, JournalManager jm) {
       super();
       this.image = image;
-      this.editLogs = editLogs;
-      this.logGroupsToRecover = logGroupsToRecover;
+      this.jm = jm;
     }
 
     @Override
     boolean doRecovery() throws IOException {
-      for (LogGroup g : logGroupsToRecover) {
+      /*for (LogGroup g : logGroupsToRecover) {
         g.recover();
-      }
+        }*/
       return false;
     }
 
@@ -570,12 +537,19 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
     }
 
     @Override
+    JournalManager getJournalManager() {
+      return jm;
+      /*
+    @Override
     List<File> getEditsFiles() {
       List<File> ret = new ArrayList<File>();
       for (FoundEditLog log : editLogs) {
         ret.add(log.getFile());
       }
       return ret;
+      IKTODO
+
+      return null;*/
     }
 
     @Override

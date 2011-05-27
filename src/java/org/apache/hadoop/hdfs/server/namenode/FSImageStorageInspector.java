@@ -20,6 +20,7 @@ package org.apache.hadoop.hdfs.server.namenode;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
+import java.net.URI;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
@@ -32,6 +33,12 @@ import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 @InterfaceAudience.Private
 @InterfaceStability.Unstable
 abstract class FSImageStorageInspector {
+  protected final NNStorage storage;
+  
+  FSImageStorageInspector(NNStorage storage) {
+    this.storage = storage;
+  }
+  
   /**
    * Inspect the contents of the given storage directory.
    */

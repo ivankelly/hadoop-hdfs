@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.net.URI;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -67,7 +68,11 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
 
   private List<String> imageDirs = new ArrayList<String>();
   private List<String> editsDirs = new ArrayList<String>();
-  
+
+  FSImageOldStorageInspector(NNStorage storage) {
+    super(storage);
+  }
+
   void inspectDirectory(StorageDirectory sd) throws IOException {
     // Was the file just formatted?
     if (!sd.getVersionFile().exists()) {
@@ -122,7 +127,7 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
 
   @Override 
   void inspectJournal(URI journalURI) throws IOException {
-    StorageDirectory sd = NNStorage.getStorageDirectory(journalURI);
+    StorageDirectory sd = storage.getStorageDirectory(journalURI);
     if (sd != null && sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
       inspectDirectory(sd);
     }
