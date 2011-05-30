@@ -53,8 +53,6 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
   private boolean isUpgradeFinalized = true;
   
   List<FoundFSImage> foundImages = new ArrayList<FoundFSImage>();
-  List<FoundEditLog> foundEditLogs = new ArrayList<FoundEditLog>();
-  SortedMap<Long, LogGroup> logGroups = new TreeMap<Long, LogGroup>();
   
   private static final Pattern IMAGE_REGEX = Pattern.compile(
     NameNodeFile.IMAGE.getName() + "_(\\d+)");
@@ -105,19 +103,20 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
 
   @Override
   void inspectJournal(URI journalURI) throws IOException {
-    // IKTODO
-  }
-
-  private void addEditLog(FoundEditLog foundEditLog) {
-    foundEditLogs.add(foundEditLog);
-    LogGroup group = logGroups.get(foundEditLog.startTxId);
-    if (group == null) {
-      group = new LogGroup(foundEditLog.startTxId);
-      logGroups.put(foundEditLog.startTxId, group);
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("Inspecting journal " + journalURI);
     }
-    group.add(foundEditLog);
+    if (journalURI.getScheme().equals("file")) {
+      StorageDirectory sd = storage.getStorageDirectory(journalURI);
+      if (sd != null) {
+        availableJournals.add(new FileJournalManager(sd));
+      } else {
+        throw new IOException("Trying to use file storage "
+                              + journalURI 
+                              +" not managed by NNStorage.");
+      }
+    }
   }
-
 
   @Override
   public boolean isUpgradeFinalized() {
@@ -163,7 +162,7 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
     for (JournalManager jm : availableJournals) {
       try {
         long txncnt = jm.getNumberOfTransactions(expectedTxId);
-        if (txncnt > 0) {
+        if (txncnt > 0 || bestjm == null) {
           bestjm = jm;
           mosttxn = txncnt;
         }
@@ -172,51 +171,9 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
                   + ". Will no use.", ioe);
       }
     }
-
-    //List<FoundEditLog> recoveryLogs = new ArrayList<FoundEditLog>();
-    /*    LOG.debug("Excluded " + (logGroups.size() - usefulGroups.size()) + 
-        " groups of logs because they start with a txid less than image " +
-        "txid " + recoveryImage.txId);
-
-    for (Map.Entry<Long, LogGroup> entry : usefulGroups.entrySet()) {
-      long logStartTxId = entry.getKey();
-      LogGroup logGroup = entry.getValue();
-      
-      logGroup.planRecovery();
-      
-      if (expectedTxId != FSConstants.INVALID_TXID && logStartTxId != expectedTxId) {
-        throw new IOException("Expected next log group would start at txid " +
-            expectedTxId + " but starts at txid " + logStartTxId);
-      }
-      
-      // We can pick any of the non-corrupt logs here
-      recoveryLogs.add(logGroup.getBestNonCorruptLog());
-      
-      // If this log group was finalized, we know to expect the next
-      // log group to start at the following txid (ie no gaps)
-      if (logGroup.hasKnownLastTxId()) {
-        expectedTxId = logGroup.getLastTxId() + 1;
-      } else {
-        // the log group was in-progress so we don't know what ID
-        // the next group should start from.
-        expectedTxId = FSConstants.INVALID_TXID;
-      }
+    if (bestjm == null) {
+      throw new IOException("No journal manager available");
     }
-    
-    long lastLogGroupStartTxId = usefulGroups.isEmpty() ?
-        0 : usefulGroups.lastKey();
-    if (maxSeenTxId > recoveryImage.txId &&
-        maxSeenTxId > lastLogGroupStartTxId) {
-      String msg = "At least one storage directory indicated it has seen a " +
-        "log segment starting at txid " + maxSeenTxId;
-      if (usefulGroups.isEmpty()) {
-        msg += " but there are no logs to load.";
-      } else {
-        msg += " but the most recent log file found starts with txid " +
-          lastLogGroupStartTxId;
-      }
-      throw new IOException(msg);
-      }*/
 
     return new TransactionalLoadPlan(recoveryImage, bestjm);
   }
@@ -229,6 +186,7 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
   
   RemoteEditLogManifest getEditLogManifest(long sinceTxId) {
     List<RemoteEditLog> logs = Lists.newArrayList();
+    /* IKTODO how to do this
     for (LogGroup g : logGroups.values()) {
       if (!g.hasFinalized) continue;
 
@@ -238,7 +196,7 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
       logs.add(new RemoteEditLog(fel.getStartTxId(),
           fel.getLastTxId()));
     }
-    
+    */
     return new RemoteEditLogManifest(logs);
   }
 
@@ -525,9 +483,6 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
 
     @Override
     boolean doRecovery() throws IOException {
-      /*for (LogGroup g : logGroupsToRecover) {
-        g.recover();
-        }*/
       return false;
     }
 
@@ -539,17 +494,6 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
     @Override
     JournalManager getJournalManager() {
       return jm;
-      /*
-    @Override
-    List<File> getEditsFiles() {
-      List<File> ret = new ArrayList<File>();
-      for (FoundEditLog log : editLogs) {
-        ret.add(log.getFile());
-      }
-      return ret;
-      IKTODO
-
-      return null;*/
     }
 
     @Override

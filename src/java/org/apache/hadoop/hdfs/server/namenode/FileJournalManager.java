@@ -104,28 +104,34 @@ public class FileJournalManager implements JournalManager {
   }
 
   @Override
-  public EditLogInputStream getInputStream(long sinceTxnId) throws IOException {
-    return null; // IKTODO
+  public EditLogInputStream getInputStream(long fromTxId) throws IOException {
+    for (EditLogFile elf : getLogFiles(fromTxId)) {
+      if (elf.startTxId == fromTxId) {
+        if (LOG.isTraceEnabled()) {
+          LOG.trace("Returning edit stream reading from " + elf.file);
+        }
+        return new EditLogFileInputStream(elf.file);
+      }
+    }
+
+    throw new IOException("Cannot find editlog file with " + fromTxId
+                          + " as first first txid");
   }
 
   @Override
-  public long getNumberOfTransactions(long fromTxnId) throws IOException {
+  public long getNumberOfTransactions(long fromTxId) throws IOException {
     maybeRecover();
     
     long numTxns = 0L;
 
-    for (EditLogFile elf : getLogFiles()) {
-      if (elf.startTxId > fromTxnId) {
-        return numTxns;
-      } else if (fromTxnId == elf.startTxId) {
-        fromTxnId = elf.endTxId + 1;
-        numTxns += fromTxnId - elf.startTxId;
-      } else { // elf.startTxId < from TxnId
-        if (fromTxnId <= elf.endTxId) { // if we want to count from middle of file
-          numTxns += (elf.endTxId + 1) - fromTxnId;
-          fromTxnId = elf.endTxId + 1;
-        }
-      }
+    for (EditLogFile elf : getLogFiles(fromTxId)) {
+      if (elf.startTxId > fromTxId) { // there must be a gap
+        throw new IOException("Gap in transactions " 
+                              + fromTxId + " - " + elf.startTxId);
+      } else if (fromTxId == elf.startTxId) {
+        fromTxId = elf.endTxId + 1;
+        numTxns += fromTxId - elf.startTxId;
+      } // else skip
     }
 
     return numTxns;
@@ -190,7 +196,7 @@ public class FileJournalManager implements JournalManager {
     }
   }
 
-  private List<EditLogFile> getLogFiles() {
+  private List<EditLogFile> getLogFiles(long fromTxId) throws IOException {
     List<EditLogFile> logfiles = new ArrayList<EditLogFile>();
     File currentDir = sd.getCurrentDir();
     for (File f : currentDir.listFiles()) {
@@ -199,7 +205,14 @@ public class FileJournalManager implements JournalManager {
         long startTxId = Long.valueOf(editsMatch.group(1));
         long endTxId = Long.valueOf(editsMatch.group(2));
         
-        logfiles.add(new EditLogFile(startTxId, endTxId, f));
+        if (fromTxId > startTxId 
+            && fromTxId <= endTxId) {
+          throw new IOException("Asked for fromTxId " + fromTxId
+                                + " which is in middle of file " + f);
+        }
+        if (fromTxId <= startTxId) {
+          logfiles.add(new EditLogFile(startTxId, endTxId, f));
+        }
       }
     }
     Collections.sort(logfiles);

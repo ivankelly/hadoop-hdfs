@@ -138,7 +138,9 @@ public class FSImage implements Closeable {
                     Collection<URI> imageDirs, Collection<URI> editsDirs)
       throws IOException {
     this.conf = conf;
-    this.editsDirs = editsDirs;
+    this.editsDirs = new ArrayList<URI>();
+    this.editsDirs.addAll(editsDirs);
+
     setCheckpointDirectories(FSImage.getCheckpointDirs(conf, null),
                              FSImage.getCheckpointEditsDirs(conf, null));
 
