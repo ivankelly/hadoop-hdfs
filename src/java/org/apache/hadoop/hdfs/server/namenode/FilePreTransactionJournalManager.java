@@ -23,6 +23,11 @@ import org.apache.commons.logging.LogFactory;
 import java.util.List;
 import java.io.File;
 import java.io.IOException;
+import java.io.BufferedInputStream;
+import java.io.FileInputStream;
+import java.io.DataInputStream;
+import java.util.zip.CheckedInputStream;
+import java.util.zip.Checksum;
 
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 
@@ -37,9 +42,15 @@ public class FilePreTransactionJournalManager implements JournalManager {
   private static final Log LOG = LogFactory.getLog(FilePreTransactionJournalManager.class);
 
   private final StorageDirectory sd;
+  private final List<File> files;
+  
+  private enum State { SERVING_NONE, SERVING_EDITS, SERVING_EDITS_NEW };
+  private State state;
 
   public FilePreTransactionJournalManager(StorageDirectory sd, List<File> files) {
     this.sd = sd;
+    this.state = State.SERVING_NONE;
+    this.files = files;
   }
 
   @Override
@@ -69,13 +80,51 @@ public class FilePreTransactionJournalManager implements JournalManager {
   }
 
   @Override
+  synchronized
   public EditLogInputStream getInputStream(long sinceTxnId) throws IOException {
-    return null; // IKTODO
+    if (files.size() == 0) {
+      throw new IOException("No edits files in " + sd);
+    } 
+    if (state == State.SERVING_NONE) {
+      state = State.SERVING_EDITS;
+      return new EditLogFileInputStream(files.get(0));
+    } else if (state == State.SERVING_EDITS && files.size() == 2) {
+      state = State.SERVING_EDITS_NEW;
+      return new EditLogFileInputStream(files.get(1));
+    } else {
+      throw new IOException("Invalid state. In state " + state + " and there "
+                            + " are " + files.size() + "files");
+    }
   }
 
   @Override
   public long getNumberOfTransactions(long sinceTxnId) throws IOException {
-    return 0; // IKTODO
+    long count = 0;
+    for (File f : files) {
+      BufferedInputStream bin = new BufferedInputStream(new FileInputStream(f));      
+      DataInputStream in = new DataInputStream(bin);
+
+      FSEditLogLoader loader = new FSEditLogLoader();
+      try {
+        int logVersion = loader.readLogVersion(in);
+        Checksum checksum = null;
+        if (logVersion <= -28) { // support fsedits checksum
+          checksum = FSEditLog.getChecksum();
+          in = new DataInputStream(new CheckedInputStream(bin, checksum));
+        }
+        
+        while (true) {
+          FSEditLogOp op = FSEditLogOp.readOp(in, logVersion, checksum);
+          count++;
+        }
+      } catch (IOException ioe) {
+        // end of file found
+        LOG.info("Found end of log", ioe);
+      } finally {
+        in.close();
+      }
+    }
+    return count;
   }
 
 }
