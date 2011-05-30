@@ -142,6 +142,9 @@ public abstract class FSEditLogOp {
     in.mark(1);
     byte opCodeByte = in.readByte();
     Codes opCode = FSEditLogOp.Codes.fromByte(opCodeByte);
+    if (opCode == null) {
+      FSEditLog.LOG.error("IK opCodeByte is null " + opCodeByte);
+    }
     if (opCode == FSEditLogOp.Codes.OP_INVALID) {
       in.reset(); // reset back to end of file if somebody reads it again
       throw new EOFException("Reset to end of file");

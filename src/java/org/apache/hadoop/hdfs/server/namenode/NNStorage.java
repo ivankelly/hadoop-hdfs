@@ -350,6 +350,7 @@ public class NNStorage extends Storage implements Closeable {
    * @return The matching storage directory or null if none found
    */
   StorageDirectory getStorageDirectory(URI uri) throws IOException {
+    uri = Util.fileAsURI(new File(uri));
     Iterator<StorageDirectory> it = dirIterator();
     for (; it.hasNext(); ) {
       StorageDirectory sd = it.next();

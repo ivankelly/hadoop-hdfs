@@ -497,6 +497,10 @@ public class TestEditLog extends TestCase {
       // expected
       assertEquals("Cause of exception should be ChecksumException",
           e.getCause().getClass(), ChecksumException.class);
+    } finally {
+      if (cluster != null) {
+        cluster.shutdown();
+      }
     }
   }
 
