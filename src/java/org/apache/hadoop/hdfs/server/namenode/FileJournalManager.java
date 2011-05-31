@@ -37,6 +37,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
+import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
+import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -120,8 +122,6 @@ public class FileJournalManager implements JournalManager {
 
   @Override
   public long getNumberOfTransactions(long fromTxId) throws IOException {
-    maybeRecover();
-    
     long numTxns = 0L;
 
     for (EditLogFile elf : getLogFiles(fromTxId)) {
@@ -137,7 +137,7 @@ public class FileJournalManager implements JournalManager {
     return numTxns;
   }
 
-  private void maybeRecover() throws IOException {
+  public void recoverUnclosedStreams() throws IOException {
     File currentDir = sd.getCurrentDir();
     for (File f : currentDir.listFiles()) {
       // Check for in-progress edits
@@ -194,6 +194,15 @@ public class FileJournalManager implements JournalManager {
         }
       }
     }
+  }
+
+  RemoteEditLogManifest getEditLogManifest(long fromTxId) throws IOException {
+    List<RemoteEditLog> logs = new ArrayList<RemoteEditLog>();
+    for (EditLogFile elf : getLogFiles(fromTxId)) {
+      logs.add(new RemoteEditLog(elf.startTxId,
+                                 elf.endTxId));
+    }
+    return new RemoteEditLogManifest(logs);    
   }
 
   private List<EditLogFile> getLogFiles(long fromTxId) throws IOException {

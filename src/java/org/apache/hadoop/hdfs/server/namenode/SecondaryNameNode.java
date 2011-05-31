@@ -46,6 +46,7 @@ import org.apache.hadoop.hdfs.server.common.Storage.StorageState;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.http.HttpServer;
 import org.apache.hadoop.io.MD5Hash;
 import org.apache.hadoop.ipc.RPC;
@@ -713,15 +714,24 @@ public class SecondaryNameNode implements Runnable {
       LOG.debug("2NN loading image from " + file);
       dstImage.loadFSImage(file);
     }
-    List<File> editsFiles = Lists.newArrayList();
-    for (RemoteEditLog log : manifest.getLogs()) {
-      File f = dstStorage.findFinalizedEditsFile(
-          log.getStartTxId(), log.getEndTxId());
-      editsFiles.add(f);
+    
+    long sinceTxId = sig.mostRecentCheckpointTxId + 1;
+    FileJournalManager bestfj = null;
+    long maxtrans = 0;
+
+    for (StorageDirectory sd : dstStorage.dirIterable(NameNodeDirType.EDITS)) {
+      FileJournalManager fj = new FileJournalManager(sd);
+      long trans = fj.getNumberOfTransactions(sinceTxId);
+      if (trans > maxtrans) {
+        bestfj = fj;
+        maxtrans = trans;
+      }
     }
-    LOG.info("SecondaryNameNode about to load edits from " +
-        editsFiles.size() + " file(s).");
-    // dstImage.loadEdits(editsFiles); IKTODO
+    if (maxtrans == 0) {
+      throw new IOException("No edits to load. Pointless merge");
+    }
+    LOG.info("SecondaryNameNode about to load edits from " + bestfj);
+    dstImage.loadEdits(bestfj); 
     
     // TODO: why do we need the following two lines? We shouldn't have even
     // been able to download an image from a NN that had a different

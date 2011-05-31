@@ -37,6 +37,8 @@ public interface JournalManager {
   EditLogInputStream getInputStream(long fromTxnId) throws IOException;
   long getNumberOfTransactions(long fromTxnId) throws IOException;
 
+  void recoverUnclosedStreams() throws IOException;
+
   /**
    * Set the amount of memory that this stream should use to buffer edits
    */
