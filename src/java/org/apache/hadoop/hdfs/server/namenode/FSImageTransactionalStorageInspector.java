@@ -161,14 +161,15 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
     long mosttxn = 0;
     for (JournalManager jm : availableJournals) {
       try {
+        jm.recoverUnclosedStreams();
         long txncnt = jm.getNumberOfTransactions(expectedTxId);
-        if (txncnt > 0 || bestjm == null) {
+        if (txncnt > mosttxn || bestjm == null) {
           bestjm = jm;
           mosttxn = txncnt;
         }
       } catch (IOException ioe) {
         LOG.error("Unable to get a transaction count from " + jm
-                  + ". Will no use.", ioe);
+                  + ". Will not use.", ioe);
       }
     }
     if (bestjm == null) {
@@ -181,23 +182,6 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
   @Override
   public boolean needToSave() {
     return false; // TODO do we need to do this ever?
-  }
-  
-  
-  RemoteEditLogManifest getEditLogManifest(long sinceTxId) {
-    List<RemoteEditLog> logs = Lists.newArrayList();
-    /* IKTODO how to do this
-    for (LogGroup g : logGroups.values()) {
-      if (!g.hasFinalized) continue;
-
-      FoundEditLog fel = g.getBestNonCorruptLog();
-      if (fel.getLastTxId() < sinceTxId) continue;
-      
-      logs.add(new RemoteEditLog(fel.getStartTxId(),
-          fel.getLastTxId()));
-    }
-    */
-    return new RemoteEditLogManifest(logs);
   }
 
   /**

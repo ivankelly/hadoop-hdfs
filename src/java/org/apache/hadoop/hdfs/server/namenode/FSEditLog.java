@@ -759,14 +759,27 @@ public class FSEditLog  {
    */
   public RemoteEditLogManifest getEditLogManifest(long sinceTxId)
       throws IOException {
-    FSImageTransactionalStorageInspector inspector =
-        new FSImageTransactionalStorageInspector(storage);
-    // IKTODO, this should read URIs
+    FileJournalManager bestfj = null;
+    long maxtrans = 0;
+
     for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
-      //inspector.inspectImageDirectory(sd);
+      FileJournalManager fj = new FileJournalManager(sd);
+      try {
+        long trans = fj.getNumberOfTransactions(sinceTxId);
+        if (trans > maxtrans) {
+          bestfj = fj;
+          maxtrans = trans;
+        }
+      } catch (IOException ioe) {
+        // cant use this journal manager
+      }
     }
-    
-    return inspector.getEditLogManifest(sinceTxId);
+
+    if (maxtrans == 0) {
+      throw new IOException("There are no logs to transfer");
+    }
+
+    return bestfj.getEditLogManifest(sinceTxId);
   }
   
   /**
