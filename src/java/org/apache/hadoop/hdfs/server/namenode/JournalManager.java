@@ -40,7 +40,7 @@ public interface JournalManager {
   void recoverUnclosedStreams() throws IOException;
 
   /**
-   * Set the amount of memory that this stream should use to buffer edits
+   * Set the amount of memory that this stream should use to buffer edits.
    */
   void setOutputBufferCapacity(int size);
 }
