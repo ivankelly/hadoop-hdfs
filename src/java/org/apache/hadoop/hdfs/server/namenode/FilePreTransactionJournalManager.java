@@ -32,36 +32,39 @@ import java.util.zip.Checksum;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 
 /**
- * JournalManager for loading legacy (Pre-1073)  edit logs. 
+ * JournalManager for loading legacy (Pre-1073)  edit logs.
  * This journal manager can't be used for output.
  */
 public class FilePreTransactionJournalManager implements JournalManager {
-  private static final Log LOG = LogFactory.getLog(FilePreTransactionJournalManager.class);
+  private static final Log LOG
+    = LogFactory.getLog(FilePreTransactionJournalManager.class);
 
   private final StorageDirectory sd;
   private final List<File> files;
-  
+
   private enum State { SERVING_NONE, SERVING_EDITS, SERVING_EDITS_NEW };
   private State state;
 
-  public FilePreTransactionJournalManager(StorageDirectory sd, List<File> files) {
+  public FilePreTransactionJournalManager(StorageDirectory sd,
+                                          List<File> files) {
     this.sd = sd;
     this.state = State.SERVING_NONE;
     this.files = files;
   }
 
   @Override
-  public EditLogOutputStream startLogSegment(long txid) throws IOException {    
-    throw new IOException("Cannot output with FilePreTransactionJournalManager");
+  public EditLogOutputStream startLogSegment(long txid) throws IOException {
+    throw new IOException("Cannot output with "
+                          + "FilePreTransactionJournalManager");
   }
 
   @Override
   public void finalizeLogSegment(long firstTxId, long lastTxId)
       throws IOException {
-    throw new IOException("Cannot output with FilePreTransactionJournalManager");
+    throw new IOException("Cannot output with "
+                          + "FilePreTransactionJournalManager");
   }
 
   @VisibleForTesting
@@ -80,11 +83,16 @@ public class FilePreTransactionJournalManager implements JournalManager {
   }
 
   @Override
-  synchronized
-  public EditLogInputStream getInputStream(long sinceTxnId) throws IOException {
+  public void recoverUnclosedStreams() throws IOException {
+  }
+
+
+  @Override
+  synchronized public EditLogInputStream getInputStream(long sinceTxnId)
+      throws IOException {
     if (files.size() == 0) {
       throw new IOException("No edits files in " + sd);
-    } 
+    }
     if (state == State.SERVING_NONE) {
       state = State.SERVING_EDITS;
       return new EditLogFileInputStream(files.get(0));
@@ -101,7 +109,7 @@ public class FilePreTransactionJournalManager implements JournalManager {
   public long getNumberOfTransactions(long sinceTxnId) throws IOException {
     long count = 0;
     for (File f : files) {
-      BufferedInputStream bin = new BufferedInputStream(new FileInputStream(f));      
+      BufferedInputStream bin = new BufferedInputStream(new FileInputStream(f));
       DataInputStream in = new DataInputStream(bin);
 
       FSEditLogLoader loader = new FSEditLogLoader();
@@ -112,7 +120,7 @@ public class FilePreTransactionJournalManager implements JournalManager {
           checksum = FSEditLog.getChecksum();
           in = new DataInputStream(new CheckedInputStream(bin, checksum));
         }
-        
+
         while (true) {
           FSEditLogOp op = FSEditLogOp.readOp(in, logVersion, checksum);
           count++;

@@ -35,6 +35,7 @@ import java.util.regex.Pattern;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
@@ -65,7 +66,7 @@ public class FileJournalManager implements JournalManager {
   }
 
   @Override
-  public EditLogOutputStream startLogSegment(long txid) throws IOException {    
+  public EditLogOutputStream startLogSegment(long txid) throws IOException {
     File newInProgress = NNStorage.getInProgressEditsFile(sd, txid);
     EditLogOutputStream stm = new EditLogFileOutputStream(newInProgress,
         outputBufferCapacity);
@@ -81,10 +82,11 @@ public class FileJournalManager implements JournalManager {
     File dstFile = NNStorage.getFinalizedEditsFile(
         sd, firstTxId, lastTxId);
     LOG.debug("Finalizing edits file " + inprogressFile + " -> " + dstFile);
-    
+
     Preconditions.checkState(!dstFile.exists(),
-        "Can't finalize edits file " + inprogressFile + " since finalized file " +
-        "already exists");
+        "Can't finalize edits file " + inprogressFile
+        + " since finalized file "
+        + "already exists");
     if (!inprogressFile.renameTo(dstFile)) {
       throw new IOException("Unable to finalize edits file " + inprogressFile);
     }
@@ -126,7 +128,7 @@ public class FileJournalManager implements JournalManager {
 
     for (EditLogFile elf : getLogFiles(fromTxId)) {
       if (elf.startTxId > fromTxId) { // there must be a gap
-        throw new IOException("Gap in transactions " 
+        throw new IOException("Gap in transactions "
                               + fromTxId + " - " + elf.startTxId);
       } else if (fromTxId == elf.startTxId) {
         fromTxId = elf.endTxId + 1;
@@ -137,29 +139,31 @@ public class FileJournalManager implements JournalManager {
     return numTxns;
   }
 
+  @Override
   public void recoverUnclosedStreams() throws IOException {
     File currentDir = sd.getCurrentDir();
     for (File f : currentDir.listFiles()) {
       // Check for in-progress edits
-      Matcher inProgressEditsMatch = EDITS_INPROGRESS_REGEX.matcher(f.getName());
+      Matcher inProgressEditsMatch
+        = EDITS_INPROGRESS_REGEX.matcher(f.getName());
       if (inProgressEditsMatch.matches()) {
         boolean corrupt = false;
         long startTxId = -1, endTxId = -1;
         int logVersion = 0;
 
-        BufferedInputStream bin = new BufferedInputStream(new FileInputStream(f));
+        BufferedInputStream bin
+          = new BufferedInputStream(new FileInputStream(f));
         Checksum checksum = FSEditLog.getChecksum();
-        DataInputStream in = new DataInputStream(new CheckedInputStream(bin, checksum));
+        DataInputStream in
+          = new DataInputStream(new CheckedInputStream(bin, checksum));
 
         FSEditLogLoader loader = new FSEditLogLoader();
         try {
           logVersion = loader.readLogVersion(in);
-          
           startTxId = Long.valueOf(inProgressEditsMatch.group(1));
-          
+
           while (true) {
             FSEditLogOp op = FSEditLogOp.readOp(in, logVersion, checksum);
-            
             if (endTxId == -1) { // first transaction
               if (op.txid != startTxId) {
                 corrupt = true;
@@ -171,7 +175,7 @@ public class FileJournalManager implements JournalManager {
             }
           }
         } catch (IOException ioe) {
-          // reached end of file or incomplete transaction. 
+          // reached end of file or incomplete transaction.
           // endTxId is the highest that can be read from this file
           LOG.info("Found end of log", ioe);
         } catch (NumberFormatException nfe) {
@@ -181,7 +185,6 @@ public class FileJournalManager implements JournalManager {
         } finally {
           in.close();
         }
-        
         if (corrupt) {
           File src = f;
           File dst = new File(src.getParent(), src.getName() + ".corrupt");
@@ -202,7 +205,7 @@ public class FileJournalManager implements JournalManager {
       logs.add(new RemoteEditLog(elf.startTxId,
                                  elf.endTxId));
     }
-    return new RemoteEditLogManifest(logs);    
+    return new RemoteEditLogManifest(logs);
   }
 
   private List<EditLogFile> getLogFiles(long fromTxId) throws IOException {
@@ -213,8 +216,8 @@ public class FileJournalManager implements JournalManager {
       if (editsMatch.matches()) {
         long startTxId = Long.valueOf(editsMatch.group(1));
         long endTxId = Long.valueOf(editsMatch.group(2));
-        
-        if (fromTxId > startTxId 
+
+        if (fromTxId > startTxId
             && fromTxId <= endTxId) {
           throw new IOException("Asked for fromTxId " + fromTxId
                                 + " which is in middle of file " + f);
@@ -224,30 +227,31 @@ public class FileJournalManager implements JournalManager {
         }
       }
     }
-    Collections.sort(logfiles);
-    
+    Collections.sort(logfiles, new Comparator<EditLogFile>() {
+        public int compare(EditLogFile o1,
+                           EditLogFile o2) {
+          if (o1.startTxId < o2.startTxId) {
+            return -1;
+          } else if (o1.startTxId == o2.startTxId) {
+            return 0;
+          } else {
+            return 1;
+          }
+        }
+      });
+
     return logfiles;
   }
 
-  private class EditLogFile implements Comparable<EditLogFile> {
+  private static class EditLogFile {
     final long startTxId;
     final long endTxId;
     final File file;
-    
+
     EditLogFile(long startTxId, long endTxId, File file) {
       this.startTxId = startTxId;
       this.endTxId = endTxId;
       this.file = file;
-    }
-
-    public int compareTo(EditLogFile o) {
-      if (this.startTxId < o.startTxId) {
-        return -1;
-      } else if (this.startTxId == o.startTxId) {
-        return 0;
-      } else {
-        return 1;
-      }        
     }
   }
 }
