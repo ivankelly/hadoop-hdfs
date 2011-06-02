@@ -90,8 +90,8 @@ class EditLogFileOutputStream extends EditLogOutputStream {
   }
 
   /** {@inheritDoc} */
-  @Override
-  public void write(int b) throws IOException {
+  //  @Override
+  private void write(int b) throws IOException {
     if (fp == null) {
       throw new IOException("Trying to use aborted output stream");
     }
@@ -107,7 +107,7 @@ class EditLogFileOutputStream extends EditLogOutputStream {
    * </ul>
    * */
   @Override
-  void write(byte op, long txid, Writable... writables) throws IOException {
+  public void write(byte op, long txid, Writable... writables) throws IOException {
     if (fp == null) {
       throw new IOException("Trying to use aborted output stream");
     }
@@ -126,16 +126,16 @@ class EditLogFileOutputStream extends EditLogOutputStream {
     bufCurrent.writeInt(sum);
   }
   
-  @Override
+  /*  @Override
   void write(final byte[] data, int off, int len) throws IOException {
     bufCurrent.write(data, off, len);
-  }
+    }*/
 
   /**
    * Create empty edits logs file.
    */
   @Override
-  void create() throws IOException {
+  public void create() throws IOException {
     fc.truncate(0);
     fc.position(0);
     bufCurrent.writeInt(FSConstants.LAYOUT_VERSION);
@@ -184,7 +184,7 @@ class EditLogFileOutputStream extends EditLogOutputStream {
    * data can be still written to the stream while flushing is performed.
    */
   @Override
-  void setReadyToFlush() throws IOException {
+  public void setReadyToFlush() throws IOException {
     assert bufReady.size() == 0 : "previous data is not flushed yet";
     write(FSEditLogOp.Codes.OP_INVALID.getOpCode()); // insert eof marker
     DataOutputBuffer tmp = bufReady;
@@ -221,7 +221,7 @@ class EditLogFileOutputStream extends EditLogOutputStream {
    * Return the size of the current edit log including buffered data.
    */
   @Override
-  long length() throws IOException {
+  public long length() throws IOException {
     // file size - header size + size of both buffers
     return fc.size() - EDITS_FILE_HEADER_SIZE_BYTES + bufReady.size()
         + bufCurrent.size();

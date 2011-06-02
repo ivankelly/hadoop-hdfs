@@ -15,43 +15,48 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.hdfs.server.namenode;
+package org.apache.hadoop.hdfs.server.namenode.bkjournal;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
-/**
- * A generic abstract class to support reading edits log data from 
- * persistent storage.
- * 
- * It should stream bytes from the storage exactly as they were written
- * into the #{@link EditLogOutputStream}.
- */
-abstract public class EditLogInputStream extends InputStream
-implements JournalStream {
-  /** {@inheritDoc} */
-  public abstract int available() throws IOException;
+import org.apache.hadoop.hdfs.server.namenode.EditLogInputStream;
 
-  /** {@inheritDoc} */
-  public abstract int read() throws IOException;
+public class BookKeeperEditLogInputStream extends EditLogInputStream {
 
-  /** {@inheritDoc} */
-  public abstract int read(byte[] b, int off, int len) throws IOException;
+  public int available() throws IOException {
+    return 0;
+  }
 
-  /** {@inheritDoc} */
-  public abstract void close() throws IOException;
+  public int read() throws IOException {
+    return 0;
+  }
 
-  /**
-   * Return the size of the current edits log.
-   */
-  public abstract long length() throws IOException;
+  public int read(byte[] b, int off, int len) throws IOException {
+    return 0;
+  }
 
-  /**
-   * Return DataInputStream based on this edit stream.
-   */
-  DataInputStream getDataInputStream() {
+  public void close() throws IOException {
+  }
+
+  public long length() throws IOException {
+    return 0L;
+  }
+  
+  public DataInputStream getDataInputStream() {
     return new DataInputStream(new BufferedInputStream(this));
+  }
+
+  @Override
+  public String getName() {
+    return null;
+  }
+
+  @Override
+  public JournalType getType() {
+    assert (false);
+    return null;
   }
 }

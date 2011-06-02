@@ -27,18 +27,18 @@ import org.apache.hadoop.io.Writable;
  * A generic abstract class to support journaling of edits logs into 
  * a persistent storage.
  */
-abstract class EditLogOutputStream 
+abstract public class EditLogOutputStream 
 implements JournalStream {
   // these are statistics counters
   private long numSync;        // number of sync(s) to disk
   private long totalTimeSync;  // total time to sync
 
-  EditLogOutputStream() throws IOException {
+  protected EditLogOutputStream() throws IOException {
     numSync = totalTimeSync = 0;
   }
 
   /** {@inheritDoc} */
-  abstract public void write(int b) throws IOException;
+  //abstract public void write(int b) throws IOException;
 
   /**
    * Write edits log record into the stream.
@@ -50,16 +50,16 @@ implements JournalStream {
    * @param writables array of Writable arguments
    * @throws IOException
    */
-  abstract void write(byte op, long txid, Writable ... writables)
+  abstract public void write(byte op, long txid, Writable ... writables)
   throws IOException;
-  abstract void write(byte[] data, int i, int length) throws IOException;
+  //abstract public void write(byte[] data, int i, int length) throws IOException;
   
   /**
    * Create and initialize underlying persistent edits log storage.
    * 
    * @throws IOException
    */
-  abstract void create() throws IOException;
+  abstract public void create() throws IOException;
 
   /** {@inheritDoc} */
   abstract public void close() throws IOException;
@@ -74,7 +74,7 @@ implements JournalStream {
    * All data that has been written to the stream so far will be flushed.
    * New data can be still written to the stream while flushing is performed.
    */
-  abstract void setReadyToFlush() throws IOException;
+  abstract public void setReadyToFlush() throws IOException;
 
   /**
    * Flush and sync all data that is ready to be flush 
@@ -99,7 +99,7 @@ implements JournalStream {
    * Return the size of the current edits log.
    * Length is used to check when it is large enough to start a checkpoint.
    */
-  abstract long length() throws IOException;
+  abstract public long length() throws IOException;
 
   /**
    * Implement the policy when to automatically sync the buffered edits log
