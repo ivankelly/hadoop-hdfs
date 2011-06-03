@@ -80,8 +80,9 @@ public class TestFileJournalManager {
 
     int logVersion = loader.readLogVersion(in);
     try {
+      FSEditLogOp.Reader reader = new FSEditLogOp.Reader(in, logVersion, checksum);
       while (true) {
-        FSEditLogOp op = FSEditLogOp.readOp(in, logVersion, checksum);
+        FSEditLogOp op = reader.readOp();
         assertEquals(nextTxId, op.txid);
         nextTxId++;        
         count++;

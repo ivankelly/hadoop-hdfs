@@ -120,9 +120,10 @@ public class FilePreTransactionJournalManager implements JournalManager {
           checksum = FSEditLog.getChecksum();
           in = new DataInputStream(new CheckedInputStream(bin, checksum));
         }
-
+        FSEditLogOp.Reader reader = new FSEditLogOp.Reader(in, logVersion,
+                                                           checksum);
         while (true) {
-          FSEditLogOp op = FSEditLogOp.readOp(in, logVersion, checksum);
+          FSEditLogOp op = reader.readOp();
           count++;
         }
       } catch (IOException ioe) {

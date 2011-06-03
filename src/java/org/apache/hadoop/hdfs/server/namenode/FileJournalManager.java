@@ -47,7 +47,7 @@ import com.google.common.base.Preconditions;
 /**
  * Journal manager for the common case of edits files being written
  * to a storage directory.
- * 
+ *
  * Note: this class is not thread-safe and should be externally
  * synchronized.
  */
@@ -161,9 +161,11 @@ public class FileJournalManager implements JournalManager {
         try {
           logVersion = loader.readLogVersion(in);
           startTxId = Long.valueOf(inProgressEditsMatch.group(1));
+          FSEditLogOp.Reader reader = new FSEditLogOp.Reader(in, logVersion,
+                                                             checksum);
 
           while (true) {
-            FSEditLogOp op = FSEditLogOp.readOp(in, logVersion, checksum);
+            FSEditLogOp op = reader.readOp();
             if (endTxId == -1) { // first transaction
               if (op.txid != startTxId) {
                 corrupt = true;
