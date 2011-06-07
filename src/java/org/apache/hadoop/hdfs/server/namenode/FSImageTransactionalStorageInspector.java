@@ -161,7 +161,6 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
     long mosttxn = 0;
     for (JournalManager jm : availableJournals) {
       try {
-        jm.recoverUnclosedStreams();
         long txncnt = jm.getNumberOfTransactions(expectedTxId);
         if (txncnt > mosttxn || bestjm == null) {
           bestjm = jm;

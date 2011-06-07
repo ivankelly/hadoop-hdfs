@@ -83,11 +83,6 @@ public class FilePreTransactionJournalManager implements JournalManager {
   }
 
   @Override
-  public void recoverUnclosedStreams() throws IOException {
-  }
-
-
-  @Override
   synchronized public EditLogInputStream getInputStream(long sinceTxnId)
       throws IOException {
     if (files.size() == 0) {

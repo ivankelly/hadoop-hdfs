@@ -36,6 +36,8 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
@@ -61,12 +63,18 @@ public class FileJournalManager implements JournalManager {
   private static final Pattern EDITS_INPROGRESS_REGEX = Pattern.compile(
       NameNodeFile.EDITS_INPROGRESS.getName() + "_(\\d+)");
 
+  // Avoid counting the file more than once.
+  private static Map<File, EditLogFile> inprogressCache 
+    = new ConcurrentHashMap<File, EditLogFile>(0);
+
   public FileJournalManager(StorageDirectory sd) {
     this.sd = sd;
   }
 
   @Override
   public EditLogOutputStream startLogSegment(long txid) throws IOException {
+    recoverUnclosedStreams();
+
     File newInProgress = NNStorage.getInProgressEditsFile(sd, txid);
     EditLogOutputStream stm = new EditLogFileOutputStream(newInProgress,
         outputBufferCapacity);
@@ -133,61 +141,31 @@ public class FileJournalManager implements JournalManager {
       } else if (fromTxId == elf.startTxId) {
         fromTxId = elf.endTxId + 1;
         numTxns += fromTxId - elf.startTxId;
+        
+        if (elf.inprogress) {
+          break;
+        }
       } // else skip
     }
 
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Journal " + this + " has " + numTxns 
+                + " txns from " + fromTxId);
+    }
     return numTxns;
   }
 
-  @Override
-  public void recoverUnclosedStreams() throws IOException {
+  private void recoverUnclosedStreams() throws IOException {
     File currentDir = sd.getCurrentDir();
     for (File f : currentDir.listFiles()) {
       // Check for in-progress edits
       Matcher inProgressEditsMatch
         = EDITS_INPROGRESS_REGEX.matcher(f.getName());
       if (inProgressEditsMatch.matches()) {
-        boolean corrupt = false;
-        long startTxId = -1, endTxId = -1;
-        int logVersion = 0;
+        EditLogFile elf 
+          = countTransactionsInInprogress(f, inProgressEditsMatch.group(1));
 
-        BufferedInputStream bin
-          = new BufferedInputStream(new FileInputStream(f));
-        Checksum checksum = FSEditLog.getChecksum();
-        DataInputStream in
-          = new DataInputStream(new CheckedInputStream(bin, checksum));
-
-        FSEditLogLoader loader = new FSEditLogLoader();
-        try {
-          logVersion = loader.readLogVersion(in);
-          startTxId = Long.valueOf(inProgressEditsMatch.group(1));
-          FSEditLogOp.Reader reader = new FSEditLogOp.Reader(in, logVersion,
-                                                             checksum);
-
-          while (true) {
-            FSEditLogOp op = reader.readOp();
-            if (endTxId == -1) { // first transaction
-              if (op.txid != startTxId) {
-                corrupt = true;
-                break;
-              }
-              endTxId = op.txid;
-            } else if (op.txid == endTxId+1) {
-              endTxId = op.txid;
-            }
-          }
-        } catch (IOException ioe) {
-          // reached end of file or incomplete transaction.
-          // endTxId is the highest that can be read from this file
-          LOG.info("Found end of log", ioe);
-        } catch (NumberFormatException nfe) {
-          LOG.error("In-progress edits file " + f + " has improperly " +
-                    "formatted transaction ID");
-          corrupt = true;
-        } finally {
-          in.close();
-        }
-        if (corrupt) {
+        if (elf.corrupt) {
           File src = f;
           File dst = new File(src.getParent(), src.getName() + ".corrupt");
           boolean success = src.renameTo(dst);
@@ -195,15 +173,79 @@ public class FileJournalManager implements JournalManager {
             LOG.error("Error moving corrupt file aside " + f);
           }
         } else {
-          finalizeLogSegment(startTxId, endTxId);
+          finalizeLogSegment(elf.startTxId, elf.endTxId);
         }
       }
     }
   }
 
+  private EditLogFile countTransactionsInInprogress(File f, String startTxStr) 
+      throws IOException {
+    synchronized(inprogressCache) {
+      if (inprogressCache.containsKey(f)) {
+        return inprogressCache.get(f);
+      }
+    }
+
+    boolean corrupt = false;
+    long startTxId = -1, endTxId = -1;
+    int logVersion = 0;
+
+    BufferedInputStream bin
+      = new BufferedInputStream(new FileInputStream(f));
+    Checksum checksum = null;
+    DataInputStream in
+      = new DataInputStream(bin);                            
+    
+    FSEditLogLoader loader = new FSEditLogLoader();
+    try {
+      logVersion = loader.readLogVersion(in);
+      if (logVersion <= -28) { // support fsedits checksum
+        checksum = FSEditLog.getChecksum();
+        in = new DataInputStream(new CheckedInputStream(bin, checksum));
+      }
+
+      startTxId = Long.valueOf(startTxStr);
+      FSEditLogOp.Reader reader = new FSEditLogOp.Reader(in, logVersion,
+                                                         checksum);
+      FSEditLogOp op;
+      while ((op = reader.readOp()) != null) {
+        if (endTxId == -1) { // first transaction
+          if (op.txid != startTxId) {
+            corrupt = true;
+            break;
+          }
+          endTxId = op.txid;
+        } else if (op.txid == endTxId+1) {
+          endTxId = op.txid;
+        }
+      }
+    } catch (IOException ioe) {
+      // reached end of file or incomplete transaction.
+      // endTxId is the highest that can be read from this file
+      LOG.info("Found end of log", ioe);
+    } catch (NumberFormatException nfe) {
+      LOG.error("In-progress edits file " + f + " has improperly " +
+                "formatted transaction ID");
+      corrupt = true;
+    } finally {
+      in.close();
+    }
+    
+    EditLogFile elf = new EditLogFile(startTxId, endTxId, f, 
+                                      true, corrupt);
+    synchronized(inprogressCache) {
+      inprogressCache.put(f, elf);
+    }
+    return elf;
+  }
+
   RemoteEditLogManifest getEditLogManifest(long fromTxId) throws IOException {
     List<RemoteEditLog> logs = new ArrayList<RemoteEditLog>();
     for (EditLogFile elf : getLogFiles(fromTxId)) {
+      if (elf.inprogress) { 
+        continue;
+      }
       logs.add(new RemoteEditLog(elf.startTxId,
                                  elf.endTxId));
     }
@@ -227,6 +269,14 @@ public class FileJournalManager implements JournalManager {
         if (fromTxId <= startTxId) {
           logfiles.add(new EditLogFile(startTxId, endTxId, f));
         }
+        continue;
+      }
+      editsMatch = EDITS_INPROGRESS_REGEX.matcher(f.getName());
+      if (editsMatch.matches()) {
+        EditLogFile elf = countTransactionsInInprogress(f, editsMatch.group(1));
+        if (fromTxId <= elf.startTxId) {
+          logfiles.add(elf);
+        }
       }
     }
     Collections.sort(logfiles, new Comparator<EditLogFile>() {
@@ -249,11 +299,22 @@ public class FileJournalManager implements JournalManager {
     final long startTxId;
     final long endTxId;
     final File file;
+    final boolean inprogress;
+    final boolean corrupt;
 
-    EditLogFile(long startTxId, long endTxId, File file) {
+    EditLogFile(long startTxId, long endTxId,
+                File file, 
+                boolean inprogress,
+                boolean corrupt) {
       this.startTxId = startTxId;
       this.endTxId = endTxId;
       this.file = file;
+      this.inprogress = inprogress;
+      this.corrupt = corrupt;
+    }
+
+    EditLogFile(long startTxId, long endTxId, File file) {
+      this(startTxId, endTxId, file, false, false);
     }
   }
 }
