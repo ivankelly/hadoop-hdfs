@@ -93,10 +93,8 @@ public abstract class FSImageTestUtil {
   public static FSImageTransactionalStorageInspector inspectStorageDirectory(
       File dir, NameNodeDirType dirType) throws IOException {
     FSImageTransactionalStorageInspector inspector =
-      new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
-                                                             Collections.<URI>emptyList(),
-                                                             Collections.<URI>emptyList()));
-    inspector.inspectImageDirectory(mockStorageDirectory(dir, dirType));
+      new FSImageTransactionalStorageInspector();
+    inspector.inspectDirectory(mockStorageDirectory(dir, dirType));
     return inspector;
   }
 
@@ -219,10 +217,8 @@ public abstract class FSImageTestUtil {
   public static File findLatestImageFile(StorageDirectory sd)
   throws IOException {
     FSImageTransactionalStorageInspector inspector =
-      new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
-                                                             Collections.<URI>emptyList(),
-                                                             Collections.<URI>emptyList()));
-    inspector.inspectImageDirectory(sd);
+      new FSImageTransactionalStorageInspector();
+    inspector.inspectDirectory(sd);
     
     return inspector.getLatestImage().getFile();
   }
@@ -236,10 +232,8 @@ public abstract class FSImageTestUtil {
         new File(currentDirPath), NameNodeDirType.IMAGE);
 
     FSImageTransactionalStorageInspector inspector =
-      new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
-                                                             Collections.<URI>emptyList(),
-                                                             Collections.<URI>emptyList()));
-    inspector.inspectImageDirectory(sd);
+      new FSImageTransactionalStorageInspector();
+    inspector.inspectDirectory(sd);
 
     FoundFSImage latestImage = inspector.getLatestImage();
     return (latestImage == null) ? null : latestImage.getFile();
@@ -255,7 +249,8 @@ public abstract class FSImageTestUtil {
       new FSImageTransactionalStorageInspector();
     inspector.inspectDirectory(sd);
     
-    return inspector.foundEditLogs.get(inspector.foundEditLogs.size() - 1);
+    // IKTODO return inspector.foundEditLogs.get(inspector.foundEditLogs.size() - 1);
+    return null;
   }
 
   /**

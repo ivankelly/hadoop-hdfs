@@ -25,7 +25,7 @@ import java.util.HashMap;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 
-import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp;
+import org.apache.hadoop.hdfs.server.namenode.FSEditLogOpCodes;
 
 /**
  * StatisticsEditsVisitor implements text version of EditsVisitor
@@ -39,8 +39,8 @@ public class StatisticsEditsVisitor extends EditsVisitor {
   private boolean okToWrite = false;
   final private FileWriter fw;
 
-  public final Map<FSEditLogOp.Codes, Long> opCodeCount =
-    new HashMap<FSEditLogOp.Codes, Long>();
+  public final Map<FSEditLogOpCodes, Long> opCodeCount =
+    new HashMap<FSEditLogOpCodes, Long>();
 
   /**
    * Create a processor that writes to the file named.
@@ -131,7 +131,7 @@ public class StatisticsEditsVisitor extends EditsVisitor {
     if(value.getEditsElement() == EditsElement.OPCODE) {
       if(value instanceof Tokenizer.ByteToken) {
         incrementOpCodeCount(
-          FSEditLogOp.Codes.fromByte(((Tokenizer.ByteToken)value).value));
+          FSEditLogOpCodes.fromByte(((Tokenizer.ByteToken)value).value));
       } else {
         throw new IOException("Token for EditsElement.OPCODE should be " +
           "of type Tokenizer.ByteToken, not " + value.getClass());
@@ -165,7 +165,7 @@ public class StatisticsEditsVisitor extends EditsVisitor {
    *
    * @param opCode opCode for which to increment count
    */
-  private void incrementOpCodeCount(FSEditLogOp.Codes opCode) {
+  private void incrementOpCodeCount(FSEditLogOpCodes opCode) {
     if(!opCodeCount.containsKey(opCode)) {
       opCodeCount.put(opCode, 0L);
     }
@@ -178,7 +178,7 @@ public class StatisticsEditsVisitor extends EditsVisitor {
    *
    * @return statistics, map of counts per opCode
    */
-  public Map<FSEditLogOp.Codes, Long> getStatistics() {
+  public Map<FSEditLogOpCodes, Long> getStatistics() {
     return opCodeCount;
   }
 
@@ -189,7 +189,7 @@ public class StatisticsEditsVisitor extends EditsVisitor {
    */
   public String getStatisticsString() {
     StringBuffer sb = new StringBuffer();
-    for(FSEditLogOp.Codes opCode : FSEditLogOp.Codes.values()) {
+    for(FSEditLogOpCodes opCode : FSEditLogOpCodes.values()) {
       sb.append(String.format(
         "    %-30.30s (%3d): %d%n",
         opCode,

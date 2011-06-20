@@ -36,6 +36,7 @@ import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.namenode.LeaseManager.Lease;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp.*;
+import org.apache.hadoop.hdfs.server.namenode.FSEditLogOpCodes.*;
 
 public class FSEditLogLoader {
   private final FSNamesystem fsNamesys;
@@ -419,10 +420,6 @@ public class FSEditLogLoader {
             numOpOther++;
             break;
           }
-          case OP_DATANODE_ADD:
-          case OP_DATANODE_REMOVE:
-            numOpOther++;
-            break;
           default:
             throw new IOException("Invalid operation read " + op.opCode);
           }

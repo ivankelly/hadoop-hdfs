@@ -41,15 +41,12 @@ public class FilePreTransactionJournalManager implements JournalManager {
   private static final Log LOG
     = LogFactory.getLog(FilePreTransactionJournalManager.class);
 
-  private final StorageDirectory sd;
   private final List<File> files;
 
   private enum State { SERVING_NONE, SERVING_EDITS, SERVING_EDITS_NEW };
   private State state;
 
-  public FilePreTransactionJournalManager(StorageDirectory sd,
-                                          List<File> files) {
-    this.sd = sd;
+  public FilePreTransactionJournalManager(List<File> files) {
     this.state = State.SERVING_NONE;
     this.files = files;
   }
@@ -67,14 +64,9 @@ public class FilePreTransactionJournalManager implements JournalManager {
                           + "FilePreTransactionJournalManager");
   }
 
-  @VisibleForTesting
-  public StorageDirectory getStorageDirectory() {
-    return sd;
-  }
-
   @Override
   public String toString() {
-    return "FileJournalManager for storage directory " + sd;
+    return "FileJournalManager for files " + files;
   }
 
   @Override
@@ -86,7 +78,7 @@ public class FilePreTransactionJournalManager implements JournalManager {
   synchronized public EditLogInputStream getInputStream(long sinceTxnId)
       throws IOException {
     if (files.size() == 0) {
-      throw new IOException("No edits files in " + sd);
+      throw new IOException("No edits files in storage directory");
     }
     if (state == State.SERVING_NONE) {
       state = State.SERVING_EDITS;

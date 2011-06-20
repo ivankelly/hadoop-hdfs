@@ -24,6 +24,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.zip.Checksum;
 
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
@@ -40,6 +41,8 @@ import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
+import org.apache.hadoop.hdfs.protocol.LayoutVersion;
+import org.apache.hadoop.hdfs.protocol.LayoutVersion.Feature;
 import org.apache.hadoop.io.ArrayWritable;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.LongWritable;
@@ -51,7 +54,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import static org.apache.hadoop.hdfs.server.namenode.FSEditLogOp.Codes.*;
+import static org.apache.hadoop.hdfs.server.namenode.FSEditLogOpCodes.*;
 
 /**
  * FSEditLog maintains a log of the namespace modifications.
@@ -207,7 +210,7 @@ public class FSEditLog  {
    * Write an operation to the edit log. Do not sync to persistent
    * store yet.
    */
-  void logEdit(final FSEditLogOp.Codes opCode, final Writable ... writables) {
+  void logEdit(final FSEditLogOpCodes opCode, final Writable ... writables) {
     assert state != State.CLOSED;
     
     synchronized (this) {
@@ -221,7 +224,7 @@ public class FSEditLog  {
       // Only start a new transaction for OPs which will be persisted to disk.
       // Obviously this excludes control op codes.
       long start = now();
-      if (opCode.getOpCode() < FSEditLogOp.Codes.OP_JSPOOL_START.getOpCode()) {
+      if (opCode.getOpCode() < FSEditLogOpCodes.OP_JSPOOL_START.getOpCode()) {
         start = beginTransaction();
       }
 
@@ -825,7 +828,7 @@ public class FSEditLog  {
 
     state = State.IN_SEGMENT;
 
-    logEdit(FSEditLogOp.Codes.OP_START_LOG_SEGMENT);
+    logEdit(FSEditLogOpCodes.OP_START_LOG_SEGMENT);
     logSync();    
   }
 
@@ -837,7 +840,7 @@ public class FSEditLog  {
     LOG.info("Ending log segment " + curSegmentTxId);
     Preconditions.checkState(state == State.IN_SEGMENT,
         "Bad state: %s", state);
-    logEdit(FSEditLogOp.Codes.OP_END_LOG_SEGMENT);
+    logEdit(FSEditLogOpCodes.OP_END_LOG_SEGMENT);
     waitForSyncToFinish();
     printStatistics(true);
     
@@ -1046,6 +1049,30 @@ public class FSEditLog  {
       }
     }
   }
+
+  JournalManager getBestJournalManager(long fromTxId) throws IOException {
+    if (LayoutVersion.supports(Feature.TXID_BASED_LAYOUT, 
+                               storage.getLayoutVersion())) {
+      FileJournalManager bestjm = null;
+      long bestjmNumTxns = -1;
+      for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
+        FileJournalManager candidate = new FileJournalManager(sd);
+        long candidateNumTxns = candidate.getNumberOfTransactions(fromTxId);
+        
+        if (candidateNumTxns > bestjmNumTxns) {
+          bestjm = candidate;
+          bestjmNumTxns = candidateNumTxns;
+        }
+      }
+      return bestjm;
+    } else {
+      FSImageOldStorageInspector inspector = new FSImageOldStorageInspector();
+      storage.inspectStorageDirs(inspector);
+
+      return new FilePreTransactionJournalManager(inspector.getLatestEditsFiles());
+    }
+  }
+
 
   /**
    * Container for a JournalManager paired with its currently

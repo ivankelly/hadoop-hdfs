@@ -101,7 +101,7 @@ public class TestEditLog extends TestCase {
     ).replace(" ",""));
 
   
-  static final byte TRAILER_BYTE = FSEditLogOp.Codes.OP_INVALID.getOpCode();
+  static final byte TRAILER_BYTE = FSEditLogOpCodes.OP_INVALID.getOpCode();
   //
   // an object that does a bunch of transactions
   //

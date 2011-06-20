@@ -33,21 +33,10 @@ import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 @InterfaceAudience.Private
 @InterfaceStability.Unstable
 abstract class FSImageStorageInspector {
-  protected final NNStorage storage;
-  
-  FSImageStorageInspector(NNStorage storage) {
-    this.storage = storage;
-  }
-  
   /**
    * Inspect the contents of the given storage directory.
    */
-  abstract void inspectImageDirectory(StorageDirectory sd) throws IOException;
-
-  /**
-   * Inspect the contents of the given journal
-   */
-  abstract void inspectJournal(URI journalURI) throws IOException;
+  abstract void inspectDirectory(StorageDirectory sd) throws IOException;
 
   /**
    * @return false if any of the storage directories have an unfinalized upgrade 
@@ -84,11 +73,6 @@ abstract class FSImageStorageInspector {
     abstract File getImageFile();
     
     /**
-     * @return a list of flies containing edits to replay
-     */
-    abstract JournalManager getJournalManager();
-    
-    /**
      * @return the storage directory containing the VERSION file that should be
      * loaded.
      */
@@ -99,7 +83,6 @@ abstract class FSImageStorageInspector {
       StringBuilder sb = new StringBuilder();
       sb.append("Will load image file: ").append(getImageFile()).append("\n");
       sb.append("Will load edits files:").append("\n");
-      sb.append(getJournalManager().toString());
       sb.append("Will load metadata from: ")
         .append(getStorageDirectoryForProperties())
         .append("\n");

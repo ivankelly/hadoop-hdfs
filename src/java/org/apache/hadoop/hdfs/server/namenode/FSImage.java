@@ -637,7 +637,7 @@ public class FSImage implements Closeable {
       throw new IOException("Failed to load image from " + loadPlan.getImageFile(), ioe);
     }
 
-    needToSave |= loadEdits(loadPlan.getJournalManager());
+    needToSave |= loadEdits();
 
     /* TODO(todd) Need to discuss whether we should force a re-save
      * of the image if one of the edits or images has an old format
@@ -652,16 +652,17 @@ public class FSImage implements Closeable {
    * Load the specified list of edit files into the image.
    * @return true if the image should be re-saved
    */
-  protected boolean loadEdits(JournalManager journal) throws IOException {
-    LOG.debug("About to load edits:\n  " + journal);
+  protected boolean loadEdits() throws IOException {
+
       
     FSEditLogLoader loader = new FSEditLogLoader(namesystem);
     long startingTxId = storage.getMostRecentCheckpointTxId() + 1;
     int numLoaded = 0;
     // Load latest edits
     
+    JournalManager journal = editLog.getBestJournalManager(startingTxId);
     long numTransactionsToLoad = journal.getNumberOfTransactions(startingTxId);
-
+    LOG.debug("About to load edits:\n  " + journal);
     while (numLoaded < numTransactionsToLoad) {
       EditLogInputStream editIn = journal.getInputStream(startingTxId);
       LOG.debug("Reading " + editIn + " expecting start txid #" + startingTxId);

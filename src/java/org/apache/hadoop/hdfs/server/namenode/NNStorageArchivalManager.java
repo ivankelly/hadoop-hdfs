@@ -71,7 +71,7 @@ public class NNStorageArchivalManager {
 
     long minImageTxId = getImageTxIdToRetain(inspector);
     archiveCheckpointsOlderThan(inspector, minImageTxId);
-    archiveLogsOlderThan(inspector, minImageTxId);
+    // IKTODO     archiveLogsOlderThan(inspector, minImageTxId);
   }
   
   private void archiveLogsOlderThan(

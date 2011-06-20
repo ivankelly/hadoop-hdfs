@@ -57,14 +57,8 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
   private static final Pattern IMAGE_REGEX = Pattern.compile(
     NameNodeFile.IMAGE.getName() + "_(\\d+)");
   
-  List<JournalManager> availableJournals = new ArrayList<JournalManager>();
-  
-  FSImageTransactionalStorageInspector(NNStorage storage) {
-    super(storage);
-  }
-
   @Override
-  public void inspectImageDirectory(StorageDirectory sd) throws IOException {
+  public void inspectDirectory(StorageDirectory sd) throws IOException {
     // Was the directory just formatted?
     if (!sd.getVersionFile().exists()) {
       LOG.info("No version file in " + sd.getRoot());
@@ -102,23 +96,6 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
   }
 
   @Override
-  void inspectJournal(URI journalURI) throws IOException {
-    if (LOG.isTraceEnabled()) {
-      LOG.trace("Inspecting journal " + journalURI);
-    }
-    if (journalURI.getScheme().equals("file")) {
-      StorageDirectory sd = storage.getStorageDirectory(journalURI);
-      if (sd != null) {
-        availableJournals.add(new FileJournalManager(sd));
-      } else {
-        throw new IOException("Trying to use file storage "
-                              + journalURI 
-                              +" not managed by NNStorage.");
-      }
-    }
-  }
-
-  @Override
   public boolean isUpgradeFinalized() {
     return isUpgradeFinalized;
   }
@@ -145,7 +122,8 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
   }
   
   public List<FoundEditLog> getFoundEditLogs() {
-    return ImmutableList.copyOf(foundEditLogs);
+    // return ImmutableList.copyOf(foundEditLogs); IKTODO
+    return null;
   }
 
   @Override
@@ -157,25 +135,7 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
     FoundFSImage recoveryImage = getLatestImage();
     long expectedTxId = recoveryImage.txId + 1;
     
-    JournalManager bestjm = null;
-    long mosttxn = 0;
-    for (JournalManager jm : availableJournals) {
-      try {
-        long txncnt = jm.getNumberOfTransactions(expectedTxId);
-        if (txncnt > mosttxn || bestjm == null) {
-          bestjm = jm;
-          mosttxn = txncnt;
-        }
-      } catch (IOException ioe) {
-        LOG.error("Unable to get a transaction count from " + jm
-                  + ". Will not use.", ioe);
-      }
-    }
-    if (bestjm == null) {
-      throw new IOException("No journal manager available");
-    }
-
-    return new TransactionalLoadPlan(recoveryImage, bestjm);
+    return new TransactionalLoadPlan(recoveryImage);
   }
 
   @Override
@@ -456,12 +416,10 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
 
   static class TransactionalLoadPlan extends LoadPlan {
     final FoundFSImage image;
-    final JournalManager jm;
     
-    public TransactionalLoadPlan(FoundFSImage image, JournalManager jm) {
+    public TransactionalLoadPlan(FoundFSImage image) {
       super();
       this.image = image;
-      this.jm = jm;
     }
 
     @Override
@@ -472,11 +430,6 @@ class FSImageTransactionalStorageInspector extends FSImageStorageInspector {
     @Override
     File getImageFile() {
       return image.getFile();
-    }
-
-    @Override
-    JournalManager getJournalManager() {
-      return jm;
     }
 
     @Override

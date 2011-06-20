@@ -69,10 +69,7 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
   private List<String> imageDirs = new ArrayList<String>();
   private List<String> editsDirs = new ArrayList<String>();
 
-  FSImageOldStorageInspector(NNStorage storage) {
-    super(storage);
-  }
-
+  @Override
   void inspectDirectory(StorageDirectory sd) throws IOException {
     // Was the file just formatted?
     if (!sd.getVersionFile().exists()) {
@@ -116,21 +113,6 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
     
     // set finalized flag
     isUpgradeFinalized = isUpgradeFinalized && !sd.getPreviousDir().exists();    
-  }
-
-  @Override
-  void inspectImageDirectory(StorageDirectory sd) throws IOException {
-    if (sd.getStorageDirType().isOfType(NameNodeDirType.IMAGE)) {
-      inspectDirectory(sd);
-    }
-  }
-
-  @Override 
-  void inspectJournal(URI journalURI) throws IOException {
-    StorageDirectory sd = storage.getStorageDirectory(journalURI);
-    if (sd != null && sd.getStorageDirType().isOfType(NameNodeDirType.EDITS)) {
-      inspectDirectory(sd);
-    }
   }
 
   /**
@@ -198,7 +180,18 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
       latestNameCheckpointTime > latestEditsCheckpointTime;
 
   }
-  
+
+  List<File> getLatestEditsFiles() {
+    if (latestNameCheckpointTime > latestEditsCheckpointTime) {
+      // the image is already current, discard edits
+      LOG.debug(
+          "Name checkpoint time is newer than edits, not loading edits.");
+      return Collections.<File>emptyList();
+    }
+    
+    return getEditsInStorageDir(latestEditsSD);
+  }
+
   private class OldLoadPlan extends LoadPlan {
 
     @Override
@@ -255,6 +248,7 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
       return NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE);
     }
 
+    /* IKTODO move to FSEDitLog
     @Override
     JournalManager getJournalManager() {
       if (latestNameCheckpointTime > latestEditsCheckpointTime) {
@@ -267,12 +261,12 @@ class FSImageOldStorageInspector extends FSImageStorageInspector {
       
       return new FilePreTransactionJournalManager(latestEditsSD,
                                                   getEditsInStorageDir(latestEditsSD));
-    }
+                                                  }*/
 
     @Override
     StorageDirectory getStorageDirectoryForProperties() {
       return latestNameSD;
-    }    
+    }
   }
 
   /**
