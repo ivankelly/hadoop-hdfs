@@ -1051,26 +1051,18 @@ public class FSEditLog  {
   }
 
   JournalManager getBestJournalManager(long fromTxId) throws IOException {
-    if (LayoutVersion.supports(Feature.TXID_BASED_LAYOUT, 
-                               storage.getLayoutVersion())) {
-      FileJournalManager bestjm = null;
-      long bestjmNumTxns = -1;
-      for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
-        FileJournalManager candidate = new FileJournalManager(sd);
-        long candidateNumTxns = candidate.getNumberOfTransactions(fromTxId);
-        
-        if (candidateNumTxns > bestjmNumTxns) {
-          bestjm = candidate;
-          bestjmNumTxns = candidateNumTxns;
-        }
+    FileJournalManager bestjm = null;
+    long bestjmNumTxns = 0;
+    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
+      FileJournalManager candidate = new FileJournalManager(sd);
+      long candidateNumTxns = candidate.getNumberOfTransactions(fromTxId);
+      
+      if (candidateNumTxns > bestjmNumTxns) {
+        bestjm = candidate;
+        bestjmNumTxns = candidateNumTxns;
       }
-      return bestjm;
-    } else {
-      FSImageOldStorageInspector inspector = new FSImageOldStorageInspector();
-      storage.inspectStorageDirs(inspector);
-
-      return new FilePreTransactionJournalManager(inspector.getLatestEditsFiles());
     }
+    return bestjm;
   }
 
 

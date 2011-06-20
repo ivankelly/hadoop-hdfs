@@ -721,22 +721,8 @@ public class SecondaryNameNode implements Runnable {
     }
     
     long sinceTxId = sig.mostRecentCheckpointTxId + 1;
-    FileJournalManager bestfj = null;
-    long maxtrans = 0;
 
-    for (StorageDirectory sd : dstStorage.dirIterable(NameNodeDirType.EDITS)) {
-      FileJournalManager fj = new FileJournalManager(sd);
-      long trans = fj.getNumberOfTransactions(sinceTxId);
-      if (trans > maxtrans) {
-        bestfj = fj;
-        maxtrans = trans;
-      }
-    }
-    if (maxtrans == 0) {
-      throw new IOException("No edits to load. Pointless merge");
-    }
-    LOG.info("SecondaryNameNode about to load edits from " + bestfj);
-    dstImage.loadEdits(bestfj); 
+    dstImage.loadEdits(); 
     
     // TODO: why do we need the following two lines? We shouldn't have even
     // been able to download an image from a NN that had a different

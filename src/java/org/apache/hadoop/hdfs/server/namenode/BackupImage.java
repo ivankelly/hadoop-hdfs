@@ -190,7 +190,7 @@ public class BackupImage extends FSImage {
       }
       List<File> editsFiles =
         FSImageOldStorageInspector.getEditsInStorageDir(sdEdits);
-      loadEdits(new FilePreTransactionJournalManager(sdEdits, editsFiles));
+      loadEdits();
 
       lastAppliedTxId = getEditLog().getLastWrittenTxId();
     }

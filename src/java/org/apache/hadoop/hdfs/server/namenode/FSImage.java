@@ -653,25 +653,38 @@ public class FSImage implements Closeable {
    * @return true if the image should be re-saved
    */
   protected boolean loadEdits() throws IOException {
-
-      
     FSEditLogLoader loader = new FSEditLogLoader(namesystem);
     long startingTxId = storage.getMostRecentCheckpointTxId() + 1;
     int numLoaded = 0;
     // Load latest edits
-    
-    JournalManager journal = editLog.getBestJournalManager(startingTxId);
-    long numTransactionsToLoad = journal.getNumberOfTransactions(startingTxId);
-    LOG.debug("About to load edits:\n  " + journal);
-    while (numLoaded < numTransactionsToLoad) {
-      EditLogInputStream editIn = journal.getInputStream(startingTxId);
-      LOG.debug("Reading " + editIn + " expecting start txid #" + startingTxId);
 
-      int thisNumLoaded = loader.loadFSEdits(editIn, startingTxId);
+    if (LayoutVersion.supports(Feature.TXID_BASED_LAYOUT, 
+                               getLayoutVersion())) {
+      JournalManager journal = editLog.getBestJournalManager(startingTxId);
 
-      startingTxId += thisNumLoaded;
-      numLoaded += thisNumLoaded;
-      editIn.close();    
+      while (journal != null) {
+        EditLogInputStream editIn = journal.getInputStream(startingTxId);
+        LOG.debug("Reading " + editIn + " expecting start txid #" + startingTxId);
+        
+        int thisNumLoaded = loader.loadFSEdits(editIn, startingTxId);
+        
+        startingTxId += thisNumLoaded;
+        numLoaded += thisNumLoaded;
+        editIn.close();
+        journal = editLog.getBestJournalManager(startingTxId);
+      }
+    } else {
+      FSImageOldStorageInspector inspector = new FSImageOldStorageInspector();
+      storage.inspectStorageDirs(inspector);
+      
+      for (File f : inspector.getLatestEditsFiles()) {
+        EditLogInputStream editIn = new EditLogFileInputStream(f);
+        LOG.debug("Reading " + editIn + " (Pre transaction editlog)");
+        int thisNumLoaded = loader.loadFSEdits(editIn, startingTxId);
+        startingTxId += thisNumLoaded;
+        numLoaded += thisNumLoaded;
+        editIn.close();
+      }
     }
 
     // update the counts
