@@ -44,49 +44,14 @@ abstract class FSImageStorageInspector {
   abstract boolean isUpgradeFinalized();
   
   /**
-   * Create a plan to load the image from the set of inspected storage directories.
+   * Get the image files which should be loaded into the filesystem.
    * @throws IOException if not enough files are available (eg no image found in any directory)
    */
-  abstract LoadPlan createLoadPlan() throws IOException;
+  abstract File getImageFileForLoading() throws IOException;
   
   /**
    * @return true if the directories are in such a state that the image should be re-saved
    * following the load
    */
   abstract boolean needToSave();
-
-  /**
-   * A plan to load the namespace from disk, providing the locations from which to load
-   * the image and a set of edits files.
-   */
-  abstract static class LoadPlan {
-    /**
-     * Execute atomic move sequence in the chosen storage directories,
-     * in order to recover from an interrupted checkpoint.
-     * @return true if some recovery action was taken
-     */
-    abstract boolean doRecovery() throws IOException;
-
-    /**
-     * @return the file from which to load the image data
-     */
-    abstract File getImageFile();
-    
-    /**
-     * @return the storage directory containing the VERSION file that should be
-     * loaded.
-     */
-    abstract StorageDirectory getStorageDirectoryForProperties();
-    
-    @Override
-    public String toString() {
-      StringBuilder sb = new StringBuilder();
-      sb.append("Will load image file: ").append(getImageFile()).append("\n");
-      sb.append("Will load edits files:").append("\n");
-      sb.append("Will load metadata from: ")
-        .append(getStorageDirectoryForProperties())
-        .append("\n");
-      return sb.toString();
-    }
-  }
 }

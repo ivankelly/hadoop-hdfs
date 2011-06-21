@@ -1032,7 +1032,6 @@ public class FSEditLog  {
   
   /**
    * Called when some journals experience an error in some operation.
-   * This propagates errors to the storage level.
    */
   private void disableAndReportErrorOnJournals(List<JournalAndStream> badJournals) {
     if (badJournals == null || badJournals.isEmpty()) {

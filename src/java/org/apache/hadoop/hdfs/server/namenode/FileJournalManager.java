@@ -137,7 +137,7 @@ public class FileJournalManager implements JournalManager {
     for (EditLogFile elf : getLogFiles(fromTxId)) {
       if (elf.startTxId > fromTxId) { // there must be a gap
         throw new IOException("Gap in transactions "
-                              + fromTxId + " - " + elf.startTxId);
+                              + fromTxId + " - " + (elf.startTxId - 1));
       } else if (fromTxId == elf.startTxId) {
         fromTxId = elf.endTxId + 1;
         numTxns += fromTxId - elf.startTxId;
@@ -252,7 +252,7 @@ public class FileJournalManager implements JournalManager {
     return new RemoteEditLogManifest(logs);
   }
 
-  private List<EditLogFile> getLogFiles(long fromTxId) throws IOException {
+  List<EditLogFile> getLogFiles(long fromTxId) throws IOException {
     List<EditLogFile> logfiles = new ArrayList<EditLogFile>();
     File currentDir = sd.getCurrentDir();
     for (File f : currentDir.listFiles()) {
@@ -295,7 +295,7 @@ public class FileJournalManager implements JournalManager {
     return logfiles;
   }
 
-  private static class EditLogFile {
+  static class EditLogFile {
     final long startTxId;
     final long endTxId;
     final File file;

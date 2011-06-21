@@ -720,9 +720,7 @@ public class SecondaryNameNode implements Runnable {
       dstImage.loadFSImage(file);
     }
     
-    long sinceTxId = sig.mostRecentCheckpointTxId + 1;
-
-    dstImage.loadEdits(); 
+    dstImage.loadEdits(sig.mostRecentCheckpointTxId + 1); 
     
     // TODO: why do we need the following two lines? We shouldn't have even
     // been able to download an image from a NN that had a different

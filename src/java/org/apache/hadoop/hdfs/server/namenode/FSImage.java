@@ -50,7 +50,6 @@ import org.apache.hadoop.hdfs.server.common.Util;
 import static org.apache.hadoop.hdfs.server.common.Util.now;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.NamenodeRole;
 import org.apache.hadoop.hdfs.server.common.HdfsConstants.StartupOption;
-import org.apache.hadoop.hdfs.server.namenode.FSImageStorageInspector.LoadPlan;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.protocol.CheckpointCommand;
@@ -590,27 +589,12 @@ public class FSImage implements Closeable {
     FSImageStorageInspector inspector = storage.readAndInspectDirs();
     
     isUpgradeFinalized = inspector.isUpgradeFinalized();
-    
+
+    File imageFile = inspector.getImageFileForLoading();
     boolean needToSave = inspector.needToSave();
     
-    // Plan our load. This will throw if it's impossible to load from the
-    // data that's available.
-    LoadPlan loadPlan = inspector.createLoadPlan();    
-    LOG.debug("Planning to load image using following plan:\n" + loadPlan);
+    LOG.debug("Planning to load image :\n" + imageFile);
     
-    // Recover from previous interrupted checkpoint, if any
-    needToSave |= loadPlan.doRecovery();
-
-    //
-    // Load in bits
-    //
-    StorageDirectory sdForProperties =
-      loadPlan.getStorageDirectoryForProperties();
-    // TODO need to discuss what the correct logic is for determing which
-    // storage directory to read properties from
-    sdForProperties.read();
-    File imageFile = loadPlan.getImageFile();
-
     try {
       if (LayoutVersion.supports(Feature.TXID_BASED_LAYOUT,
                                  getLayoutVersion())) {
@@ -623,10 +607,10 @@ public class FSImage implements Closeable {
         String md5 = storage.getDeprecatedProperty(
             NNStorage.DEPRECATED_MESSAGE_DIGEST_PROPERTY);
         if (md5 == null) {
-          throw new InconsistentFSStateException(sdForProperties.getRoot(),
+          throw new InconsistentFSStateException(imageFile.getParentFile(),
               "Message digest property " +
               NNStorage.DEPRECATED_MESSAGE_DIGEST_PROPERTY +
-              " not set for storage directory " + sdForProperties.getRoot());
+              " not set for storage directory " + imageFile.getParent());
         }
         loadFSImage(imageFile, new MD5Hash(md5));
       } else {
@@ -634,10 +618,10 @@ public class FSImage implements Closeable {
         loadFSImage(imageFile, null);
       }
     } catch (IOException ioe) {
-      throw new IOException("Failed to load image from " + loadPlan.getImageFile(), ioe);
+      throw new IOException("Failed to load image from " + imageFile, ioe);
     }
 
-    needToSave |= loadEdits();
+    needToSave |= loadEdits(storage.getMostRecentCheckpointTxId() + 1);
 
     /* TODO(todd) Need to discuss whether we should force a re-save
      * of the image if one of the edits or images has an old format
@@ -652,9 +636,8 @@ public class FSImage implements Closeable {
    * Load the specified list of edit files into the image.
    * @return true if the image should be re-saved
    */
-  protected boolean loadEdits() throws IOException {
+  protected boolean loadEdits(long startingTxId) throws IOException {
     FSEditLogLoader loader = new FSEditLogLoader(namesystem);
-    long startingTxId = storage.getMostRecentCheckpointTxId() + 1;
     int numLoaded = 0;
     // Load latest edits
 

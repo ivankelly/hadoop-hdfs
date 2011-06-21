@@ -35,11 +35,7 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirType;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
-//import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundEditLog;
 import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.FoundFSImage;
-import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.TransactionalLoadPlan;
-//import org.apache.hadoop.hdfs.server.namenode.FSImageTransactionalStorageInspector.LogGroup;
-import org.apache.hadoop.hdfs.server.namenode.FSImageStorageInspector.LoadPlan;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -47,43 +43,34 @@ public class TestFSImageStorageInspector {
   private static final Log LOG = LogFactory.getLog(
       TestFSImageStorageInspector.class);
 
-  // /**
-  //  * Simple test with image, edits, and inprogress edits
-  //  */
-  // @Test
-  // public void testCurrentStorageInspector() throws IOException {
-  //   FSImageTransactionalStorageInspector inspector = 
-  //       new FSImageTransactionalStorageInspector(new NNStorage(new Configuration(),
-  //                                                              Collections.<URI>emptyList(),
-  //                                                              Collections.<URI>emptyList()));
+  /**
+   * Simple test with image, edits, and inprogress edits
+   */
+  @Test
+  public void testCurrentStorageInspector() throws IOException {
+    FSImageTransactionalStorageInspector inspector = 
+      new FSImageTransactionalStorageInspector();
     
-  //   StorageDirectory mockDir = mockDirectory(
-  //       NameNodeDirType.IMAGE_AND_EDITS,
-  //       false,
-  //       "/foo/current/fsimage_123",
-  //       "/foo/current/edits_123-456",
-  //       "/foo/current/fsimage_456",
-  //       "/foo/current/edits_inprogress_457");
+    StorageDirectory mockDir = mockDirectory(
+        NameNodeDirType.IMAGE_AND_EDITS,
+        false,
+        "/foo/current/fsimage_123",
+        "/foo/current/edits_123-456",
+        "/foo/current/fsimage_456",
+        "/foo/current/edits_inprogress_457");
 
-  //   inspector.inspectImageDirectory(mockDir);
+    inspector.inspectDirectory(mockDir);
     
-  //   assertEquals(2, inspector.foundImages.size());
+    assertEquals(2, inspector.foundImages.size());
     
-  //   FoundFSImage latestImage = inspector.getLatestImage();
-  //   assertEquals(456, latestImage.txId);
-  //   assertSame(mockDir, latestImage.sd);
-  //   assertTrue(inspector.isUpgradeFinalized());
+    FoundFSImage latestImage = inspector.getLatestImage();
+    assertEquals(456, latestImage.txId);
+    assertSame(mockDir, latestImage.sd);
+    assertTrue(inspector.isUpgradeFinalized());
     
-  //   LoadPlan plan = inspector.createLoadPlan();
-  //   LOG.info("Plan: " + plan);
-    
-  //   assertEquals(new File("/foo/current/fsimage_456"), plan.getImageFile());
-
-  //   // IKTODO
-  //   assertArrayEquals(new File[] {
-  //       new File("/foo/current/edits_inprogress_457") },
-  //       null);
-  // }
+    assertEquals(new File("/foo/current/fsimage_456"), 
+                 inspector.getImageFileForLoading());
+  }
   
   // /**
   //  * Test that we check for gaps in txids when devising a load plan.
@@ -146,7 +133,6 @@ public class TestFSImageStorageInspector {
   //       new File("/foo/current/edits_952-1000") },
   //       null); // IKTODO
   //       //plan.getEditsFiles().toArray(new File[0]));
-
   // }
 
   

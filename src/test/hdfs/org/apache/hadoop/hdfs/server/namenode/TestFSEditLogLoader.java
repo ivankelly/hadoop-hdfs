@@ -23,6 +23,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 
+import java.util.List;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.fs.FileSystem;
@@ -59,7 +61,10 @@ public class TestFSEditLogLoader {
     StorageDirectory sd = fsimage.getStorage().dirIterator(NameNodeDirType.EDITS).next();
     cluster.shutdown();
 
-    File editFile = FSImageTestUtil.findLatestEditsLog(sd).getFile();
+    FileJournalManager fjm = new FileJournalManager(sd);
+    long startTxId = fsimage.getStorage().getMostRecentCheckpointTxId() + 1;
+    List<FileJournalManager.EditLogFile> logs = fjm.getLogFiles(startTxId);
+    File editFile = logs.get(logs.size() - 1).file;
     assertTrue("Should exist: " + editFile, editFile.exists());
 
     // Corrupt the edits file.

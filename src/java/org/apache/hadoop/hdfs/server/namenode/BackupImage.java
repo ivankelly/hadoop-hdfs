@@ -173,12 +173,9 @@ public class BackupImage extends FSImage {
     if(fsDir.isEmpty()) {
       Iterator<StorageDirectory> itImage
         = storage.dirIterator(NameNodeDirType.IMAGE);
-      Iterator<StorageDirectory> itEdits
-        = storage.dirIterator(NameNodeDirType.EDITS);
-      if(!itImage.hasNext() || ! itEdits.hasNext())
+      if(!itImage.hasNext())
         throw new IOException("Could not locate checkpoint directories");
       StorageDirectory sdName = itImage.next();
-      StorageDirectory sdEdits = itEdits.next();
 
       getFSDirectoryRootLock().writeLock();
       try { // load image under rootDir lock
@@ -188,9 +185,7 @@ public class BackupImage extends FSImage {
       } finally {
         getFSDirectoryRootLock().writeUnlock();
       }
-      List<File> editsFiles =
-        FSImageOldStorageInspector.getEditsInStorageDir(sdEdits);
-      loadEdits();
+      loadEdits(storage.getMostRecentCheckpointTxId() + 1);
 
       lastAppliedTxId = getEditLog().getLastWrittenTxId();
     }
