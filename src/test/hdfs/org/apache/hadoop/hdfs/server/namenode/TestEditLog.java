@@ -20,11 +20,18 @@ package org.apache.hadoop.hdfs.server.namenode;
 import junit.framework.TestCase;
 import java.io.*;
 import java.net.URI;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+
+import java.util.zip.CheckedInputStream;
+import java.util.zip.Checksum;
+import org.junit.Test;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -189,7 +196,7 @@ public class TestEditLog extends TestCase {
       final FSEditLog editLog = fsimage.getEditLog();
       
       assertExistsInStorageDirs(
-          cluster, NameNodeDirType.EDITS, "edits_inprogress_1");
+          cluster, NameNodeDirType.EDITS, NNStorage.getInProgressEditsFileName(1));
       
 
       editLog.logSetReplication("fakefile", (short) 1);
@@ -198,11 +205,11 @@ public class TestEditLog extends TestCase {
       editLog.rollEditLog();
 
       assertExistsInStorageDirs(
-          cluster, NameNodeDirType.EDITS, "edits_1-3");
+          cluster, NameNodeDirType.EDITS, 
+          NNStorage.getFinalizedEditsFileName(1, 3));
       assertExistsInStorageDirs(
-          cluster, NameNodeDirType.EDITS, "edits_inprogress_4");
+          cluster, NameNodeDirType.EDITS, NNStorage.getInProgressEditsFileName(4));
 
-      
       editLog.logSetReplication("fakefile", (short) 2);
       editLog.logSync();
       
@@ -568,7 +575,7 @@ public class TestEditLog extends TestCase {
         File currentDir = new File(nameDir, "current");
 
         // We should see the file as in-progress
-        File editsFile = new File(currentDir, "edits_inprogress_1");
+        File editsFile = new File(currentDir, NNStorage.getInProgressEditsFileName(1));
         assertTrue("Edits file " + editsFile + " should exist", editsFile.exists());        
         
         File imageFile = FSImageTestUtil.findNewestImageFile(
@@ -748,4 +755,121 @@ public class TestEditLog extends TestCase {
     fsn.close();
   }
   */
+
+  static long readAll(EditLogInputStream elis, long nextTxId) throws IOException {
+    long count = 0L;
+    
+    Checksum checksum = FSEditLog.getChecksum();
+    FSEditLogLoader loader = new FSEditLogLoader();
+    BufferedInputStream bin = new BufferedInputStream(elis);
+    DataInputStream in = new DataInputStream(new CheckedInputStream(bin, checksum));
+
+    
+    int logVersion = loader.readLogVersion(in);
+    try {
+      FSEditLogOp.Reader reader = new FSEditLogOp.Reader(in, logVersion,
+                                                         checksum);
+      FSEditLogOp op;
+      while ((op = reader.readOp()) != null) {
+        assertEquals(nextTxId, op.txid);
+        nextTxId++;        
+        count++;
+      } 
+    } catch (IOException ioe) {
+      // no more to read
+    } finally {
+      in.close();
+    }
+    return count;
+  }
+
+  static class AbortSpec {
+    final int roll;
+    final int logindex;
+    
+    AbortSpec(int roll, int logindex) {
+      this.roll = roll;
+      this.logindex = logindex;
+    }
+  }
+
+  final static int TXNS_PER_ROLL = 4;  
+  final static int TXNS_PER_FAIL = 2;
+    
+  /**
+   * Each rolled file is 4 txns long. 
+   * A failed file is 2 txns long.
+   */
+  public static NNStorage setupEdits(List<URI> editUris, int numrolls, AbortSpec... abortAtRolls)       throws IOException {
+    List<AbortSpec> aborts = new ArrayList<AbortSpec>(Arrays.asList(abortAtRolls));
+    NNStorage storage = new NNStorage(new Configuration(),
+                                      Collections.<URI>emptyList(),
+                                      editUris);
+    for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
+      storage.format(sd);
+    }
+    FSEditLog editlog = new FSEditLog(storage);    
+    editlog.open();
+    editlog.logGenerationStamp((long)0);
+    editlog.logGenerationStamp((long)0);
+    editlog.logSync();
+    
+    for (int i = 0; i < numrolls; i++) {
+      editlog.rollEditLog();
+      
+      editlog.logGenerationStamp((long)i);
+      editlog.logSync();
+
+      if (aborts.size() > 0 
+          && aborts.get(0).roll == (i+1)) {
+        AbortSpec spec = aborts.remove(0);
+        editlog.getJournals().get(spec.logindex).abort();
+      } 
+      
+      editlog.logGenerationStamp((long)i);
+      editlog.logSync();
+    }
+    editlog.close();
+
+    return storage;
+  }
+
+  @Test
+  public void testAlternatingJournalFailure() throws IOException {
+    File f1 = new File(System.getProperty("test.build.data", "build/test/data") 
+                      + "/alternatingjournaltest0");
+    File f2 = new File(System.getProperty("test.build.data", "build/test/data") 
+                      + "/alternatingjournaltest1");
+
+    ArrayList<URI> editUris = new ArrayList<URI>();
+    editUris.add(f1.toURI());
+    editUris.add(f2.toURI());
+    
+    NNStorage storage = setupEdits(editUris, 10,
+                                   new AbortSpec(1, 0),
+                                   new AbortSpec(2, 1),
+                                   new AbortSpec(3, 0),
+                                   new AbortSpec(4, 1),
+                                   new AbortSpec(5, 0),
+                                   new AbortSpec(6, 1),
+                                   new AbortSpec(7, 0),
+                                   new AbortSpec(8, 1),
+                                   new AbortSpec(9, 0),
+                                   new AbortSpec(10, 1));
+    long totaltxnread = 0;
+    FSEditLog editlog = new FSEditLog(storage);
+    long startTxId = 1;
+    JournalManager jm = editlog.getBestJournalManager(startTxId);
+    while (jm != null)  {
+      long read = readAll(jm.getInputStream(startTxId), startTxId);
+      
+      startTxId += read;
+      totaltxnread += read;
+      jm = editlog.getBestJournalManager(startTxId);
+    }
+
+    editlog.close();
+    storage.close();
+    assertEquals(TXNS_PER_ROLL*11, totaltxnread);    
+  }
 }

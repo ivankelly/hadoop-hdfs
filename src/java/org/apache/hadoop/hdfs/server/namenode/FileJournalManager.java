@@ -136,8 +136,8 @@ public class FileJournalManager implements JournalManager {
 
     for (EditLogFile elf : getLogFiles(fromTxId)) {
       if (elf.startTxId > fromTxId) { // there must be a gap
-        throw new IOException("Gap in transactions "
-                              + fromTxId + " - " + (elf.startTxId - 1));
+        LOG.warn("Gap in transactions "
+                 + fromTxId + " - " + (elf.startTxId - 1));
       } else if (fromTxId == elf.startTxId) {
         fromTxId = elf.endTxId + 1;
         numTxns += fromTxId - elf.startTxId;
