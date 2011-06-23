@@ -41,7 +41,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
-import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -130,8 +129,8 @@ public class FileJournalManager implements JournalManager {
                           + " as first first txid");
   }
 
-  @Override
-  public long getNumberOfTransactions(long fromTxId) throws IOException {
+  public long getNumberOfTransactionsInternal(long fromTxId, boolean includeInProgress)
+      throws IOException {
     long numTxns = 0L;
 
     for (EditLogFile elf : getLogFiles(fromTxId)) {
@@ -139,6 +138,9 @@ public class FileJournalManager implements JournalManager {
         LOG.warn("Gap in transactions "
                  + fromTxId + " - " + (elf.startTxId - 1));
       } else if (fromTxId == elf.startTxId) {
+        if (elf.inprogress && !includeInProgress) {
+          break;
+        }
         fromTxId = elf.endTxId + 1;
         numTxns += fromTxId - elf.startTxId;
         
@@ -153,6 +155,16 @@ public class FileJournalManager implements JournalManager {
                 + " txns from " + fromTxId);
     }
     return numTxns;
+  }
+
+  @Override
+  public long getNumberOfTransactions(long fromTxId) throws IOException {
+    return getNumberOfTransactionsInternal(fromTxId, true);
+  }
+
+  public long getNumberOfFinalizedTransactions(long fromTxId) 
+      throws IOException {
+    return getNumberOfTransactionsInternal(fromTxId, false);
   }
 
   private void recoverUnclosedStreams() throws IOException {
@@ -240,16 +252,15 @@ public class FileJournalManager implements JournalManager {
     return elf;
   }
 
-  RemoteEditLogManifest getEditLogManifest(long fromTxId) throws IOException {
+  RemoteEditLog getRemoteEditLog(long fromTxId) throws IOException {
     List<RemoteEditLog> logs = new ArrayList<RemoteEditLog>();
     for (EditLogFile elf : getLogFiles(fromTxId)) {
-      if (elf.inprogress) { 
-        continue;
+      if (elf.startTxId == fromTxId) {
+        return new RemoteEditLog(elf.startTxId,
+                                 elf.endTxId);
       }
-      logs.add(new RemoteEditLog(elf.startTxId,
-                                 elf.endTxId));
     }
-    return new RemoteEditLogManifest(logs);
+    return null;
   }
 
   List<EditLogFile> getLogFiles(long fromTxId) throws IOException {

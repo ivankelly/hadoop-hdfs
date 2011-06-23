@@ -41,6 +41,7 @@ import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.metrics.NameNodeMetrics;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
+import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
 import org.apache.hadoop.hdfs.protocol.LayoutVersion;
 import org.apache.hadoop.hdfs.protocol.LayoutVersion.Feature;
 import org.apache.hadoop.io.ArrayWritable;
@@ -764,25 +765,40 @@ public class FSEditLog  {
       throws IOException {
     FileJournalManager bestfj = null;
     long maxtrans = 0;
-
+    
+    List<RemoteEditLog> logs = new ArrayList<RemoteEditLog>();
+    List<FileJournalManager> fjs = new ArrayList<FileJournalManager>();
     for (StorageDirectory sd : storage.dirIterable(NameNodeDirType.EDITS)) {
-      FileJournalManager fj = new FileJournalManager(sd);
-      try {
-        long trans = fj.getNumberOfTransactions(sinceTxId);
-        if (trans > maxtrans) {
-          bestfj = fj;
-          maxtrans = trans;
-        }
-      } catch (IOException ioe) {
-        // cant use this journal manager
-      }
+      fjs.add(new FileJournalManager(sd));
     }
 
-    if (maxtrans == 0) {
+    do {
+      bestfj = null;
+      maxtrans = 0;
+      
+      for (FileJournalManager fj : fjs) {
+        try {
+          long trans = fj.getNumberOfFinalizedTransactions(sinceTxId);
+          if (trans > maxtrans) {
+            bestfj = fj;
+            maxtrans = trans;
+          }
+        } catch (IOException ioe) {
+          // cant use this journal manager
+        }
+      }
+      if (bestfj != null) {
+        RemoteEditLog log = bestfj.getRemoteEditLog(sinceTxId);
+        logs.add(log);
+        sinceTxId = log.getEndTxId() + 1;
+      }
+    } while (bestfj != null);
+    
+    if (logs.size() == 0) {
       throw new IOException("There are no logs to transfer");
     }
 
-    return bestfj.getEditLogManifest(sinceTxId);
+    return new RemoteEditLogManifest(logs);
   }
   
   /**
