@@ -19,10 +19,14 @@ package org.apache.hadoop.hdfs.server.namenode.bkjournal;
 
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher.Event.EventType;
 import org.apache.zookeeper.Watcher.Event.KeeperState;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs.Ids;
+
+import java.io.IOException;
 
 public class WriteLock implements Watcher {
   private final ZooKeeper zkc;
@@ -32,34 +36,59 @@ public class WriteLock implements Watcher {
   WriteLock(ZooKeeper zkc, String lockpath) throws IOException {
     this.lockpath = lockpath;
 
-    if (zkc.exists(lockpath, false) == null) {
-      zkc.create(lockpath, new byte[] {'0'}, 
-                 Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+    this.zkc = zkc;
+    try {
+      if (zkc.exists(lockpath, false) == null) {
+        zkc.create(lockpath, new byte[] {'0'}, 
+                   Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+      }
+    } catch (Exception e) {
+      throw new IOException("Exception accessing Zookeeper", e);
     }
   }
 
   void acquire() throws IOException {
-    myznode = zkc.create(lockpath, new byte[] {'0'}, 
-                         Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
-    
+    try {
+      myznode = zkc.create(lockpath, new byte[] {'0'}, 
+                           Ids.OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL_SEQUENTIAL);
+    } catch (Exception e) {
+      throw new IOException("Exception accessing Zookeeper", e);
+    }
+
   }
 
   void release() throws IOException {
-    zkc.delete(myznode, -1);
+    try {
+      zkc.delete(myznode, -1);
+      myznode = null;
+    } catch (Exception e) {
+      throw new IOException("Exception accessing Zookeeper", e);
+    }
   }
+
+  public void checkWriteLock() throws IOException {
+    if (!haveLock()) {
+      throw new IOException("Lost writer lock");
+    }
+  }
+
   
   boolean haveLock() throws IOException {
     return myznode != null;
   }
 
-  void process(WatchedEvent event) {
-    if (event.getState() == KeeperState.DISCONNECTED
-        || event.getState() == KeeperState.EXPIRED) {
+  public void process(WatchedEvent event) {
+    if (event.getState() == KeeperState.Disconnected
+        || event.getState() == KeeperState.Expired) {
       myznode = null;
     } else {
       // reapply the watch
       if (myznode != null) {
-        zkc.exists(myznode, this); 
+        try {
+          zkc.exists(myznode, this); 
+        } catch (Exception e) {
+          // TODO throw new IOException("Exception accessing Zookeeper", e);
+        }
       }
     }
   }

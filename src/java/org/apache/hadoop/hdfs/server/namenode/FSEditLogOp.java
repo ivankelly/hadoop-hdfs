@@ -262,6 +262,10 @@ public abstract class FSEditLogOp {
     this.txid = txid;
   }
 
+  public long getTxId() {
+    return txid;
+  }
+
   static class AddCloseOp extends FSEditLogOp {
     final int length;
     final String path;

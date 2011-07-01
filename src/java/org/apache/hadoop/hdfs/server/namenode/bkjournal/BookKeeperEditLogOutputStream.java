@@ -17,16 +17,19 @@
  */
 package org.apache.hadoop.hdfs.server.namenode.bkjournal;
 
-import java.util.concurrent.AtomicInteger;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CountDownLatch;
 
 import org.apache.bookkeeper.client.LedgerHandle;
-import org.apache.bookkeeper.client.AddCallback;
+import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 
 import org.apache.hadoop.hdfs.server.namenode.EditLogOutputStream;
+import org.apache.hadoop.hdfs.server.namenode.FSEditLog;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.DataOutputBuffer;
 import java.io.IOException;
+
+import java.util.zip.Checksum;
 
 class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCallback {
   private final DataOutputBuffer bufCurrent;
@@ -56,19 +59,34 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
   public void close() throws IOException {
     setReadyToFlush();
     flushAndSync();
-    lh.close();
+    try {
+      lh.close();
+    } catch (InterruptedException ie) {
+      throw new IOException("Interrupted waiting on close", ie);
+    }
+
     wl.release();
   }
 
   @Override
   public void abort() throws IOException {
-    lh.close();
+    try {
+      lh.close();
+    } catch (InterruptedException ie) {
+      throw new IOException("Interrupted waiting on close", ie);
+    }
+
     wl.release();
   }
 
   @Override
+  public void write(final byte[] data, int off, int len) throws IOException {
+    throw new IOException("Not supported for BK");
+  }
+
+  @Override
   public void write(byte op, long txid, Writable ... writables) throws IOException {
-    checkWriteLock();
+    wl.checkWriteLock();
 
     int start = bufCurrent.getLength();
     bufCurrent.write(op);
@@ -84,14 +102,14 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
     int sum = (int)checksum.getValue();
     bufCurrent.writeInt(sum);
     
-    if (bufCurrent.length() > TRANSMISSION_THRESHOLD) {
+    if (bufCurrent.getLength() > TRANSMISSION_THRESHOLD) {
       transmit();
     }
   }
 
   @Override
   public void setReadyToFlush() throws IOException {
-    checkWriteLock();
+    wl.checkWriteLock();
 
     transmit();
     
@@ -102,10 +120,15 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
 
   @Override
   public void flushAndSync() throws IOException {
-    checkWriteLock();
+    wl.checkWriteLock();
         
     assert(syncLatch != null);
-    syncLatch.await();
+    try {
+      syncLatch.await();
+    } catch (InterruptedException ie) {
+      throw new IOException("Interrupted waiting on latch", ie);
+    }
+
     syncLatch = null;
     // wait for whatever we wait on
   }
@@ -116,7 +139,7 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
    * are never called at the same time.
    */
   private void transmit() throws IOException {
-    checkWriteLock();
+    wl.checkWriteLock();
 
     lh.asyncAddEntry(bufCurrent.getData(), this, null);
     bufCurrent.reset();
@@ -130,12 +153,6 @@ class BookKeeperEditLogOutputStream extends EditLogOutputStream implements AddCa
       if (l != null) {
         l.countDown();
       }
-    }
-  }
-
-  public void checkWriteLock() throws IOException {
-    if (!wl.haveLock()) {
-      throw new IOException("Lost writer lock");
     }
   }
 

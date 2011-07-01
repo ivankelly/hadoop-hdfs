@@ -102,18 +102,13 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
     return JournalType.BACKUP;
   }
 
-  @Override // EditLogOutputStream
-  public void write(int b) throws IOException {
-    throw new IOException("Not implemented");
-  }
-
   @Override
-  void write(byte[] data, int i, int length) throws IOException {
+  public void write(byte[] data, int i, int length) throws IOException {
     throw new IOException("Not implemented");
   }
 
   @Override // EditLogOutputStream
-  void write(byte op, long txid, Writable ... writables) throws IOException {
+  public void write(byte op, long txid, Writable ... writables) throws IOException {
     bufCurrent.add(new JournalRecord(op, txid, writables));
   }
 
@@ -121,7 +116,7 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
    * There is no persistent storage. Just clear the buffers.
    */
   @Override // EditLogOutputStream
-  void create() throws IOException {
+  public void create() throws IOException {
     bufCurrent.clear();
     assert bufReady.size() == 0 : "previous data is not flushed yet";
   }
@@ -146,7 +141,7 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
   }
 
   @Override // EditLogOutputStream
-  void setReadyToFlush() throws IOException {
+  public void setReadyToFlush() throws IOException {
     assert bufReady.size() == 0 : "previous data is not flushed yet";
     ArrayList<JournalRecord>  tmp = bufReady;
     bufReady = bufCurrent;
@@ -184,7 +179,7 @@ class EditLogBackupOutputStream extends EditLogOutputStream {
    * This criteria should not be used for backup streams.
    */
   @Override // EditLogOutputStream
-  long length() throws IOException {
+  public long length() throws IOException {
     return 0;
   }
 

@@ -232,6 +232,8 @@
     <pathelement location="${conf.dir}"/>
     <path refid="ivy-common.classpath"/>
     <path refid="ivy-hdfs.classpath"/>
+    <pathelement location="${lib.dir}/bookkeeper-server-3.4.0-SNAPSHOT.jar" />
+    <pathelement location="${lib.dir}/zookeeper-3.4.0.jar" />
   </path>
 
   <path id="test.classpath">

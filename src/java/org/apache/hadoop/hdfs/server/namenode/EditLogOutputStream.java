@@ -52,7 +52,7 @@ implements JournalStream {
    */
   abstract public void write(byte op, long txid, Writable ... writables)
   throws IOException;
-  //abstract public void write(byte[] data, int i, int length) throws IOException;
+  abstract public void write(byte[] data, int i, int length) throws IOException;
   
   /**
    * Create and initialize underlying persistent edits log storage.
